@@ -1,0 +1,87 @@
+name: mconnect
+description: "Multi-platform music aggregator"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.10.3
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # State Management
+  flutter_riverpod: ^2.6.0
+
+  # Navigation
+  go_router: ^14.0.0
+
+  # Networking
+  dio: ^5.7.0
+  crypto: ^3.0.0
+
+  # Audio Playback
+  just_audio: ^0.9.42
+  audio_service: ^0.18.17
+
+  # Local Storage
+  drift: ^2.22.0
+  sqlite3_flutter_libs: ^0.5.0
+  path_provider: ^2.1.0
+  path: ^1.9.0
+  hive_flutter: ^1.1.0
+  flutter_secure_storage: ^9.2.0
+
+  # UI
+  cached_network_image: ^3.4.1
+  shimmer: ^3.0.0
+  flutter_svg: ^2.0.10+1
+
+  # QR Code
+  mobile_scanner: ^5.2.0
+  qr_flutter: ^4.1.0
+
+  # Crypto
+  pointycastle: ^3.9.1
+  encrypt: ^5.0.3
+
+  # Utils
+  intl: ^0.19.0
+  collection: ^1.19.0
+  json_annotation: ^4.9.0
+  permission_handler: ^11.0.0
+  uuid: ^4.0.0
+  file_picker: 11.0.2
+  flutter_native_splash: ^2.4.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  build_runner: ^2.4.0
+  drift_dev: ^2.22.0
+  json_serializable: ^6.8.0
+  flutter_launcher_icons: ^0.14.0
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icon/app_icon.png"
+  adaptive_icon_background: "#101522"
+  adaptive_icon_foreground: "assets/icon/app_icon_foreground.png"
+
+flutter_native_splash:
+  color: "#101522"
+  color_dark: "#101522"
+  image: assets/images/splash_logo.png
+  image_dark: assets/images/splash_logo.png
+  android_12:
+    color: "#101522"
+    color_dark: "#101522"
+    image: assets/images/splash_logo.png
+    image_dark: assets/images/splash_logo.png
+
+flutter:
+  uses-material-design: true

@@ -1,0 +1,892 @@
+import 'dart:async';
+import 'dart:math';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:just_audio/just_audio.dart';
+import '../../../../core/diagnostics/diagnostics_service.dart';
+import '../../../../models/audio_quality.dart';
+import '../../../../models/platform_type.dart';
+import '../../../../models/song.dart';
+import '../../../../platform/base/platform_registry.dart';
+import '../../../../platform/base/music_platform.dart';
+import '../../data/player_playback_memory_store.dart';
+
+enum RepeatMode { off, all, one }
+
+class AudioPlaybackState {
+  final bool playing;
+  final ProcessingState processingState;
+
+  const AudioPlaybackState({
+    required this.playing,
+    required this.processingState,
+  });
+}
+
+abstract class PlayerAudioController {
+  bool get playing;
+  Duration get position;
+  Stream<Duration> get positionStream;
+  Stream<Duration?> get durationStream;
+  Stream<AudioPlaybackState> get playerStateStream;
+
+  Future<void> stop();
+  Future<void> setUrl(String url);
+  Future<void> play();
+  Future<void> pause();
+  Future<void> seek(Duration position);
+  Future<void> dispose();
+}
+
+class JustAudioController implements PlayerAudioController {
+  final AudioPlayer _player;
+
+  JustAudioController([AudioPlayer? player])
+    : _player = player ?? AudioPlayer();
+
+  AudioPlayer get player => _player;
+
+  @override
+  bool get playing => _player.playing;
+
+  @override
+  Duration get position => _player.position;
+
+  @override
+  Stream<Duration> get positionStream => _player.positionStream;
+
+  @override
+  Stream<Duration?> get durationStream => _player.durationStream;
+
+  @override
+  Stream<AudioPlaybackState> get playerStateStream =>
+      _player.playerStateStream.map(
+        (state) => AudioPlaybackState(
+          playing: state.playing,
+          processingState: state.processingState,
+        ),
+      );
+
+  @override
+  Future<void> stop() => _player.stop();
+
+  @override
+  Future<void> setUrl(String url) => _player.setUrl(url).then((_) {});
+
+  @override
+  Future<void> play() => _player.play();
+
+  @override
+  Future<void> pause() => _player.pause();
+
+  @override
+  Future<void> seek(Duration position) => _player.seek(position);
+
+  @override
+  Future<void> dispose() => _player.dispose();
+}
+
+class PlayerState {
+  final Song? currentSong;
+  final List<Song> playlist;
+  final int currentIndex;
+  final bool isPlaying;
+  final Duration position;
+  final Duration duration;
+  final AudioLevel currentQuality;
+  final String? error;
+  final bool isShuffle;
+  final RepeatMode repeatMode;
+  final bool isTransitioning;
+
+  const PlayerState({
+    this.currentSong,
+    this.playlist = const [],
+    this.currentIndex = -1,
+    this.isPlaying = false,
+    this.position = Duration.zero,
+    this.duration = Duration.zero,
+    this.currentQuality = AudioLevel.low,
+    this.error,
+    this.isShuffle = false,
+    this.repeatMode = RepeatMode.off,
+    this.isTransitioning = false,
+  });
+
+  PlayerState copyWith({
+    Song? currentSong,
+    List<Song>? playlist,
+    int? currentIndex,
+    bool? isPlaying,
+    Duration? position,
+    Duration? duration,
+    AudioLevel? currentQuality,
+    String? Function()? error,
+    bool? isShuffle,
+    RepeatMode? repeatMode,
+    bool? isTransitioning,
+  }) {
+    return PlayerState(
+      currentSong: currentSong ?? this.currentSong,
+      playlist: playlist ?? this.playlist,
+      currentIndex: currentIndex ?? this.currentIndex,
+      isPlaying: isPlaying ?? this.isPlaying,
+      position: position ?? this.position,
+      duration: duration ?? this.duration,
+      currentQuality: currentQuality ?? this.currentQuality,
+      error: error != null ? error() : this.error,
+      isShuffle: isShuffle ?? this.isShuffle,
+      repeatMode: repeatMode ?? this.repeatMode,
+      isTransitioning: isTransitioning ?? this.isTransitioning,
+    );
+  }
+}
+
+/// Simple async mutex to serialize audio operations and prevent platform channel deadlocks.
+class _AudioMutex {
+  Future<void>? _last;
+
+  Future<T> run<T>(Future<T> Function() fn, {String label = 'audio'}) async {
+    final prev = _last;
+    final completer = Completer<void>();
+    _last = completer.future;
+    final wait = Stopwatch()..start();
+    try {
+      if (prev != null) await prev;
+      if (kDebugMode && wait.elapsedMilliseconds > 100) {
+        debugPrint('AudioMutex[$label] waited ${wait.elapsedMilliseconds}ms');
+      }
+      if (wait.elapsedMilliseconds > 500) {
+        DiagnosticsService.instance.record(
+          'slow_operation',
+          'audio_mutex_wait',
+          data: {'label': label, 'elapsed_ms': wait.elapsedMilliseconds},
+        );
+      }
+      return await fn();
+    } finally {
+      completer.complete();
+    }
+  }
+}
+
+class PlayerNotifier extends StateNotifier<PlayerState> {
+  PlayerAudioController? _audioController;
+  final MusicPlatform Function(PlatformType) _platformResolver;
+  final PlayerAudioController Function() _audioControllerFactory;
+  final Duration _audioOperationTimeout;
+  final Duration _audioDisposeTimeout;
+  final Duration _qualitySwitchTimeout;
+  final Duration _playbackMemorySaveInterval;
+  final PlayerPlaybackMemoryStore _playbackMemoryStore;
+  final List<StreamSubscription> _subscriptions = [];
+  final _mutex = _AudioMutex();
+  bool _isSwitchingQuality = false;
+  bool _restoredSourceNeedsLoad = false;
+  int _lastPositionSecond = -1;
+  int _playRequestId = 0;
+  int _qualityRequestId = 0;
+  Timer? _transitionWatchdog;
+  Timer? _playbackMemoryTimer;
+  PlayerPlaybackMemory? _pendingPlaybackMemory;
+
+  PlayerNotifier({
+    PlayerAudioController? audioController,
+    MusicPlatform Function(PlatformType)? platformResolver,
+    PlayerAudioController Function()? audioControllerFactory,
+    Duration audioOperationTimeout = const Duration(seconds: 10),
+    Duration audioDisposeTimeout = const Duration(seconds: 3),
+    Duration? qualitySwitchTimeout,
+    PlayerPlaybackMemoryStore playbackMemoryStore =
+        const NoopPlayerPlaybackMemoryStore(),
+    Duration playbackMemorySaveInterval = const Duration(seconds: 5),
+  }) : _audioController = audioController,
+       _platformResolver = platformResolver ?? PlatformRegistry.get,
+       _audioControllerFactory =
+           audioControllerFactory ?? (() => JustAudioController()),
+       _audioOperationTimeout = audioOperationTimeout,
+       _audioDisposeTimeout = audioDisposeTimeout,
+       _qualitySwitchTimeout = qualitySwitchTimeout ?? audioOperationTimeout,
+       _playbackMemoryStore = playbackMemoryStore,
+       _playbackMemorySaveInterval = playbackMemorySaveInterval,
+       super(const PlayerState()) {
+    if (audioController != null) {
+      _setupListeners(audioController);
+    }
+    unawaited(_restorePlaybackMemory());
+  }
+
+  PlayerAudioController _ensureAudioController() {
+    final existing = _audioController;
+    if (existing != null) return existing;
+    final controller = _audioControllerFactory();
+    _audioController = controller;
+    _setupListeners(controller);
+    return controller;
+  }
+
+  void _setupListeners(PlayerAudioController controller) {
+    _subscriptions.add(
+      controller.positionStream.listen((pos) {
+        if (!mounted) return;
+        final sec = pos.inSeconds;
+        if (sec != _lastPositionSecond) {
+          _lastPositionSecond = sec;
+          state = state.copyWith(position: pos);
+          _schedulePlaybackMemorySave();
+        }
+      }),
+    );
+    _subscriptions.add(
+      controller.durationStream.listen((dur) {
+        if (!mounted) return;
+        state = state.copyWith(duration: dur ?? Duration.zero);
+        _schedulePlaybackMemorySave();
+      }),
+    );
+    _subscriptions.add(
+      controller.playerStateStream.listen(
+        (playerState) {
+          if (!mounted) return;
+          final clearTransition =
+              state.isTransitioning &&
+              (playerState.playing ||
+                  playerState.processingState == ProcessingState.ready);
+          state = state.copyWith(
+            isPlaying: playerState.playing,
+            isTransitioning: clearTransition ? false : state.isTransitioning,
+          );
+          _schedulePlaybackMemorySave();
+          if (playerState.processingState == ProcessingState.completed) {
+            if (state.repeatMode == RepeatMode.one) {
+              _safeSeek(Duration.zero);
+              _safePlay();
+            } else {
+              skipToNext();
+            }
+          }
+        },
+        onError: (e) {
+          debugPrint('PlayerState stream error: $e');
+        },
+      ),
+    );
+  }
+
+  Future<void> _restorePlaybackMemory() async {
+    try {
+      final memory = await _playbackMemoryStore.load();
+      if (!mounted || memory == null) return;
+      final playlist = memory.playlist.isEmpty
+          ? [memory.currentSong]
+          : memory.playlist;
+      var currentIndex = memory.currentIndex;
+      if (currentIndex < 0 || currentIndex >= playlist.length) {
+        currentIndex = playlist.indexWhere(
+          (song) =>
+              song.id == memory.currentSong.id &&
+              song.platform == memory.currentSong.platform,
+        );
+      }
+      if (currentIndex < 0) currentIndex = 0;
+      _lastPositionSecond = memory.position.inSeconds;
+      _restoredSourceNeedsLoad = true;
+      state = state.copyWith(
+        currentSong: memory.currentSong,
+        playlist: playlist,
+        currentIndex: currentIndex,
+        isPlaying: false,
+        position: memory.position,
+        duration: memory.duration,
+        currentQuality: memory.currentQuality,
+        error: () => null,
+        isTransitioning: false,
+      );
+    } catch (e, s) {
+      debugPrint('PlayerNotifier restore playback memory failed: $e');
+      debugPrint('$s');
+    }
+  }
+
+  PlayerPlaybackMemory? _buildPlaybackMemory() {
+    final song = state.currentSong;
+    if (song == null) return null;
+    final playlist = state.playlist.isEmpty ? [song] : state.playlist;
+    var currentIndex = state.currentIndex;
+    if (currentIndex < 0 || currentIndex >= playlist.length) {
+      currentIndex = playlist.indexWhere(
+        (item) => item.id == song.id && item.platform == song.platform,
+      );
+    }
+    return PlayerPlaybackMemory(
+      currentSong: song,
+      playlist: playlist,
+      currentIndex: currentIndex < 0 ? 0 : currentIndex,
+      position: state.position,
+      duration: state.duration,
+      currentQuality: state.currentQuality,
+    );
+  }
+
+  void _schedulePlaybackMemorySave() {
+    final memory = _buildPlaybackMemory();
+    if (memory == null) return;
+    _pendingPlaybackMemory = memory;
+    if (_playbackMemorySaveInterval == Duration.zero) {
+      unawaited(flushPlaybackMemory());
+      return;
+    }
+    if (_playbackMemoryTimer?.isActive == true) return;
+    _playbackMemoryTimer = Timer(
+      _playbackMemorySaveInterval,
+      () => unawaited(flushPlaybackMemory()),
+    );
+  }
+
+  Future<void> flushPlaybackMemory() async {
+    final memory = _pendingPlaybackMemory ?? _buildPlaybackMemory();
+    if (memory == null) return;
+    _pendingPlaybackMemory = null;
+    _playbackMemoryTimer?.cancel();
+    _playbackMemoryTimer = null;
+    try {
+      await _playbackMemoryStore.save(memory);
+    } catch (e, s) {
+      debugPrint('PlayerNotifier save playback memory failed: $e');
+      debugPrint('$s');
+    }
+  }
+
+  AudioPlayer get audioPlayer {
+    final controller = _ensureAudioController();
+    if (controller is JustAudioController) {
+      return controller.player;
+    }
+    throw StateError(
+      'The injected audio controller does not expose just_audio.AudioPlayer.',
+    );
+  }
+
+  /// Safely stop the player (ignores errors).
+  Future<void> _safeStop() async {
+    try {
+      await DiagnosticsService.instance.measure(
+        'player.stop',
+        () => _ensureAudioController().stop().timeout(_audioOperationTimeout),
+      );
+    } catch (e) {
+      debugPrint('PlayerNotifier stop failed, recreating player: $e');
+      await _recreatePlayer();
+    }
+  }
+
+  /// Start playback without awaiting the long-running just_audio play future.
+  void _safePlay({int? requestId}) {
+    try {
+      unawaited(
+        _ensureAudioController().play().catchError((Object e, StackTrace s) {
+          _handleAsyncPlayError(e, s, requestId);
+        }),
+      );
+    } catch (e, s) {
+      _handleAsyncPlayError(e, s, requestId);
+    }
+  }
+
+  Duration get _seekTimeout =>
+      _audioOperationTimeout.compareTo(const Duration(seconds: 2)) <= 0
+      ? _audioOperationTimeout
+      : const Duration(seconds: 2);
+
+  /// Safely seek (ignores errors).
+  Future<void> _safeSeek(Duration position) async {
+    try {
+      await DiagnosticsService.instance.measure(
+        'player.seek',
+        () => _ensureAudioController().seek(position).timeout(_seekTimeout),
+        data: {'position_ms': position.inMilliseconds},
+      );
+    } catch (e) {
+      debugPrint('PlayerNotifier seek failed: $e');
+      if (!mounted) return;
+      if (e is TimeoutException || e is PlatformException) {
+        unawaited(_recreatePlayer());
+      }
+    }
+  }
+
+  void _handleAsyncPlayError(Object error, StackTrace stack, int? requestId) {
+    if (!mounted) return;
+    if (requestId != null && requestId != _playRequestId) return;
+    debugPrint('PlayerNotifier play error: $error');
+    debugPrint('PlayerNotifier play stack: $stack');
+    state = state.copyWith(
+      isPlaying: false,
+      isTransitioning: false,
+      error: () => 'Playback failed: $error',
+    );
+    if (error is PlatformException || error is TimeoutException) {
+      unawaited(_recreatePlayer());
+    }
+  }
+
+  void _startTransitionWatchdog(int requestId) {
+    _transitionWatchdog?.cancel();
+    _transitionWatchdog = Timer(const Duration(seconds: 12), () {
+      if (!mounted || requestId != _playRequestId || !state.isTransitioning)
+        return;
+      debugPrint(
+        'PlayerNotifier: transition watchdog released request $requestId',
+      );
+      state = state.copyWith(
+        isTransitioning: false,
+        error: () => 'Playback is taking longer than expected.',
+      );
+    });
+  }
+
+  void _cancelTransitionWatchdog() {
+    _transitionWatchdog?.cancel();
+    _transitionWatchdog = null;
+  }
+
+  /// Recreate the AudioPlayer when the platform channel is corrupted.
+  Future<void> _recreatePlayer() async {
+    debugPrint('PlayerNotifier: recreating AudioPlayer');
+    for (final sub in _subscriptions) {
+      await sub.cancel();
+    }
+    _subscriptions.clear();
+    try {
+      await _audioController?.dispose().timeout(_audioDisposeTimeout);
+    } catch (e) {
+      debugPrint('PlayerNotifier dispose during recreate failed: $e');
+    }
+    _audioController = _audioControllerFactory();
+    _setupListeners(_audioController!);
+  }
+
+  Future<void> _setUrlWithRecovery(String url, String label) async {
+    try {
+      await DiagnosticsService.instance.measure(
+        'player.setUrl.$label',
+        () => _ensureAudioController()
+            .setUrl(url)
+            .timeout(_audioOperationTimeout),
+      );
+    } catch (e) {
+      debugPrint('$label: setUrl failed, recreating player: $e');
+      await _recreatePlayer();
+      await DiagnosticsService.instance.measure(
+        'player.setUrl.$label.retry',
+        () => _ensureAudioController()
+            .setUrl(url)
+            .timeout(_audioOperationTimeout),
+      );
+    }
+  }
+
+  Future<void> playSong(Song song) async {
+    _qualityRequestId++;
+    return _mutex.run(() async {
+      final requestId = ++_playRequestId;
+      DiagnosticsService.instance.record(
+        'player',
+        'play_song_start',
+        data: {
+          'song_id': song.id,
+          'platform': song.platform.name,
+          'name': song.name,
+        },
+      );
+      _startTransitionWatchdog(requestId);
+      final platform = song.platform == PlatformType.local
+          ? null
+          : _platformResolver(song.platform);
+      debugPrint(
+        'playSong: ${song.name} (${song.platform.name}, id=${song.id})',
+      );
+      try {
+        _restoredSourceNeedsLoad = false;
+        // Update UI immediately
+        final newIndex = state.playlist.indexWhere(
+          (s) => s.id == song.id && s.platform == song.platform,
+        );
+        final newPlaylist = List<Song>.from(state.playlist);
+        if (newIndex == -1) {
+          newPlaylist.add(song);
+          state = state.copyWith(
+            currentSong: song,
+            playlist: newPlaylist,
+            currentIndex: newPlaylist.length - 1,
+            position: Duration.zero,
+            error: () => null,
+            currentQuality: AudioLevel.low,
+            isTransitioning: true,
+          );
+        } else {
+          state = state.copyWith(
+            currentSong: song,
+            currentIndex: newIndex,
+            position: Duration.zero,
+            error: () => null,
+            currentQuality: AudioLevel.low,
+            isTransitioning: true,
+          );
+        }
+        _schedulePlaybackMemorySave();
+
+        final url = song.platform == PlatformType.local
+            ? Uri.file(song.id).toString()
+            : await DiagnosticsService.instance.measure(
+                'platform.getSongUrl',
+                () => platform!
+                    .getSongUrl(song.id)
+                    .timeout(const Duration(seconds: 10)),
+                data: {
+                  'platform': song.platform.name,
+                  'song_id': song.id,
+                  'quality': AudioLevel.low.name,
+                },
+              );
+        final previewUrl = url.length > 80 ? '${url.substring(0, 80)}...' : url;
+        debugPrint('playSong: got url=$previewUrl');
+        if (requestId != _playRequestId) return;
+
+        // CRITICAL: stop() before setUrl() to release the previous platform player
+        await _safeStop();
+        if (requestId != _playRequestId) return;
+
+        await _setUrlWithRecovery(url, 'playSong');
+        debugPrint('playSong: setUrl done');
+        if (requestId != _playRequestId) return;
+
+        _safePlay(requestId: requestId);
+        debugPrint('playSong: play() invoked');
+
+        if (requestId == _playRequestId) {
+          state = state.copyWith(isPlaying: true, isTransitioning: false);
+          _schedulePlaybackMemorySave();
+          _cancelTransitionWatchdog();
+          DiagnosticsService.instance.record(
+            'player',
+            'play_song_ready',
+            data: {'song_id': song.id, 'platform': song.platform.name},
+          );
+        }
+      } catch (e, s) {
+        if (requestId != _playRequestId) return;
+        debugPrint('Playback error: $e');
+        debugPrint('Playback stack: $s');
+        _cancelTransitionWatchdog();
+        state = state.copyWith(
+          isPlaying: false,
+          isTransitioning: false,
+          error: () => '播放失败: ${e.toString()}',
+        );
+        DiagnosticsService.instance.recordError(
+          'player.playSong',
+          e,
+          s,
+          data: {'song_id': song.id, 'platform': song.platform.name},
+        );
+      }
+    }, label: 'playSong');
+  }
+
+  Future<void> playPlaylist(List<Song> songs, {int startIndex = 0}) async {
+    state = state.copyWith(playlist: songs, currentIndex: startIndex);
+    _schedulePlaybackMemorySave();
+    if (startIndex < songs.length) {
+      await playSong(songs[startIndex]);
+    }
+  }
+
+  Future<void> _playRestoredSong() async {
+    final song = state.currentSong;
+    if (song == null) return;
+    final resumePosition = state.position;
+    final quality = state.currentQuality;
+    _qualityRequestId++;
+    return _mutex.run(() async {
+      final requestId = ++_playRequestId;
+      _startTransitionWatchdog(requestId);
+      final platform = song.platform == PlatformType.local
+          ? null
+          : _platformResolver(song.platform);
+      try {
+        state = state.copyWith(isTransitioning: true, error: () => null);
+        final url = song.platform == PlatformType.local
+            ? Uri.file(song.id).toString()
+            : await DiagnosticsService.instance.measure(
+                'platform.getSongUrl.restore',
+                () => platform!
+                    .getSongUrl(song.id, quality: quality)
+                    .timeout(const Duration(seconds: 10)),
+                data: {
+                  'platform': song.platform.name,
+                  'song_id': song.id,
+                  'quality': quality.name,
+                },
+              );
+        if (requestId != _playRequestId) return;
+
+        await _safeStop();
+        if (requestId != _playRequestId) return;
+
+        await _setUrlWithRecovery(url, 'restorePlaybackMemory');
+        if (requestId != _playRequestId) return;
+
+        if (resumePosition > Duration.zero) {
+          await _safeSeek(resumePosition);
+        }
+        if (requestId != _playRequestId) return;
+
+        _restoredSourceNeedsLoad = false;
+        _safePlay(requestId: requestId);
+        state = state.copyWith(
+          isPlaying: true,
+          isTransitioning: false,
+          position: resumePosition,
+          error: () => null,
+        );
+        _schedulePlaybackMemorySave();
+        _cancelTransitionWatchdog();
+      } catch (e, s) {
+        if (requestId != _playRequestId) return;
+        _cancelTransitionWatchdog();
+        state = state.copyWith(
+          isPlaying: false,
+          isTransitioning: false,
+          error: () => '鎾斁澶辫触: ${e.toString()}',
+        );
+        DiagnosticsService.instance.recordError(
+          'player.restorePlaybackMemory',
+          e,
+          s,
+          data: {'song_id': song.id, 'platform': song.platform.name},
+        );
+      }
+    }, label: 'restorePlaybackMemory');
+  }
+
+  Future<void> togglePlay() async {
+    if (_restoredSourceNeedsLoad && state.currentSong != null) {
+      await _playRestoredSong();
+      return;
+    }
+    return _mutex.run(() async {
+      try {
+        final audioController = _ensureAudioController();
+        if (audioController.playing) {
+          await audioController.pause().timeout(_audioOperationTimeout);
+        } else {
+          _safePlay();
+        }
+      } catch (e) {
+        debugPrint('togglePlay: audio operation failed, recreating player: $e');
+        await _recreatePlayer();
+      }
+    }, label: 'togglePlay');
+  }
+
+  Future<void> switchQuality(AudioLevel quality) async {
+    final requestId = ++_qualityRequestId;
+    return _mutex.run(() async {
+      final song = state.currentSong;
+      if (song == null ||
+          quality == state.currentQuality ||
+          _isSwitchingQuality)
+        return;
+      _isSwitchingQuality = true;
+
+      try {
+        final platform = _platformResolver(song.platform);
+        final controller = _ensureAudioController();
+        final wasPlaying = controller.playing;
+        final currentPosition = controller.position;
+
+        final url = await DiagnosticsService.instance.measure(
+          'platform.getSongUrl.quality',
+          () => platform
+              .getSongUrl(song.id, quality: quality)
+              .timeout(_qualitySwitchTimeout),
+          data: {
+            'platform': song.platform.name,
+            'song_id': song.id,
+            'quality': quality.name,
+          },
+        );
+
+        final stillSameSong =
+            state.currentSong?.id == song.id &&
+            state.currentSong?.platform == song.platform &&
+            requestId == _qualityRequestId;
+        if (!stillSameSong) return;
+
+        await _safeStop();
+        await _setUrlWithRecovery(url, 'switchQuality');
+        await _safeSeek(currentPosition);
+
+        if (requestId != _qualityRequestId) return;
+        state = state.copyWith(currentQuality: quality, error: () => null);
+        _schedulePlaybackMemorySave();
+
+        if (wasPlaying) {
+          _safePlay();
+        }
+      } on TimeoutException {
+        if (requestId == _qualityRequestId) {
+          state = state.copyWith(error: () => '音质切换超时，请稍后重试');
+        }
+      } catch (e) {
+        debugPrint('Quality switch error: $e');
+        DiagnosticsService.instance.recordError(
+          'player.switchQuality',
+          e,
+          StackTrace.current,
+          data: {
+            'song_id': song.id,
+            'platform': song.platform.name,
+            'quality': quality.name,
+          },
+        );
+        if (requestId == _qualityRequestId) {
+          state = state.copyWith(error: () => '音质切换失败: ${e.toString()}');
+        }
+      } finally {
+        if (requestId == _qualityRequestId) {
+          _isSwitchingQuality = false;
+        }
+      }
+    }, label: 'switchQuality');
+  }
+
+  void toggleShuffle() {
+    final newShuffle = !state.isShuffle;
+    if (newShuffle && state.playlist.length > 1) {
+      final current = state.currentSong;
+      final others = List<Song>.from(state.playlist)
+        ..removeAt(state.currentIndex);
+      others.shuffle();
+      final newPlaylist = <Song>[?current, ...others];
+      state = state.copyWith(
+        isShuffle: true,
+        playlist: newPlaylist,
+        currentIndex: 0,
+      );
+    } else {
+      state = state.copyWith(isShuffle: newShuffle);
+    }
+  }
+
+  void cycleRepeatMode() {
+    final modes = RepeatMode.values;
+    final nextIndex = (state.repeatMode.index + 1) % modes.length;
+    state = state.copyWith(repeatMode: modes[nextIndex]);
+  }
+
+  Future<void> skipToNext() async {
+    if (state.playlist.isEmpty) return;
+
+    if (state.repeatMode == RepeatMode.one) {
+      return _mutex.run(() async {
+        await _safeSeek(Duration.zero);
+        _safePlay();
+      }, label: 'skipToNext.repeatOne');
+    }
+
+    int nextIndex;
+    if (state.isShuffle) {
+      if (state.playlist.length == 1) {
+        nextIndex = 0;
+      } else {
+        final rng = Random();
+        do {
+          nextIndex = rng.nextInt(state.playlist.length);
+        } while (nextIndex == state.currentIndex);
+      }
+    } else {
+      nextIndex = state.currentIndex + 1;
+      if (nextIndex >= state.playlist.length) {
+        if (state.repeatMode == RepeatMode.all) {
+          nextIndex = 0;
+        } else {
+          return;
+        }
+      }
+    }
+    await playSong(state.playlist[nextIndex]);
+  }
+
+  Future<void> skipToPrevious() async {
+    if (state.playlist.isEmpty) return;
+
+    if (state.position.inSeconds > 3) {
+      return _mutex.run(() async {
+        await _safeSeek(Duration.zero);
+      }, label: 'skipToPrevious.seekStart');
+    }
+
+    int prevIndex;
+    if (state.isShuffle) {
+      if (state.playlist.length == 1) {
+        prevIndex = 0;
+      } else {
+        final rng = Random();
+        do {
+          prevIndex = rng.nextInt(state.playlist.length);
+        } while (prevIndex == state.currentIndex);
+      }
+    } else {
+      prevIndex = state.currentIndex - 1;
+      if (prevIndex < 0) {
+        if (state.repeatMode == RepeatMode.all) {
+          prevIndex = state.playlist.length - 1;
+        } else {
+          prevIndex = 0;
+        }
+      }
+    }
+    await playSong(state.playlist[prevIndex]);
+  }
+
+  Future<void> seek(Duration position) async {
+    if (!mounted) return;
+    state = state.copyWith(position: position, isTransitioning: false);
+    _schedulePlaybackMemorySave();
+    if (_restoredSourceNeedsLoad) return;
+    await _safeSeek(position);
+  }
+
+  void addToQueue(Song song) {
+    final newPlaylist = List<Song>.from(state.playlist);
+    final exists = newPlaylist.any(
+      (s) => s.id == song.id && s.platform == song.platform,
+    );
+    if (!exists) {
+      newPlaylist.add(song);
+      state = state.copyWith(playlist: newPlaylist);
+      _schedulePlaybackMemorySave();
+    }
+  }
+
+  @override
+  void dispose() {
+    _cancelTransitionWatchdog();
+    _playbackMemoryTimer?.cancel();
+    unawaited(flushPlaybackMemory());
+    for (final sub in _subscriptions) {
+      sub.cancel();
+    }
+    _audioController?.dispose();
+    super.dispose();
+  }
+}
+
+final playerProvider = StateNotifierProvider<PlayerNotifier, PlayerState>((
+  ref,
+) {
+  return PlayerNotifier(playbackMemoryStore: HivePlayerPlaybackMemoryStore());
+});
