@@ -248,10 +248,12 @@ final listeningStatsTrackerProvider = Provider<ListeningStatsTracker>((ref) {
 
 class ListeningStatsNotifier extends StateNotifier<ListeningStatsState> {
   final ListeningStatsRepository _repository;
-  late final Future<void> ready = load();
+  late final Future<void> ready;
 
   ListeningStatsNotifier(this._repository)
-    : super(const ListeningStatsState(isLoading: true));
+    : super(const ListeningStatsState(isLoading: true)) {
+    ready = load();
+  }
 
   Future<void> load() async {
     try {

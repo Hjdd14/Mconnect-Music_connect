@@ -66,4 +66,17 @@ void main() {
 
     expect(calls.map((call) => call.method), ['update', 'hide']);
   });
+
+  test(
+    'hide returns false when the native overlay channel is unavailable',
+    () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+
+      final hidden = await FloatingLyricsService.instance.hide();
+
+      expect(hidden, isFalse);
+      expect(calls, isEmpty);
+    },
+  );
 }

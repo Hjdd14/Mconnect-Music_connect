@@ -6,6 +6,18 @@ import 'package:mconnect/models/song.dart';
 
 void main() {
   test(
+    'listening stats starts loading without explicitly reading ready',
+    () async {
+      final repository = MemoryListeningStatsRepository();
+      final notifier = ListeningStatsNotifier(repository);
+
+      await Future<void>.delayed(Duration.zero);
+
+      expect(notifier.state.isLoading, isFalse);
+    },
+  );
+
+  test(
     'listening stats accumulates play count and listened duration',
     () async {
       final repository = MemoryListeningStatsRepository();

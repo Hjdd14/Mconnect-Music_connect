@@ -5,28 +5,34 @@ import 'floating_lyrics_models.dart';
 class FloatingLyricsService {
   FloatingLyricsService._({MethodChannel? channel})
     : _channel =
-          channel ?? const MethodChannel('com.mconnect.mconnect/floating_lyrics');
+          channel ??
+          const MethodChannel('com.mconnect.mconnect/floating_lyrics');
 
   static final instance = FloatingLyricsService._();
 
   final MethodChannel _channel;
 
+  Future<T?> _invokeOptional<T>(String method, [Object? arguments]) async {
+    try {
+      return await _channel.invokeMethod<T>(method, arguments);
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
   Future<bool> canDrawOverlays() async {
-    return await _channel.invokeMethod<bool>('canDrawOverlays') ?? false;
+    return await _invokeOptional<bool>('canDrawOverlays') ?? false;
   }
 
   Future<bool> openOverlaySettings() async {
-    return await _channel.invokeMethod<bool>('openOverlaySettings') ?? false;
+    return await _invokeOptional<bool>('openOverlaySettings') ?? false;
   }
 
   Future<bool> show(
     FloatingLyricsPayload payload,
     FloatingLyricsSettings settings,
   ) async {
-    return await _channel.invokeMethod<bool>(
-          'show',
-          payload.toJson(settings),
-        ) ??
+    return await _invokeOptional<bool>('show', payload.toJson(settings)) ??
         false;
   }
 
@@ -34,14 +40,11 @@ class FloatingLyricsService {
     FloatingLyricsPayload payload,
     FloatingLyricsSettings settings,
   ) async {
-    return await _channel.invokeMethod<bool>(
-          'update',
-          payload.toJson(settings),
-        ) ??
+    return await _invokeOptional<bool>('update', payload.toJson(settings)) ??
         false;
   }
 
   Future<bool> hide() async {
-    return await _channel.invokeMethod<bool>('hide') ?? false;
+    return await _invokeOptional<bool>('hide') ?? false;
   }
 }
