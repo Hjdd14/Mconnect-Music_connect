@@ -10,10 +10,13 @@ import '../../features/library/presentation/pages/likes_page.dart';
 import '../../features/library/presentation/pages/platform_playlists_page.dart';
 import '../../features/library/presentation/pages/playlist_detail_page.dart';
 import '../../features/local_music/presentation/pages/local_music_page.dart';
+import '../../features/offline_cache/presentation/pages/offline_cache_page.dart';
 import '../../features/player/presentation/screens/player_screen.dart';
 import '../../features/player/presentation/widgets/mini_player_bar.dart';
 import '../../features/settings/presentation/pages/settings_page.dart';
 import '../../features/stats/presentation/pages/listening_stats_page.dart';
+import '../../features/smart_playlists/presentation/pages/smart_playlist_editor_page.dart';
+import '../../features/smart_playlists/presentation/pages/smart_playlists_page.dart';
 import '../../models/platform_type.dart';
 
 final appRouter = GoRouter(
@@ -66,8 +69,21 @@ final appRouter = GoRouter(
           builder: (context, state) => const LocalMusicPage(),
         ),
         GoRoute(
+          path: '/offline-cache',
+          builder: (context, state) => const OfflineCachePage(),
+        ),
+        GoRoute(
           path: '/listening-stats',
           builder: (context, state) => const ListeningStatsPage(),
+        ),
+        GoRoute(
+          path: '/smart-playlists',
+          builder: (context, state) => const SmartPlaylistsPage(),
+        ),
+        GoRoute(
+          path: '/smart-playlists/editor',
+          builder: (context, state) =>
+              SmartPlaylistEditorPage(ruleId: state.uri.queryParameters['id']),
         ),
         GoRoute(
           path: '/playlist/:platform/:id',

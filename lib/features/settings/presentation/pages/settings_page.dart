@@ -197,6 +197,94 @@ class SettingsPage extends ConsumerWidget {
             ),
           ),
           SwitchListTile(
+            secondary: const Icon(Icons.equalizer),
+            title: const Text('均衡器'),
+            subtitle: const Text('调整播放音频的频段增益，设备不支持时会自动忽略'),
+            value: audioEffects.equalizerEnabled,
+            onChanged: audioEffectsNotifier.setEqualizerEnabled,
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.tune),
+              title: const Text('均衡器预设'),
+              subtitle: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final preset in EqualizerPreset.values)
+                    ChoiceChip(
+                      label: Text(preset.displayName),
+                      selected: audioEffects.equalizerPreset == preset,
+                      onSelected: (_) =>
+                          audioEffectsNotifier.setEqualizerPreset(preset),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          _SliderTile(
+            title: '低频',
+            subtitle:
+                '${audioEffects.effectiveEqualizerBandGains[0].round()} dB',
+            icon: Icons.graphic_eq,
+            value: audioEffects.effectiveEqualizerBandGains[0],
+            min: -12,
+            max: 12,
+            divisions: 24,
+            onChanged: (value) =>
+                audioEffectsNotifier.setEqualizerBandGain(0, value),
+          ),
+          _SliderTile(
+            title: '中低频',
+            subtitle:
+                '${audioEffects.effectiveEqualizerBandGains[1].round()} dB',
+            icon: Icons.graphic_eq,
+            value: audioEffects.effectiveEqualizerBandGains[1],
+            min: -12,
+            max: 12,
+            divisions: 24,
+            onChanged: (value) =>
+                audioEffectsNotifier.setEqualizerBandGain(1, value),
+          ),
+          _SliderTile(
+            title: '中频',
+            subtitle:
+                '${audioEffects.effectiveEqualizerBandGains[2].round()} dB',
+            icon: Icons.graphic_eq,
+            value: audioEffects.effectiveEqualizerBandGains[2],
+            min: -12,
+            max: 12,
+            divisions: 24,
+            onChanged: (value) =>
+                audioEffectsNotifier.setEqualizerBandGain(2, value),
+          ),
+          _SliderTile(
+            title: '中高频',
+            subtitle:
+                '${audioEffects.effectiveEqualizerBandGains[3].round()} dB',
+            icon: Icons.graphic_eq,
+            value: audioEffects.effectiveEqualizerBandGains[3],
+            min: -12,
+            max: 12,
+            divisions: 24,
+            onChanged: (value) =>
+                audioEffectsNotifier.setEqualizerBandGain(3, value),
+          ),
+          _SliderTile(
+            title: '高频',
+            subtitle:
+                '${audioEffects.effectiveEqualizerBandGains[4].round()} dB',
+            icon: Icons.graphic_eq,
+            value: audioEffects.effectiveEqualizerBandGains[4],
+            min: -12,
+            max: 12,
+            divisions: 24,
+            onChanged: (value) =>
+                audioEffectsNotifier.setEqualizerBandGain(4, value),
+          ),
+          SwitchListTile(
             secondary: const Icon(Icons.bedtime_outlined),
             title: const Text('睡眠定时'),
             subtitle: Text(

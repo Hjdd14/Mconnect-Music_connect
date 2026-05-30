@@ -677,6 +677,12 @@ class _IdleAudioController implements PlayerAudioController {
   Future<void> setVolume(double volume) async {}
 
   @override
+  Future<void> applyEqualizer({
+    required bool enabled,
+    required List<double> bandGains,
+  }) async {}
+
+  @override
   Future<void> dispose() async {
     await _positionController.close();
     await _durationController.close();

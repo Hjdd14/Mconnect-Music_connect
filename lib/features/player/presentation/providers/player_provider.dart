@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 import '../../../../core/diagnostics/diagnostics_service.dart';
+import '../../../audio_effects/presentation/providers/audio_effects_provider.dart';
 import '../../../../models/audio_quality.dart';
 import '../../../../models/platform_type.dart';
 import '../../../../models/song.dart';
@@ -37,14 +38,27 @@ abstract class PlayerAudioController {
   Future<void> pause();
   Future<void> seek(Duration position);
   Future<void> setVolume(double volume);
+  Future<void> applyEqualizer({
+    required bool enabled,
+    required List<double> bandGains,
+  });
   Future<void> dispose();
 }
 
 class JustAudioController implements PlayerAudioController {
   final AudioPlayer _player;
+  final AndroidEqualizer _equalizer;
 
-  JustAudioController([AudioPlayer? player])
-    : _player = player ?? AudioPlayer();
+  JustAudioController([AudioPlayer? player, AndroidEqualizer? equalizer])
+    : this._(player, equalizer ?? AndroidEqualizer());
+
+  JustAudioController._(AudioPlayer? player, AndroidEqualizer equalizer)
+    : _equalizer = equalizer,
+      _player =
+          player ??
+          AudioPlayer(
+            audioPipeline: AudioPipeline(androidAudioEffects: [equalizer]),
+          );
 
   AudioPlayer get player => _player;
 
@@ -86,6 +100,24 @@ class JustAudioController implements PlayerAudioController {
 
   @override
   Future<void> setVolume(double volume) => _player.setVolume(volume);
+
+  @override
+  Future<void> applyEqualizer({
+    required bool enabled,
+    required List<double> bandGains,
+  }) async {
+    await _equalizer.setEnabled(enabled);
+    if (!enabled) return;
+    final parameters = await _equalizer.parameters;
+    final count = min(parameters.bands.length, bandGains.length);
+    for (var i = 0; i < count; i++) {
+      final gain = bandGains[i].clamp(
+        parameters.minDecibels,
+        parameters.maxDecibels,
+      );
+      await parameters.bands[i].setGain(gain.toDouble());
+    }
+  }
 
   @override
   Future<void> dispose() => _player.dispose();
@@ -385,6 +417,25 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     _fadeDuration = duration <= Duration.zero
         ? Duration.zero
         : Duration(milliseconds: duration.inMilliseconds.clamp(200, 3000));
+  }
+
+  Future<void> applyEqualizerSettings(AudioEffectsSettings settings) async {
+    try {
+      await _ensureAudioController()
+          .applyEqualizer(
+            enabled: settings.equalizerEnabled,
+            bandGains: settings.effectiveEqualizerBandGains,
+          )
+          .timeout(const Duration(milliseconds: 300));
+    } catch (e, s) {
+      debugPrint('PlayerNotifier applyEqualizer failed: $e');
+      DiagnosticsService.instance.recordError(
+        'player.equalizer',
+        e,
+        s,
+        data: {'enabled': settings.equalizerEnabled},
+      );
+    }
   }
 
   Future<void> _safeSetVolume(double volume) async {

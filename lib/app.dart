@@ -32,6 +32,7 @@ class _MconnectAppState extends ConsumerState<MconnectApp>
             enabled: next.fadeEnabled,
             duration: next.fadeDuration,
           );
+      unawaited(ref.read(playerProvider.notifier).applyEqualizerSettings(next));
     }, fireImmediately: true);
   }
 

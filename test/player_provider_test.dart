@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mconnect/features/audio_effects/presentation/providers/audio_effects_provider.dart';
 import 'package:just_audio/just_audio.dart' as just_audio;
 import 'package:mconnect/features/player/presentation/providers/player_provider.dart';
 import 'package:mconnect/features/player/data/player_playback_memory_store.dart';
@@ -134,6 +135,33 @@ void main() {
 
     expect(audio.volumeChanges, containsAllInOrder([0, 1, 0, 1]));
     expect(audio.pauseCalls, 1);
+  });
+
+  test('equalizer settings are applied through the audio controller', () async {
+    final audio = _FakeAudioController();
+    final notifier = PlayerNotifier(
+      audioController: audio,
+      platformResolver: (_) => _FakeMusicPlatform(),
+      audioControllerFactory: () => _FakeAudioController(),
+      audioOperationTimeout: const Duration(milliseconds: 50),
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.applyEqualizerSettings(
+      const AudioEffectsSettings(
+        equalizerEnabled: true,
+        equalizerPreset: EqualizerPreset.rock,
+      ),
+    );
+
+    expect(audio.equalizerEnabledChanges, [true]);
+    expect(audio.equalizerBandGainChanges, [
+      const EqualizerBandGain(0, 4),
+      const EqualizerBandGain(1, 2),
+      const EqualizerBandGain(2, 0),
+      const EqualizerBandGain(3, 3),
+      const EqualizerBandGain(4, 5),
+    ]);
   });
 
   test('playSong clears the loading state when audio reports ready', () async {
@@ -421,6 +449,8 @@ class _FakeAudioController implements PlayerAudioController {
   bool _playing = false;
   Duration _position = Duration.zero;
   final List<double> volumeChanges = [];
+  final List<bool> equalizerEnabledChanges = [];
+  final List<EqualizerBandGain> equalizerBandGainChanges = [];
 
   _FakeAudioController({this.hangOnStop = false, this.hangOnSeek = false});
 
@@ -490,6 +520,17 @@ class _FakeAudioController implements PlayerAudioController {
   @override
   Future<void> setVolume(double volume) async {
     volumeChanges.add(volume);
+  }
+
+  @override
+  Future<void> applyEqualizer({
+    required bool enabled,
+    required List<double> bandGains,
+  }) async {
+    equalizerEnabledChanges.add(enabled);
+    for (var i = 0; i < bandGains.length; i++) {
+      equalizerBandGainChanges.add(EqualizerBandGain(i, bandGains[i]));
+    }
   }
 
   @override

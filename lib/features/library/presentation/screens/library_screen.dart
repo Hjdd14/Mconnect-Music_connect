@@ -44,6 +44,18 @@ class LibraryScreen extends StatelessWidget {
               onTap: () => context.push('/local-music'),
             ),
             ListTile(
+              leading: const Icon(Icons.offline_pin_outlined),
+              title: const Text('离线缓存'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/offline-cache'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.auto_awesome),
+              title: const Text('智能歌单'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/smart-playlists'),
+            ),
+            ListTile(
               leading: const Icon(Icons.queue_music),
               title: const Text('歌单'),
               trailing: const Icon(Icons.chevron_right),

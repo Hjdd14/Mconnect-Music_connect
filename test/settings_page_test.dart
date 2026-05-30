@@ -68,7 +68,17 @@ void main() {
       const ProviderScope(child: MaterialApp(home: SettingsPage())),
     );
 
-    for (final label in const ['淡入淡出', '淡入淡出时长', '睡眠定时', '定时时长']) {
+    for (final label in const [
+      '淡入淡出',
+      '淡入淡出时长',
+      '均衡器',
+      '均衡器预设',
+      '低频',
+      '中频',
+      '高频',
+      '睡眠定时',
+      '定时时长',
+    ]) {
       await _dragUntilTextVisible(tester, label);
       expect(find.text(label), findsOneWidget);
     }
