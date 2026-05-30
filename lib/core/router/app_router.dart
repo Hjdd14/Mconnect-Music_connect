@@ -13,6 +13,7 @@ import '../../features/local_music/presentation/pages/local_music_page.dart';
 import '../../features/player/presentation/screens/player_screen.dart';
 import '../../features/player/presentation/widgets/mini_player_bar.dart';
 import '../../features/settings/presentation/pages/settings_page.dart';
+import '../../features/stats/presentation/pages/listening_stats_page.dart';
 import '../../models/platform_type.dart';
 
 final appRouter = GoRouter(
@@ -63,6 +64,10 @@ final appRouter = GoRouter(
         GoRoute(
           path: '/local-music',
           builder: (context, state) => const LocalMusicPage(),
+        ),
+        GoRoute(
+          path: '/listening-stats',
+          builder: (context, state) => const ListeningStatsPage(),
         ),
         GoRoute(
           path: '/playlist/:platform/:id',

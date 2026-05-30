@@ -60,6 +60,8 @@ enum AudioLevel {
       this == AudioLevel.master;
 }
 
+enum AudioQualityPreference { fixed, highest }
+
 class AudioQuality {
   final AudioLevel level;
   final int bitrate;

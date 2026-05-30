@@ -36,6 +36,7 @@ abstract class PlayerAudioController {
   Future<void> play();
   Future<void> pause();
   Future<void> seek(Duration position);
+  Future<void> setVolume(double volume);
   Future<void> dispose();
 }
 
@@ -84,6 +85,9 @@ class JustAudioController implements PlayerAudioController {
   Future<void> seek(Duration position) => _player.seek(position);
 
   @override
+  Future<void> setVolume(double volume) => _player.setVolume(volume);
+
+  @override
   Future<void> dispose() => _player.dispose();
 }
 
@@ -95,6 +99,7 @@ class PlayerState {
   final Duration position;
   final Duration duration;
   final AudioLevel currentQuality;
+  final AudioQualityPreference qualityPreference;
   final String? error;
   final bool isShuffle;
   final RepeatMode repeatMode;
@@ -108,6 +113,7 @@ class PlayerState {
     this.position = Duration.zero,
     this.duration = Duration.zero,
     this.currentQuality = AudioLevel.low,
+    this.qualityPreference = AudioQualityPreference.fixed,
     this.error,
     this.isShuffle = false,
     this.repeatMode = RepeatMode.off,
@@ -122,6 +128,7 @@ class PlayerState {
     Duration? position,
     Duration? duration,
     AudioLevel? currentQuality,
+    AudioQualityPreference? qualityPreference,
     String? Function()? error,
     bool? isShuffle,
     RepeatMode? repeatMode,
@@ -135,6 +142,7 @@ class PlayerState {
       position: position ?? this.position,
       duration: duration ?? this.duration,
       currentQuality: currentQuality ?? this.currentQuality,
+      qualityPreference: qualityPreference ?? this.qualityPreference,
       error: error != null ? error() : this.error,
       isShuffle: isShuffle ?? this.isShuffle,
       repeatMode: repeatMode ?? this.repeatMode,
@@ -190,6 +198,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   Timer? _transitionWatchdog;
   Timer? _playbackMemoryTimer;
   PlayerPlaybackMemory? _pendingPlaybackMemory;
+  bool _fadeEnabled = false;
+  Duration _fadeDuration = const Duration(milliseconds: 800);
 
   PlayerNotifier({
     PlayerAudioController? audioController,
@@ -300,6 +310,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         position: memory.position,
         duration: memory.duration,
         currentQuality: memory.currentQuality,
+        qualityPreference: memory.qualityPreference,
         error: () => null,
         isTransitioning: false,
       );
@@ -326,6 +337,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       position: state.position,
       duration: state.duration,
       currentQuality: state.currentQuality,
+      qualityPreference: state.qualityPreference,
     );
   }
 
@@ -366,6 +378,41 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     throw StateError(
       'The injected audio controller does not expose just_audio.AudioPlayer.',
     );
+  }
+
+  void setFadeOptions({required bool enabled, required Duration duration}) {
+    _fadeEnabled = enabled;
+    _fadeDuration = duration <= Duration.zero
+        ? Duration.zero
+        : Duration(milliseconds: duration.inMilliseconds.clamp(200, 3000));
+  }
+
+  Future<void> _safeSetVolume(double volume) async {
+    try {
+      await _ensureAudioController()
+          .setVolume(volume.clamp(0.0, 1.0))
+          .timeout(const Duration(milliseconds: 300));
+    } catch (e) {
+      debugPrint('PlayerNotifier setVolume failed: $e');
+    }
+  }
+
+  Future<void> _runFade({required double from, required double to}) async {
+    if (!_fadeEnabled) return;
+    if (_fadeDuration == Duration.zero) {
+      await _safeSetVolume(to);
+      return;
+    }
+    const steps = 6;
+    await _safeSetVolume(from);
+    final stepDelay = Duration(
+      milliseconds: max(1, _fadeDuration.inMilliseconds ~/ steps),
+    );
+    for (var i = 1; i <= steps; i++) {
+      await Future<void>.delayed(stepDelay);
+      final value = from + ((to - from) * i / steps);
+      await _safeSetVolume(value);
+    }
   }
 
   /// Safely stop the player (ignores errors).
@@ -434,8 +481,9 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   void _startTransitionWatchdog(int requestId) {
     _transitionWatchdog?.cancel();
     _transitionWatchdog = Timer(const Duration(seconds: 12), () {
-      if (!mounted || requestId != _playRequestId || !state.isTransitioning)
+      if (!mounted || requestId != _playRequestId || !state.isTransitioning) {
         return;
+      }
       debugPrint(
         'PlayerNotifier: transition watchdog released request $requestId',
       );
@@ -487,6 +535,36 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     }
   }
 
+  Future<AudioLevel> _resolvePlaybackQuality(
+    Song song,
+    MusicPlatform? platform,
+  ) async {
+    if (song.platform == PlatformType.local || platform == null) {
+      return state.currentQuality;
+    }
+    if (state.qualityPreference != AudioQualityPreference.highest) {
+      return state.currentQuality;
+    }
+
+    final qualities = song.availableQualities.isNotEmpty
+        ? song.availableQualities
+        : await DiagnosticsService.instance.measure(
+            'platform.getAvailableQualities.playback',
+            () => platform
+                .getAvailableQualities(song.id)
+                .timeout(const Duration(seconds: 8)),
+            data: {'platform': song.platform.name, 'song_id': song.id},
+          );
+    if (qualities.isEmpty) return state.currentQuality;
+    return _highestQualityLevel(qualities);
+  }
+
+  AudioLevel _highestQualityLevel(List<AudioQuality> qualities) {
+    return qualities
+        .map((quality) => quality.level)
+        .reduce((a, b) => a.index >= b.index ? a : b);
+  }
+
   Future<void> playSong(Song song) async {
     _qualityRequestId++;
     return _mutex.run(() async {
@@ -522,7 +600,6 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
             currentIndex: newPlaylist.length - 1,
             position: Duration.zero,
             error: () => null,
-            currentQuality: AudioLevel.low,
             isTransitioning: true,
           );
         } else {
@@ -531,23 +608,28 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
             currentIndex: newIndex,
             position: Duration.zero,
             error: () => null,
-            currentQuality: AudioLevel.low,
             isTransitioning: true,
           );
         }
         _schedulePlaybackMemorySave();
 
+        final playbackQuality = await _resolvePlaybackQuality(song, platform);
+        if (requestId != _playRequestId) return;
+        if (playbackQuality != state.currentQuality) {
+          state = state.copyWith(currentQuality: playbackQuality);
+        }
         final url = song.platform == PlatformType.local
             ? Uri.file(song.id).toString()
             : await DiagnosticsService.instance.measure(
                 'platform.getSongUrl',
                 () => platform!
-                    .getSongUrl(song.id)
+                    .getSongUrl(song.id, quality: playbackQuality)
                     .timeout(const Duration(seconds: 10)),
                 data: {
                   'platform': song.platform.name,
                   'song_id': song.id,
-                  'quality': AudioLevel.low.name,
+                  'quality': playbackQuality.name,
+                  'quality_preference': state.qualityPreference.name,
                 },
               );
         final previewUrl = url.length > 80 ? '${url.substring(0, 80)}...' : url;
@@ -562,7 +644,11 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         debugPrint('playSong: setUrl done');
         if (requestId != _playRequestId) return;
 
+        if (_fadeEnabled) {
+          await _runFade(from: 0, to: 0);
+        }
         _safePlay(requestId: requestId);
+        unawaited(_runFade(from: 0, to: 1));
         debugPrint('playSong: play() invoked');
 
         if (requestId == _playRequestId) {
@@ -680,9 +766,17 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       try {
         final audioController = _ensureAudioController();
         if (audioController.playing) {
+          await _runFade(from: 1, to: 0);
           await audioController.pause().timeout(_audioOperationTimeout);
+          if (_fadeEnabled) {
+            await _safeSetVolume(1);
+          }
         } else {
+          if (_fadeEnabled) {
+            await _runFade(from: 0, to: 0);
+          }
           _safePlay();
+          unawaited(_runFade(from: 0, to: 1));
         }
       } catch (e) {
         debugPrint('togglePlay: audio operation failed, recreating player: $e');
@@ -691,33 +785,45 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     }, label: 'togglePlay');
   }
 
-  Future<void> switchQuality(AudioLevel quality) async {
+  Future<void> switchQuality(
+    AudioLevel quality, {
+    bool preferHighest = false,
+  }) async {
     final requestId = ++_qualityRequestId;
     return _mutex.run(() async {
       final song = state.currentSong;
-      if (song == null ||
-          quality == state.currentQuality ||
-          _isSwitchingQuality)
+      final preference = preferHighest
+          ? AudioQualityPreference.highest
+          : AudioQualityPreference.fixed;
+      if (song == null || _isSwitchingQuality) return;
+      if (quality == state.currentQuality &&
+          preference == state.qualityPreference) {
         return;
+      }
       _isSwitchingQuality = true;
 
       try {
-        final platform = _platformResolver(song.platform);
+        final platform = song.platform == PlatformType.local
+            ? null
+            : _platformResolver(song.platform);
         final controller = _ensureAudioController();
         final wasPlaying = controller.playing;
         final currentPosition = controller.position;
 
-        final url = await DiagnosticsService.instance.measure(
-          'platform.getSongUrl.quality',
-          () => platform
-              .getSongUrl(song.id, quality: quality)
-              .timeout(_qualitySwitchTimeout),
-          data: {
-            'platform': song.platform.name,
-            'song_id': song.id,
-            'quality': quality.name,
-          },
-        );
+        final url = song.platform == PlatformType.local
+            ? Uri.file(song.id).toString()
+            : await DiagnosticsService.instance.measure(
+                'platform.getSongUrl.quality',
+                () => platform!
+                    .getSongUrl(song.id, quality: quality)
+                    .timeout(_qualitySwitchTimeout),
+                data: {
+                  'platform': song.platform.name,
+                  'song_id': song.id,
+                  'quality': quality.name,
+                  'quality_preference': preference.name,
+                },
+              );
 
         final stillSameSong =
             state.currentSong?.id == song.id &&
@@ -730,7 +836,11 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         await _safeSeek(currentPosition);
 
         if (requestId != _qualityRequestId) return;
-        state = state.copyWith(currentQuality: quality, error: () => null);
+        state = state.copyWith(
+          currentQuality: quality,
+          qualityPreference: preference,
+          error: () => null,
+        );
         _schedulePlaybackMemorySave();
 
         if (wasPlaying) {
@@ -858,6 +968,23 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     _schedulePlaybackMemorySave();
     if (_restoredSourceNeedsLoad) return;
     await _safeSeek(position);
+  }
+
+  Future<void> pause() async {
+    return _mutex.run(() async {
+      try {
+        final audioController = _ensureAudioController();
+        if (!audioController.playing) return;
+        await _runFade(from: 1, to: 0);
+        await audioController.pause().timeout(_audioOperationTimeout);
+        if (_fadeEnabled) {
+          await _safeSetVolume(1);
+        }
+      } catch (e) {
+        debugPrint('pause: audio operation failed, recreating player: $e');
+        await _recreatePlayer();
+      }
+    }, label: 'pause');
   }
 
   void addToQueue(Song song) {

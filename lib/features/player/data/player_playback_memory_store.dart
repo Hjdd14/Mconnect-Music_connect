@@ -13,6 +13,7 @@ class PlayerPlaybackMemory {
   final Duration position;
   final Duration duration;
   final AudioLevel currentQuality;
+  final AudioQualityPreference qualityPreference;
   final DateTime savedAt;
 
   PlayerPlaybackMemory({
@@ -22,6 +23,7 @@ class PlayerPlaybackMemory {
     required this.position,
     required this.duration,
     required this.currentQuality,
+    this.qualityPreference = AudioQualityPreference.fixed,
     DateTime? savedAt,
   }) : savedAt = savedAt ?? DateTime.now();
 
@@ -33,6 +35,7 @@ class PlayerPlaybackMemory {
       'positionMs': position.inMilliseconds,
       'durationMs': duration.inMilliseconds,
       'currentQuality': currentQuality.name,
+      'qualityPreference': qualityPreference.name,
       'savedAt': savedAt.toIso8601String(),
     };
   }
@@ -54,6 +57,7 @@ class PlayerPlaybackMemory {
       position: Duration(milliseconds: _intValue(value['positionMs']) ?? 0),
       duration: Duration(milliseconds: _intValue(value['durationMs']) ?? 0),
       currentQuality: _audioLevelFromName(value['currentQuality']),
+      qualityPreference: _qualityPreferenceFromName(value['qualityPreference']),
       savedAt: DateTime.tryParse(value['savedAt']?.toString() ?? ''),
     );
   }
@@ -170,6 +174,14 @@ class PlayerPlaybackMemory {
     return AudioLevel.values.firstWhere(
       (level) => level.name == name,
       orElse: () => AudioLevel.low,
+    );
+  }
+
+  static AudioQualityPreference _qualityPreferenceFromName(dynamic value) {
+    final name = value?.toString();
+    return AudioQualityPreference.values.firstWhere(
+      (preference) => preference.name == name,
+      orElse: () => AudioQualityPreference.fixed,
     );
   }
 

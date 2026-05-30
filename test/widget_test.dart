@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:just_audio/just_audio.dart' as just_audio;
 import 'package:mconnect/core/router/app_router.dart';
 import 'package:mconnect/features/home/presentation/screens/home_screen.dart';
+import 'package:mconnect/features/library/presentation/screens/library_screen.dart';
 import 'package:mconnect/features/player/presentation/screens/player_screen.dart';
 import 'package:mconnect/features/player/presentation/providers/player_provider.dart';
 import 'package:mconnect/features/player/presentation/widgets/mini_player_bar.dart';
@@ -323,6 +324,72 @@ void main() {
   });
 
   testWidgets(
+    'library tab scrolls to settings on compact screens above the mini player',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(390, 520);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final router = GoRouter(
+        routes: [
+          GoRoute(
+            path: '/',
+            builder: (context, state) => const HomeScreen(
+              screenFactories: {
+                0: _EmptyTab.new,
+                1: _EmptyTab.new,
+                2: LibraryScreen.new,
+                3: _EmptyTab.new,
+              },
+            ),
+          ),
+          GoRoute(
+            path: '/settings',
+            builder: (context, state) =>
+                const Scaffold(body: Center(child: Text('Settings Page'))),
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            playerProvider.overrideWith((ref) => _SeededPlayerNotifier()),
+          ],
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.library_music).last);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(MiniPlayerBar), findsOneWidget);
+      expect(find.byType(LibraryScreen), findsOneWidget);
+
+      final libraryScrollable = find.descendant(
+        of: find.byType(LibraryScreen),
+        matching: find.byType(Scrollable),
+      );
+      expect(libraryScrollable, findsOneWidget);
+      expect(find.text('设置').hitTestable(), findsNothing);
+
+      await tester.scrollUntilVisible(
+        find.text('设置'),
+        120,
+        scrollable: libraryScrollable,
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('设置').hitTestable());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Settings Page'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
     'mini player progress updates when only playback progress changes',
     (tester) async {
       final notifier = _SeededPlayerNotifier()
@@ -605,6 +672,9 @@ class _IdleAudioController implements PlayerAudioController {
 
   @override
   Future<void> seek(Duration position) async {}
+
+  @override
+  Future<void> setVolume(double volume) async {}
 
   @override
   Future<void> dispose() async {

@@ -12,11 +12,13 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
 class MainActivity : FlutterActivity() {
-    private val channel = "com.mconnect.mconnect/file_opener"
+    private val fileOpenerChannel = "com.mconnect.mconnect/file_opener"
+    private val floatingLyricsChannel = "com.mconnect.mconnect/floating_lyrics"
+    private var floatingLyricsController: FloatingLyricsController? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channel)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, fileOpenerChannel)
             .setMethodCallHandler { call, result ->
                 val path = call.arguments as? String
                 when (call.method) {
@@ -25,6 +27,27 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+        floatingLyricsController = FloatingLyricsController(this)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, floatingLyricsChannel)
+            .setMethodCallHandler { call, result ->
+                val controller = floatingLyricsController ?: FloatingLyricsController(this).also {
+                    floatingLyricsController = it
+                }
+                when (call.method) {
+                    "canDrawOverlays" -> result.success(controller.canDrawOverlays())
+                    "openOverlaySettings" -> controller.openOverlaySettings(result)
+                    "show" -> controller.show(call.arguments, result)
+                    "update" -> controller.update(call.arguments, result)
+                    "hide" -> controller.hide(result)
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    override fun onDestroy() {
+        floatingLyricsController?.dispose()
+        floatingLyricsController = null
+        super.onDestroy()
     }
 
     private fun openFile(path: String?, result: MethodChannel.Result) {

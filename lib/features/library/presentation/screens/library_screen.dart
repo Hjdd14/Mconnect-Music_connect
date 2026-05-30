@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/widgets/app_scrollbar.dart';
+
 class LibraryScreen extends StatelessWidget {
   const LibraryScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      child: AppScrollbar(
+        builder: (controller) => ListView(
+          controller: controller,
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
           children: [
             const Text(
               '音乐库',
@@ -28,6 +30,12 @@ class LibraryScreen extends StatelessWidget {
               title: const Text('听歌历史'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/history'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.bar_chart),
+              title: const Text('听歌统计'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/listening-stats'),
             ),
             ListTile(
               leading: const Icon(Icons.folder_open),

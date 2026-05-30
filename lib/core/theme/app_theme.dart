@@ -3,11 +3,11 @@ import 'package:flutter/material.dart';
 class AppTheme {
   AppTheme._();
 
-  static const _seedColor = Color(0xFFE91E63);
+  static const defaultSeedColor = Color(0xFFE91E63);
 
-  static ThemeData light() {
+  static ThemeData light({Color seedColor = defaultSeedColor}) {
     final colorScheme = ColorScheme.fromSeed(
-      seedColor: _seedColor,
+      seedColor: seedColor,
       brightness: Brightness.light,
     );
     return ThemeData(
@@ -41,9 +41,9 @@ class AppTheme {
     );
   }
 
-  static ThemeData dark() {
+  static ThemeData dark({Color seedColor = defaultSeedColor}) {
     final colorScheme = ColorScheme.fromSeed(
-      seedColor: _seedColor,
+      seedColor: seedColor,
       brightness: Brightness.dark,
     );
     return ThemeData(

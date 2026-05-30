@@ -101,6 +101,41 @@ void main() {
     expect(audio.playCalls, 1);
   });
 
+  test(
+    'playSong keeps volume unchanged when fade is disabled by default',
+    () async {
+      final audio = _FakeAudioController();
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        platformResolver: (_) => _FakeMusicPlatform(),
+        audioControllerFactory: () => _FakeAudioController(),
+      );
+      addTearDown(notifier.dispose);
+
+      await notifier.playSong(_song('fade-disabled'));
+
+      expect(audio.volumeChanges, isEmpty);
+    },
+  );
+
+  test('fade option ramps volume on play and pause when enabled', () async {
+    final audio = _FakeAudioController();
+    final notifier = PlayerNotifier(
+      audioController: audio,
+      platformResolver: (_) => _FakeMusicPlatform(),
+      audioControllerFactory: () => _FakeAudioController(),
+    );
+    addTearDown(notifier.dispose);
+
+    notifier.setFadeOptions(enabled: true, duration: Duration.zero);
+    await notifier.playSong(_song('fade-enabled'));
+    await pumpEventQueue();
+    await notifier.togglePlay();
+
+    expect(audio.volumeChanges, containsAllInOrder([0, 1, 0, 1]));
+    expect(audio.pauseCalls, 1);
+  });
+
   test('playSong clears the loading state when audio reports ready', () async {
     final audio = _FakeAudioController();
     final notifier = PlayerNotifier(
@@ -160,6 +195,104 @@ void main() {
     expect(notifier.state.isTransitioning, isFalse);
   });
 
+  test('keeps a manually selected fixed quality for the next song', () async {
+    final platform = _FakeMusicPlatform();
+    final notifier = PlayerNotifier(
+      audioController: _FakeAudioController(),
+      platformResolver: (_) => platform,
+      audioControllerFactory: () => _FakeAudioController(),
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.playSong(_song('fixed-quality-1'));
+    await notifier.switchQuality(AudioLevel.medium);
+    await notifier.playSong(_song('fixed-quality-2'));
+
+    expect(notifier.state.currentQuality, AudioLevel.medium);
+    expect(
+      platform.requestedQualitiesFor('fixed-quality-2'),
+      contains(AudioLevel.medium),
+    );
+    expect(
+      platform.requestedQualitiesFor('fixed-quality-2'),
+      isNot(contains(AudioLevel.low)),
+    );
+  });
+
+  test(
+    'highest quality preference resolves each new song to its own highest quality',
+    () async {
+      final platform = _FakeMusicPlatform(
+        qualitiesBySong: {
+          'highest-1': const [
+            AudioQuality(level: AudioLevel.low, bitrate: 128000, format: 'mp3'),
+            AudioQuality(
+              level: AudioLevel.lossless,
+              bitrate: 999000,
+              format: 'flac',
+            ),
+          ],
+          'highest-2': const [
+            AudioQuality(level: AudioLevel.low, bitrate: 128000, format: 'mp3'),
+            AudioQuality(
+              level: AudioLevel.master,
+              bitrate: 3200000,
+              format: 'flac',
+            ),
+          ],
+        },
+      );
+      final notifier = PlayerNotifier(
+        audioController: _FakeAudioController(),
+        platformResolver: (_) => platform,
+        audioControllerFactory: () => _FakeAudioController(),
+      );
+      addTearDown(notifier.dispose);
+
+      await notifier.playSong(_song('highest-1'));
+      await notifier.switchQuality(AudioLevel.lossless, preferHighest: true);
+      await notifier.playSong(_song('highest-2'));
+
+      expect(notifier.state.currentQuality, AudioLevel.master);
+      expect(notifier.state.qualityPreference, AudioQualityPreference.highest);
+      expect(
+        platform.requestedQualitiesFor('highest-2'),
+        contains(AudioLevel.master),
+      );
+      expect(platform.availableQualityRequests, containsAll(['highest-2']));
+    },
+  );
+
+  test('persists highest quality preference in playback memory', () async {
+    final store = _MemoryPlaybackStore();
+    final platform = _FakeMusicPlatform(
+      qualitiesBySong: {
+        'remember-highest': const [
+          AudioQuality(level: AudioLevel.low, bitrate: 128000, format: 'mp3'),
+          AudioQuality(
+            level: AudioLevel.master,
+            bitrate: 3200000,
+            format: 'flac',
+          ),
+        ],
+      },
+    );
+    final notifier = PlayerNotifier(
+      audioController: _FakeAudioController(),
+      audioControllerFactory: () => _FakeAudioController(),
+      platformResolver: (_) => platform,
+      playbackMemoryStore: store,
+      playbackMemorySaveInterval: Duration.zero,
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.playSong(_song('remember-highest'));
+    await notifier.switchQuality(AudioLevel.master, preferHighest: true);
+
+    expect(store.saved?.currentQuality, AudioLevel.master);
+    expect(store.saved?.qualityPreference, AudioQualityPreference.highest);
+  });
+
   test(
     'playSong plays local files without resolving a remote platform',
     () async {
@@ -193,10 +326,13 @@ void main() {
     addTearDown(notifier.dispose);
 
     await notifier.playSong(_song('remember-me'));
+    await notifier.switchQuality(AudioLevel.medium);
     await notifier.seek(const Duration(minutes: 1, seconds: 23));
 
     expect(store.saved?.currentSong.id, 'remember-me');
     expect(store.saved?.position, const Duration(minutes: 1, seconds: 23));
+    expect(store.saved?.currentQuality, AudioLevel.medium);
+    expect(store.saved?.qualityPreference, AudioQualityPreference.fixed);
   });
 
   test('restores the last song and position without autoplay', () async {
@@ -253,7 +389,7 @@ void main() {
       await pumpEventQueue();
       await notifier.togglePlay();
 
-      expect(audio.lastUrl, 'https://example.test/resume-me.mp3');
+      expect(audio.lastUrl, 'https://example.test/resume-me-low.mp3');
       expect(audio.seekCalls, 1);
       expect(audio.position, const Duration(seconds: 42));
       expect(audio.playCalls, 1);
@@ -279,10 +415,12 @@ class _FakeAudioController implements PlayerAudioController {
   final bool hangOnSeek;
 
   int playCalls = 0;
+  int pauseCalls = 0;
   int seekCalls = 0;
   String? lastUrl;
   bool _playing = false;
   Duration _position = Duration.zero;
+  final List<double> volumeChanges = [];
 
   _FakeAudioController({this.hangOnStop = false, this.hangOnSeek = false});
 
@@ -336,6 +474,7 @@ class _FakeAudioController implements PlayerAudioController {
 
   @override
   Future<void> pause() async {
+    pauseCalls++;
     _playing = false;
   }
 
@@ -346,6 +485,11 @@ class _FakeAudioController implements PlayerAudioController {
       return Completer<void>().future;
     }
     _position = position;
+  }
+
+  @override
+  Future<void> setVolume(double volume) async {
+    volumeChanges.add(volume);
   }
 
   @override
@@ -378,6 +522,17 @@ class _MemoryPlaybackStore implements PlayerPlaybackMemoryStore {
 }
 
 class _FakeMusicPlatform implements MusicPlatform {
+  final Map<String, List<AudioQuality>> qualitiesBySong;
+  final List<({String songId, AudioLevel quality})> requestedQualities = [];
+  final List<String> availableQualityRequests = [];
+
+  _FakeMusicPlatform({this.qualitiesBySong = const {}});
+
+  List<AudioLevel> requestedQualitiesFor(String songId) => requestedQualities
+      .where((request) => request.songId == songId)
+      .map((request) => request.quality)
+      .toList();
+
   @override
   PlatformType get platformType => PlatformType.netease;
 
@@ -398,12 +553,15 @@ class _FakeMusicPlatform implements MusicPlatform {
     String songId, {
     AudioLevel quality = AudioLevel.low,
   }) async {
-    return 'https://example.test/$songId.mp3';
+    requestedQualities.add((songId: songId, quality: quality));
+    return 'https://example.test/$songId-${quality.name}.mp3';
   }
 
   @override
-  Future<List<AudioQuality>> getAvailableQualities(String songId) async =>
-      const [];
+  Future<List<AudioQuality>> getAvailableQualities(String songId) async {
+    availableQualityRequests.add(songId);
+    return qualitiesBySong[songId] ?? const [];
+  }
 
   @override
   Future<QrLoginResult> getQrCode() {

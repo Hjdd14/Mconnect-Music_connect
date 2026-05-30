@@ -2,39 +2,85 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
-const _themeBoxName = 'settings';
-const _themeKey = 'theme_mode';
+import 'app_theme.dart';
 
-/// User-selectable theme mode with Hive persistence.
-final themeModeProvider =
-    StateNotifierProvider<ThemeModeNotifier, ThemeMode>((ref) {
-  return ThemeModeNotifier();
+const _themeBoxName = 'settings';
+const _themeModeKey = 'theme_mode';
+const _themeSeedColorKey = 'theme_seed_color';
+
+@immutable
+class ThemeSettings {
+  final ThemeMode mode;
+  final Color seedColor;
+
+  const ThemeSettings({
+    this.mode = ThemeMode.system,
+    this.seedColor = AppTheme.defaultSeedColor,
+  });
+
+  ThemeSettings copyWith({ThemeMode? mode, Color? seedColor}) {
+    return ThemeSettings(
+      mode: mode ?? this.mode,
+      seedColor: seedColor ?? this.seedColor,
+    );
+  }
+}
+
+/// User-selectable theme mode and seed color with Hive persistence.
+final themeSettingsProvider =
+    StateNotifierProvider<ThemeSettingsNotifier, ThemeSettings>((ref) {
+      return ThemeSettingsNotifier();
+    });
+
+/// Compatibility provider for existing call sites that only need ThemeMode.
+final themeModeProvider = Provider<ThemeMode>((ref) {
+  return ref.watch(themeSettingsProvider.select((settings) => settings.mode));
 });
 
-class ThemeModeNotifier extends StateNotifier<ThemeMode> {
-  ThemeModeNotifier() : super(ThemeMode.system) {
-    _load();
-  }
+class ThemeSettingsNotifier extends StateNotifier<ThemeSettings> {
+  late final Future<void> ready = _load();
+
+  ThemeSettingsNotifier() : super(const ThemeSettings());
 
   Future<void> _load() async {
     try {
       final box = await Hive.openBox(_themeBoxName);
-      final index = box.get(_themeKey, defaultValue: 0) as int;
+      final modeIndex = box.get(_themeModeKey, defaultValue: 0) as int;
+      final seedColorValue =
+          box.get(
+                _themeSeedColorKey,
+                defaultValue: AppTheme.defaultSeedColor.toARGB32(),
+              )
+              as int;
       if (!mounted) return;
-      state = ThemeMode.values[index.clamp(0, ThemeMode.values.length - 1)];
+      state = ThemeSettings(
+        mode: ThemeMode.values[modeIndex.clamp(0, ThemeMode.values.length - 1)],
+        seedColor: Color(seedColorValue),
+      );
     } catch (e, s) {
-      debugPrint('ThemeModeNotifier load failed: $e');
+      debugPrint('ThemeSettingsNotifier load failed: $e');
       debugPrint('$s');
     }
   }
 
   Future<void> setMode(ThemeMode mode) async {
-    state = mode;
+    state = state.copyWith(mode: mode);
     try {
       final box = await Hive.openBox(_themeBoxName);
-      await box.put(_themeKey, mode.index);
+      await box.put(_themeModeKey, mode.index);
     } catch (e, s) {
-      debugPrint('ThemeModeNotifier save failed: $e');
+      debugPrint('ThemeSettingsNotifier save mode failed: $e');
+      debugPrint('$s');
+    }
+  }
+
+  Future<void> setSeedColor(Color color) async {
+    state = state.copyWith(seedColor: color);
+    try {
+      final box = await Hive.openBox(_themeBoxName);
+      await box.put(_themeSeedColorKey, color.toARGB32());
+    } catch (e, s) {
+      debugPrint('ThemeSettingsNotifier save seed color failed: $e');
       debugPrint('$s');
     }
   }
