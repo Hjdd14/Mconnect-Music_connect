@@ -216,6 +216,44 @@ void main() {
     },
   );
 
+  test(
+    'Kugou concept user playlists keep the concept client identity',
+    () async {
+      final dio = Dio();
+      RequestOptions? capturedOptions;
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            capturedOptions = options;
+            handler.resolve(
+              Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: {
+                  'status': 1,
+                  'data': {'list_create_list': []},
+                },
+              ),
+            );
+          },
+        ),
+      );
+
+      final api = KugouApi(dio: dio)
+        ..setClientMode(KugouPlaybackClient.lite)
+        ..setToken('token-1')
+        ..setUserId('10001');
+
+      await api.getUserPlaylists();
+
+      expect(capturedOptions, isNotNull);
+      expect(capturedOptions!.queryParameters['appid'], 3116);
+      expect(capturedOptions!.queryParameters['clientver'], 11440);
+      expect(capturedOptions!.queryParameters['userid'], 10001);
+      expect(capturedOptions!.queryParameters['token'], 'token-1');
+    },
+  );
+
   test('Kugou user playlist songs use the editable listid endpoint', () async {
     final dio = Dio();
     RequestOptions? capturedOptions;
@@ -261,6 +299,94 @@ void main() {
     expect(body['page'], 3);
     expect(body['pagesize'], 40);
   });
+
+  test(
+    'Kugou concept user playlist songs keep the concept client identity',
+    () async {
+      final dio = Dio();
+      RequestOptions? capturedOptions;
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            capturedOptions = options;
+            handler.resolve(
+              Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: {
+                  'status': 1,
+                  'data': {'list': []},
+                },
+              ),
+            );
+          },
+        ),
+      );
+
+      final api = KugouApi(dio: dio)
+        ..setClientMode(KugouPlaybackClient.lite)
+        ..setToken('token-1')
+        ..setUserId('10001');
+
+      await api.getUserPlaylistSongs('list-456');
+
+      expect(capturedOptions, isNotNull);
+      expect(capturedOptions!.queryParameters['appid'], 3116);
+      expect(capturedOptions!.queryParameters['clientver'], 11440);
+      expect(
+        capturedOptions!.headers['x-router'],
+        'cloudlist.service.kugou.com',
+      );
+    },
+  );
+
+  test(
+    'Kugou create playlist uses cloudlist router and current client identity',
+    () async {
+      final dio = Dio();
+      RequestOptions? capturedOptions;
+      Object? capturedBody;
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            capturedOptions = options;
+            capturedBody = options.data;
+            handler.resolve(
+              Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: {'status': 1},
+              ),
+            );
+          },
+        ),
+      );
+
+      final api = KugouApi(dio: dio)
+        ..setClientMode(KugouPlaybackClient.lite)
+        ..setToken('token-1')
+        ..setUserId('10001');
+
+      await api.createPlaylist('新歌单');
+
+      expect(capturedOptions, isNotNull);
+      expect(capturedOptions!.method, 'POST');
+      expect(
+        capturedOptions!.uri.toString(),
+        contains('/cloudlist.service/v5/add_list'),
+      );
+      expect(
+        capturedOptions!.headers['x-router'],
+        'cloudlist.service.kugou.com',
+      );
+      expect(capturedOptions!.queryParameters['appid'], 3116);
+      expect(capturedOptions!.queryParameters['clientver'], 11440);
+      expect(capturedOptions!.queryParameters['userid'], '10001');
+      expect(capturedOptions!.queryParameters['token'], 'token-1');
+      expect(capturedBody, isA<Map>());
+      expect((capturedBody as Map)['name'], '新歌单');
+    },
+  );
 
   test(
     'Kugou QR success stores userid from fetched profile for later APIs',

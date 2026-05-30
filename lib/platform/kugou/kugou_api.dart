@@ -631,11 +631,11 @@ class KugouApi {
     final res = await _dio.post(
       KugouEndpoints.userPlaylist,
       data: data,
-      queryParameters: _signedAndroidParams({
-        'plat': 1,
-        'userid': int.tryParse(userid) ?? userid,
-        'token': token,
-      }, jsonEncode(data)),
+      queryParameters: _signedAndroidParams(
+        {'plat': 1, 'userid': int.tryParse(userid) ?? userid, 'token': token},
+        jsonEncode(data),
+        _clientMode,
+      ),
       options: Options(headers: {'x-router': 'cloudlist.service.kugou.com'}),
     );
     return _decodeResponse(res.data);
@@ -731,7 +731,11 @@ class KugouApi {
     final res = await _dio.post(
       KugouEndpoints.userPlaylistSongs,
       data: data,
-      queryParameters: _signedAndroidParams(const {}, jsonEncode(data)),
+      queryParameters: _signedAndroidParams(
+        const {},
+        jsonEncode(data),
+        _clientMode,
+      ),
       options: Options(headers: {'x-router': 'cloudlist.service.kugou.com'}),
     );
     return _decodeResponse(res.data);
@@ -817,16 +821,21 @@ class KugouApi {
       'list_create_gid': '',
       'from_shupinmv': 0,
     };
-    final params = _signedAndroidParams({
-      'last_time': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      'last_area': 'gztx',
-      'userid': _userid ?? '0',
-      'token': _token ?? '',
-    }, jsonEncode(data));
+    final params = _signedAndroidParams(
+      {
+        'last_time': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        'last_area': 'gztx',
+        'userid': _userid ?? '0',
+        'token': _token ?? '',
+      },
+      jsonEncode(data),
+      _clientMode,
+    );
     final res = await _dio.post(
       KugouEndpoints.playlistAdd,
       data: data,
       queryParameters: params,
+      options: Options(headers: {'x-router': 'cloudlist.service.kugou.com'}),
     );
     return _decodeResponse(res.data);
   }
