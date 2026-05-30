@@ -315,7 +315,7 @@ class SettingsPage extends ConsumerWidget {
           const ListTile(
             leading: Icon(Icons.info_outline),
             title: Text('版本'),
-            subtitle: Text('1.0.0'),
+            subtitle: Text('1.1.0'),
           ),
         ],
       ),

@@ -13,6 +13,7 @@ void main() {
   setUp(() async {
     tempDir = await Directory.systemTemp.createTemp('mconnect_settings_test_');
     Hive.init(tempDir.path);
+    await Hive.openBox('settings');
     await DiagnosticsService.instance.initializeForTest(tempDir);
   });
 

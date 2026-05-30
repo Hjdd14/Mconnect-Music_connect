@@ -12,6 +12,7 @@ import 'platform/kugou/kugou_platform.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Hive.initFlutter();
+  await Hive.openBox('settings');
   final diagnostics = DiagnosticsService.instance;
   await diagnostics.initialize();
   diagnostics.startUiHeartbeat();

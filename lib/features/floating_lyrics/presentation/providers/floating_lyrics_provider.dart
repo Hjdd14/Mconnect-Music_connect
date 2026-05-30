@@ -25,13 +25,15 @@ final floatingLyricsSyncProvider = Provider<FloatingLyricsSyncController>((ref) 
 });
 
 class FloatingLyricsNotifier extends StateNotifier<FloatingLyricsSettings> {
-  late final Future<void> ready = _load();
+  Future<void> ready = Future.value();
 
-  FloatingLyricsNotifier() : super(const FloatingLyricsSettings());
+  FloatingLyricsNotifier() : super(const FloatingLyricsSettings()) {
+    _load();
+  }
 
-  Future<void> _load() async {
+  void _load() {
     try {
-      final box = await Hive.openBox(_floatingLyricsBoxName);
+      final box = Hive.box(_floatingLyricsBoxName);
       final raw = box.get(_floatingLyricsKey);
       if (!mounted || raw is! Map) return;
       state = FloatingLyricsSettings.fromJson(raw);

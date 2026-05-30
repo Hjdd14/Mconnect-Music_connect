@@ -38,13 +38,15 @@ final themeModeProvider = Provider<ThemeMode>((ref) {
 });
 
 class ThemeSettingsNotifier extends StateNotifier<ThemeSettings> {
-  late final Future<void> ready = _load();
+  Future<void> ready = Future.value();
 
-  ThemeSettingsNotifier() : super(const ThemeSettings());
+  ThemeSettingsNotifier() : super(const ThemeSettings()) {
+    _load();
+  }
 
-  Future<void> _load() async {
+  void _load() {
     try {
-      final box = await Hive.openBox(_themeBoxName);
+      final box = Hive.box(_themeBoxName);
       final modeIndex = box.get(_themeModeKey, defaultValue: 0) as int;
       final seedColorValue =
           box.get(

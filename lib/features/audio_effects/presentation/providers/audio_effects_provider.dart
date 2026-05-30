@@ -191,13 +191,15 @@ final audioEffectsSettingsProvider =
     });
 
 class AudioEffectsSettingsNotifier extends StateNotifier<AudioEffectsSettings> {
-  late final Future<void> ready = _load();
+  Future<void> ready = Future.value();
 
-  AudioEffectsSettingsNotifier() : super(const AudioEffectsSettings());
+  AudioEffectsSettingsNotifier() : super(const AudioEffectsSettings()) {
+    _load();
+  }
 
-  Future<void> _load() async {
+  void _load() {
     try {
-      final box = await Hive.openBox(_audioEffectsBoxName);
+      final box = Hive.box(_audioEffectsBoxName);
       final raw = box.get(_audioEffectsKey);
       if (!mounted) return;
       state = AudioEffectsSettings.fromJson(raw);

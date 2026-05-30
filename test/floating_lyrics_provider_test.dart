@@ -14,6 +14,7 @@ void main() {
       'mconnect_floating_lyrics_test_',
     );
     Hive.init(tempDir.path);
+    await Hive.openBox('settings');
   });
 
   tearDown(() async {

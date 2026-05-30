@@ -10,6 +10,7 @@ void main() {
   setUp(() async {
     tempDir = await Directory.systemTemp.createTemp('mconnect_audio_test_');
     Hive.init(tempDir.path);
+    await Hive.openBox('settings');
   });
 
   tearDown(() async {
