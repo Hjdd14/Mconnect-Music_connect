@@ -101,35 +101,39 @@ void main() {
     }
   });
 
-  testWidgets('settings disables Android-only controls on Windows', (
-    tester,
-  ) async {
-    PlatformUtils.setDebugOverride(AppPlatform.windows);
+  testWidgets(
+    'settings enables Windows lyrics but keeps Android equalizer off',
+    (tester) async {
+      PlatformUtils.setDebugOverride(AppPlatform.windows);
 
-    await tester.pumpWidget(
-      const ProviderScope(child: MaterialApp(home: SettingsPage())),
-    );
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        const ProviderScope(child: MaterialApp(home: SettingsPage())),
+      );
+      await tester.pumpAndSettle();
 
-    await _dragUntilIconVisible(tester, Icons.picture_in_picture_alt_outlined);
-    final floatingLyricsTile = tester.widget<SwitchListTile>(
-      find.ancestor(
-        of: find.byIcon(Icons.picture_in_picture_alt_outlined),
-        matching: find.byType(SwitchListTile),
-      ),
-    );
+      await _dragUntilIconVisible(
+        tester,
+        Icons.picture_in_picture_alt_outlined,
+      );
+      final floatingLyricsTile = tester.widget<SwitchListTile>(
+        find.ancestor(
+          of: find.byIcon(Icons.picture_in_picture_alt_outlined),
+          matching: find.byType(SwitchListTile),
+        ),
+      );
 
-    await _dragUntilIconVisible(tester, Icons.equalizer);
-    final equalizerTile = tester.widget<SwitchListTile>(
-      find.ancestor(
-        of: find.byIcon(Icons.equalizer),
-        matching: find.byType(SwitchListTile),
-      ),
-    );
+      await _dragUntilIconVisible(tester, Icons.equalizer);
+      final equalizerTile = tester.widget<SwitchListTile>(
+        find.ancestor(
+          of: find.byIcon(Icons.equalizer),
+          matching: find.byType(SwitchListTile),
+        ),
+      );
 
-    expect(floatingLyricsTile.onChanged, isNull);
-    expect(equalizerTile.onChanged, isNull);
-  });
+      expect(floatingLyricsTile.onChanged, isNotNull);
+      expect(equalizerTile.onChanged, isNull);
+    },
+  );
 }
 
 Future<void> _dragUntilTextVisible(WidgetTester tester, String label) async {

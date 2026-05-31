@@ -14,11 +14,11 @@ import 'package:mconnect/platform/base/music_platform.dart';
 import 'package:mconnect/platform/base/platform_registry.dart';
 
 void main() {
-  testWidgets('playlist picker times out instead of spinning forever', (tester) async {
+  testWidgets('playlist picker times out instead of spinning forever', (
+    tester,
+  ) async {
     PlatformRegistry.register(
-      _FakePlaylistPlatform(
-        loadCompleter: Completer<List<Playlist>>(),
-      ),
+      _FakePlaylistPlatform(loadCompleter: Completer<List<Playlist>>()),
     );
 
     await tester.pumpWidget(
@@ -41,39 +41,45 @@ void main() {
     expect(find.text('加载歌单失败'), findsOneWidget);
   });
 
-  testWidgets('playlist picker restores tap state when add operation times out', (tester) async {
-    PlatformRegistry.register(
-      _FakePlaylistPlatform(
-        playlists: const [
-          Playlist(id: 'p1', name: '歌单 1', platform: PlatformType.netease),
-        ],
-        addCompleter: Completer<bool>(),
-      ),
-    );
+  testWidgets(
+    'playlist picker restores tap state when add operation times out',
+    (tester) async {
+      PlatformRegistry.register(
+        _FakePlaylistPlatform(
+          playlists: const [
+            Playlist(id: 'p1', name: '歌单 1', platform: PlatformType.netease),
+          ],
+          addCompleter: Completer<bool>(),
+        ),
+      );
 
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: PlaylistPickerSheet(
-            song: _song,
-            operationTimeout: const Duration(milliseconds: 20),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: PlaylistPickerSheet(
+              song: _song,
+              operationTimeout: const Duration(milliseconds: 20),
+            ),
           ),
         ),
-      ),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
 
-    await tester.tap(find.text('歌单 1'));
-    await tester.pump();
-    expect(find.byType(CircularProgressIndicator), findsWidgets);
+      await tester.tap(find.text('歌单 1'));
+      await tester.pump();
+      expect(find.byType(CircularProgressIndicator), findsWidgets);
 
-    await tester.pump(const Duration(milliseconds: 30));
-    await tester.pump();
+      await tester.pump(const Duration(milliseconds: 30));
+      await tester.pump();
 
-    expect(find.byType(CircularProgressIndicator), findsNothing);
-    expect(tester.widget<ListTile>(find.widgetWithText(ListTile, '歌单 1')).enabled, isTrue);
-  });
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(
+        tester.widget<ListTile>(find.widgetWithText(ListTile, '歌单 1')).enabled,
+        isTrue,
+      );
+    },
+  );
 }
 
 const _song = Song(
@@ -130,7 +136,8 @@ class _FakePlaylistPlatform implements MusicPlatform {
   Stream<QrLoginStatus> pollQrStatus(String key) => throw UnimplementedError();
 
   @override
-  Future<LoginResult> loginByPhone(String phone, String code) => throw UnimplementedError();
+  Future<LoginResult> loginByPhone(String phone, String code) =>
+      throw UnimplementedError();
 
   @override
   Future<LoginResult> sendPhoneCode(String phone) async =>
@@ -143,16 +150,28 @@ class _FakePlaylistPlatform implements MusicPlatform {
   Future<void> logout() async {}
 
   @override
-  Future<List<Song>> search(String keyword, {int page = 1, int limit = 30}) async => const [];
+  Future<List<Song>> search(
+    String keyword, {
+    int page = 1,
+    int limit = 30,
+  }) async => const [];
 
   @override
-  Future<List<Playlist>> searchPlaylists(String keyword, {int page = 1, int limit = 30}) async => const [];
+  Future<List<Playlist>> searchPlaylists(
+    String keyword, {
+    int page = 1,
+    int limit = 30,
+  }) async => const [];
 
   @override
-  Future<String> getSongUrl(String songId, {AudioLevel quality = AudioLevel.low}) async => '';
+  Future<String> getSongUrl(
+    String songId, {
+    AudioLevel quality = AudioLevel.low,
+  }) async => '';
 
   @override
-  Future<List<AudioQuality>> getAvailableQualities(String songId) async => const [];
+  Future<List<AudioQuality>> getAvailableQualities(String songId) async =>
+      const [];
 
   @override
   Future<String?> getLyrics(String songId) async => null;
@@ -170,7 +189,10 @@ class _FakePlaylistPlatform implements MusicPlatform {
   Future<Playlist?> createPlaylist(String name) async => null;
 
   @override
-  Future<bool> collectPlaylist(String playlistId, {bool collect = true}) async => false;
+  Future<bool> collectPlaylist(
+    String playlistId, {
+    bool collect = true,
+  }) async => false;
 
   @override
   Future<List<Song>> getDailyRecommendations() async => const [];

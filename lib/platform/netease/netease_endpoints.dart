@@ -9,7 +9,8 @@ class NeteaseEndpoints {
   static const String userPlaylist = '/api/user/playlist';
   static const String playlistDetail = '/api/v6/playlist/detail';
   static const String recommendSongs = '/api/v3/discovery/recommend/songs';
-  static const String recommendResource = '/api/v1/discovery/recommend/resource';
+  static const String recommendResource =
+      '/api/v1/discovery/recommend/resource';
   static const String like = '/api/radio/like';
   static const String qrKey = '/api/login/qrcode/unikey';
   static const String qrCheck = '/api/login/qrcode/client/login';

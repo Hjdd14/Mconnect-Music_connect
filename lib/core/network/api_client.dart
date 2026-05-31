@@ -6,16 +6,16 @@ class ApiClient {
   final Dio _dio;
 
   ApiClient({BaseOptions? options})
-      : _dio = Dio(options ?? BaseOptions(
-            connectTimeout: const Duration(seconds: 15),
-            receiveTimeout: const Duration(seconds: 15),
-            sendTimeout: const Duration(seconds: 15),
-          )) {
+    : _dio = Dio(
+        options ??
+            BaseOptions(
+              connectTimeout: const Duration(seconds: 15),
+              receiveTimeout: const Duration(seconds: 15),
+              sendTimeout: const Duration(seconds: 15),
+            ),
+      ) {
     final retryInterceptor = RetryInterceptor();
-    _dio.interceptors.addAll([
-      retryInterceptor,
-      _ErrorInterceptor(),
-    ]);
+    _dio.interceptors.addAll([retryInterceptor, _ErrorInterceptor()]);
     retryInterceptor.dio = _dio;
   }
 
@@ -50,17 +50,19 @@ class _ErrorInterceptor extends Interceptor {
       default:
         message = '请求失败';
     }
-    handler.next(DioException(
-      requestOptions: err.requestOptions,
-      response: err.response,
-      type: err.type,
-      error: ApiException(
-        statusCode: err.response?.statusCode,
+    handler.next(
+      DioException(
+        requestOptions: err.requestOptions,
+        response: err.response,
+        type: err.type,
+        error: ApiException(
+          statusCode: err.response?.statusCode,
+          message: message,
+          details: err.message,
+        ),
         message: message,
-        details: err.message,
       ),
-      message: message,
-    ));
+    );
   }
 
   String _statusCodeMessage(int? code) {

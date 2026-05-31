@@ -14,7 +14,9 @@ import java.io.File
 class MainActivity : AudioServiceActivity() {
     private val fileOpenerChannel = "com.mconnect.mconnect/file_opener"
     private val floatingLyricsChannel = "com.mconnect.mconnect/floating_lyrics"
+    private val playbackKeepAliveChannel = "com.mconnect.mconnect/playback_keep_alive"
     private var floatingLyricsController: FloatingLyricsController? = null
+    private var playbackKeepAliveController: PlaybackKeepAliveController? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -24,6 +26,18 @@ class MainActivity : AudioServiceActivity() {
                 when (call.method) {
                     "openFile" -> openFile(path, result)
                     "openFolder" -> openFolder(path, result)
+                    else -> result.notImplemented()
+                }
+            }
+        playbackKeepAliveController = PlaybackKeepAliveController(applicationContext)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, playbackKeepAliveChannel)
+            .setMethodCallHandler { call, result ->
+                val controller = playbackKeepAliveController
+                    ?: PlaybackKeepAliveController(applicationContext).also {
+                        playbackKeepAliveController = it
+                    }
+                when (call.method) {
+                    "setPlaying" -> controller.setPlaying(call.arguments, result)
                     else -> result.notImplemented()
                 }
             }
@@ -51,6 +65,8 @@ class MainActivity : AudioServiceActivity() {
     override fun onDestroy() {
         floatingLyricsController?.dispose()
         floatingLyricsController = null
+        playbackKeepAliveController?.release()
+        playbackKeepAliveController = null
         super.onDestroy()
     }
 

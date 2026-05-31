@@ -15,13 +15,16 @@ class LoginExpiredException extends ApiException {
 
 class SongNotAvailableException extends ApiException {
   SongNotAvailableException({String? platform})
-      : super(message: '该歌曲在${platform ?? "当前平台"}不可用');
+    : super(message: '该歌曲在${platform ?? "当前平台"}不可用');
 }
 
 class QualityNotAvailableException extends ApiException {
   final String? suggestedQuality;
   QualityNotAvailableException({this.suggestedQuality})
-      : super(message: '所选音质不可用${suggestedQuality != null ? "，已降级到$suggestedQuality" : ""}');
+    : super(
+        message:
+            '所选音质不可用${suggestedQuality != null ? "，已降级到$suggestedQuality" : ""}',
+      );
 }
 
 class LyricsNotFoundException extends ApiException {
@@ -31,7 +34,7 @@ class LyricsNotFoundException extends ApiException {
 class NoVipMembershipException extends ApiException {
   final String platformName;
   NoVipMembershipException(this.platformName)
-      : super(message: '需要开通${platformName}会员');
+    : super(message: '需要开通${platformName}会员');
 }
 
 class StoragePermissionDeniedException extends ApiException {

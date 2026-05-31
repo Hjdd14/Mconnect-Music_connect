@@ -58,7 +58,8 @@ class RankingsNotifier extends StateNotifier<RankingsState> {
   }
 }
 
-final rankingsProvider =
-    StateNotifierProvider<RankingsNotifier, RankingsState>((ref) {
-  return RankingsNotifier();
-});
+final rankingsProvider = StateNotifierProvider<RankingsNotifier, RankingsState>(
+  (ref) {
+    return RankingsNotifier();
+  },
+);

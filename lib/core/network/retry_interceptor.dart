@@ -29,8 +29,10 @@ class RetryInterceptor extends Interceptor {
     }
 
     final delay = Duration(
-      milliseconds: (baseDelay.inMilliseconds * (1 << retryCount))
-          .clamp(0, maxDelay.inMilliseconds),
+      milliseconds: (baseDelay.inMilliseconds * (1 << retryCount)).clamp(
+        0,
+        maxDelay.inMilliseconds,
+      ),
     );
     await Future.delayed(delay);
 

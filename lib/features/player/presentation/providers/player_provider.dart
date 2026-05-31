@@ -14,6 +14,7 @@ import '../../../../models/song.dart';
 import '../../../../platform/base/platform_registry.dart';
 import '../../../../platform/base/music_platform.dart';
 import '../../data/player_playback_memory_store.dart';
+import '../../data/playback_keep_alive_service.dart';
 import '../../data/playback_notification_service.dart' as playback_notification;
 
 enum RepeatMode { off, all, one }
@@ -257,6 +258,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   final PlayerPlaybackMemoryStore _playbackMemoryStore;
   final playback_notification.PlaybackNotificationController
   _notificationController;
+  final PlaybackKeepAliveController _keepAliveController;
   final List<StreamSubscription> _subscriptions = [];
   final _mutex = _AudioMutex();
   bool _isSwitchingQuality = false;
@@ -269,6 +271,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   PlayerPlaybackMemory? _pendingPlaybackMemory;
   bool _fadeEnabled = false;
   Duration _fadeDuration = const Duration(milliseconds: 800);
+  bool _lastKeepAlivePlaying = false;
 
   PlayerNotifier({
     PlayerAudioController? audioController,
@@ -282,6 +285,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     Duration playbackMemorySaveInterval = const Duration(seconds: 5),
     playback_notification.PlaybackNotificationController?
     notificationController,
+    PlaybackKeepAliveController? keepAliveController,
   }) : _audioController = audioController,
        _platformResolver = platformResolver ?? PlatformRegistry.get,
        _audioControllerFactory =
@@ -296,6 +300,9 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
            playback_notification
                .AudioServicePlaybackNotificationController
                .instance,
+       _keepAliveController =
+           keepAliveController ??
+           MethodChannelPlaybackKeepAliveController.instance,
        super(const PlayerState()) {
     _notificationController.attach(
       playback_notification.PlaybackNotificationActions(
@@ -333,9 +340,16 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     );
   }
 
+  void _syncPlaybackKeepAlive(bool isPlaying) {
+    if (_lastKeepAlivePlaying == isPlaying) return;
+    _lastKeepAlivePlaying = isPlaying;
+    unawaited(_keepAliveController.setPlaying(isPlaying));
+  }
+
   void _setState(PlayerState nextState) {
     state = nextState;
     _syncNotificationState();
+    _syncPlaybackKeepAlive(state.isPlaying);
   }
 
   PlayerAudioController _ensureAudioController() {
@@ -1158,6 +1172,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       sub.cancel();
     }
     _notificationController.detach();
+    unawaited(_keepAliveController.dispose());
     _audioController?.dispose();
     super.dispose();
   }

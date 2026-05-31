@@ -29,7 +29,9 @@ class LikesState {
     return LikesState(
       songs: songs ?? this.songs,
       isLoading: isLoading ?? this.isLoading,
-      filterPlatform: filterPlatform != null ? filterPlatform() : this.filterPlatform,
+      filterPlatform: filterPlatform != null
+          ? filterPlatform()
+          : this.filterPlatform,
       error: error != null ? error() : this.error,
     );
   }
@@ -54,7 +56,9 @@ class LikesNotifier extends StateNotifier<LikesState> {
     try {
       final userLikes = await _likesDao.getAllLikes(limit: 500);
       // Batch query instead of N+1
-      final keys = userLikes.map((l) => (id: l.songId, platform: l.platform)).toList();
+      final keys = userLikes
+          .map((l) => (id: l.songId, platform: l.platform))
+          .toList();
       final songRecords = await _songsDao.getSongsByIds(keys);
       final songMap = {for (final r in songRecords) '${r.platform}_${r.id}': r};
       final songs = <Song>[];
@@ -78,7 +82,9 @@ class LikesNotifier extends StateNotifier<LikesState> {
       if (isLiked) {
         // Optimistically remove from state
         state = state.copyWith(
-          songs: state.songs.where((s) => !(s.id == song.id && s.platform == song.platform)).toList(),
+          songs: state.songs
+              .where((s) => !(s.id == song.id && s.platform == song.platform))
+              .toList(),
         );
         await _likesDao.unlikeSong(song.id, song.platform.name);
         return false;
@@ -113,7 +119,10 @@ class LikesNotifier extends StateNotifier<LikesState> {
       orElse: () => PlatformType.netease,
     );
     final artistsList = record.artists.isNotEmpty
-        ? (record.artists.split(',').map((a) => Artist(id: '', name: a.trim())).toList())
+        ? (record.artists
+              .split(',')
+              .map((a) => Artist(id: '', name: a.trim()))
+              .toList())
         : <Artist>[];
     return Song(
       id: record.id,

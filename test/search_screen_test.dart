@@ -4,7 +4,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mconnect/features/search/presentation/screens/search_screen.dart';
 
 void main() {
-  testWidgets('search screen lets users switch between songs and playlists', (tester) async {
+  testWidgets('search screen lets users switch between songs and playlists', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       const ProviderScope(
         child: MaterialApp(home: Scaffold(body: SearchScreen())),

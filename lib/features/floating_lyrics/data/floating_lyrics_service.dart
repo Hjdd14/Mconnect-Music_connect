@@ -2,8 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 
-import 'package:mconnect/core/platform/platform_utils.dart';
-
 import 'floating_lyrics_models.dart';
 
 class FloatingLyricsService {
@@ -45,12 +43,10 @@ class FloatingLyricsService {
   }
 
   Future<bool> canDrawOverlays() async {
-    if (PlatformUtils.isWindows) return false;
     return await _invokeOptional<bool>('canDrawOverlays') ?? false;
   }
 
   Future<bool> openOverlaySettings() async {
-    if (PlatformUtils.isWindows) return false;
     return await _invokeOptional<bool>('openOverlaySettings') ?? false;
   }
 

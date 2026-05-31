@@ -84,13 +84,16 @@ void main() {
     },
   );
 
-  test('Windows reports floating lyrics overlay unavailable for MVP', () async {
-    PlatformUtils.setDebugOverride(AppPlatform.windows);
-    addTearDown(() => PlatformUtils.setDebugOverride(null));
+  test(
+    'Windows asks the native floating lyrics channel for availability',
+    () async {
+      PlatformUtils.setDebugOverride(AppPlatform.windows);
+      addTearDown(() => PlatformUtils.setDebugOverride(null));
 
-    final allowed = await FloatingLyricsService.instance.canDrawOverlays();
+      final allowed = await FloatingLyricsService.instance.canDrawOverlays();
 
-    expect(allowed, isFalse);
-    expect(calls, isEmpty);
-  });
+      expect(allowed, isTrue);
+      expect(calls.single.method, 'canDrawOverlays');
+    },
+  );
 }

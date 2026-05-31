@@ -38,9 +38,20 @@ void main() {
   });
 
   test('extracts QQ uin from alternate cookie names', () {
-    expect(QqPlatform.extractUinFromCookieForTest('qqmusic_uin=123456; qm_keyst=abc'), '123456');
-    expect(QqPlatform.extractUinFromCookieForTest('loginUin=o234567; p_skey=abc'), '234567');
-    expect(QqPlatform.extractUinFromCookieForTest('uin=o345678; p_skey=abc'), '345678');
+    expect(
+      QqPlatform.extractUinFromCookieForTest(
+        'qqmusic_uin=123456; qm_keyst=abc',
+      ),
+      '123456',
+    );
+    expect(
+      QqPlatform.extractUinFromCookieForTest('loginUin=o234567; p_skey=abc'),
+      '234567',
+    );
+    expect(
+      QqPlatform.extractUinFromCookieForTest('uin=o345678; p_skey=abc'),
+      '345678',
+    );
   });
 
   test('QQ user playlists use dissid for detail instead of dirid', () async {
@@ -66,103 +77,121 @@ void main() {
     expect(songs.single.id, 'song-mid-1');
   });
 
-  test('QQ playlist detail parses cdlist song rows from legacy endpoint shape', () async {
-    final platform = QqPlatform(api: _QqCdlistPlaylistApi());
+  test(
+    'QQ playlist detail parses cdlist song rows from legacy endpoint shape',
+    () async {
+      final platform = QqPlatform(api: _QqCdlistPlaylistApi());
 
-    final songs = await platform.getPlaylistDetail('888888');
+      final songs = await platform.getPlaylistDetail('888888');
 
-    expect(songs, hasLength(1));
-    expect(songs.single.id, 'song-mid-legacy');
-    expect(songs.single.name, 'Legacy Song');
-    expect(songs.single.artists.single.name, 'Legacy Artist');
-  });
+      expect(songs, hasLength(1));
+      expect(songs.single.id, 'song-mid-legacy');
+      expect(songs.single.name, 'Legacy Song');
+      expect(songs.single.artists.single.name, 'Legacy Artist');
+    },
+  );
 
-  test('QQ create playlist keeps dirid editable and resolves dissid after refresh', () async {
-    final api = _QqCreatePlaylistApi();
-    final platform = QqPlatform(api: api);
-    await platform.restoreSession(
-      _MemorySessionStorage(
-        user: const User(
-          id: '123456',
-          nickname: 'QQ User',
-          platform: PlatformType.qq,
+  test(
+    'QQ create playlist keeps dirid editable and resolves dissid after refresh',
+    () async {
+      final api = _QqCreatePlaylistApi();
+      final platform = QqPlatform(api: api);
+      await platform.restoreSession(
+        _MemorySessionStorage(
+          user: const User(
+            id: '123456',
+            nickname: 'QQ User',
+            platform: PlatformType.qq,
+          ),
         ),
-      ),
-    );
+      );
 
-    final playlist = await platform.createPlaylist('新歌单');
+      final playlist = await platform.createPlaylist('新歌单');
 
-    expect(playlist, isNotNull);
-    expect(playlist!.id, '999999');
-    expect(playlist.editableId, '34');
-    expect(playlist.name, '新歌单');
-  });
+      expect(playlist, isNotNull);
+      expect(playlist!.id, '999999');
+      expect(playlist.editableId, '34');
+      expect(playlist.name, '新歌单');
+    },
+  );
 
-  test('QQ create playlist returns null when only an unstable dirid is available', () async {
-    final platform = QqPlatform(api: _QqCreateWithoutDissidApi());
-    await platform.restoreSession(
-      _MemorySessionStorage(
-        user: const User(
-          id: '123456',
-          nickname: 'QQ User',
-          platform: PlatformType.qq,
+  test(
+    'QQ create playlist returns null when only an unstable dirid is available',
+    () async {
+      final platform = QqPlatform(api: _QqCreateWithoutDissidApi());
+      await platform.restoreSession(
+        _MemorySessionStorage(
+          user: const User(
+            id: '123456',
+            nickname: 'QQ User',
+            platform: PlatformType.qq,
+          ),
         ),
-      ),
-    );
+      );
 
-    final playlist = await platform.createPlaylist('12');
+      final playlist = await platform.createPlaylist('12');
 
-    expect(playlist, isNull);
-  });
+      expect(playlist, isNull);
+    },
+  );
 
-  test('QQ import falls back to legacy public playlist detail endpoint', () async {
-    final api = _QqLegacyImportApi();
-    final platform = QqPlatform(api: api);
+  test(
+    'QQ import falls back to legacy public playlist detail endpoint',
+    () async {
+      final api = _QqLegacyImportApi();
+      final platform = QqPlatform(api: api);
 
-    final playlist = await platform.parseShareLink(
-      'https://y.qq.com/n3/other/pages/details/playlist.html?platform=11'
-      '&appshare=android_qq&id=9333150211&ADTAG=wxfshare',
-    );
-    final songs = await platform.getPlaylistDetail('9333150211');
+      final playlist = await platform.parseShareLink(
+        'https://y.qq.com/n3/other/pages/details/playlist.html?platform=11'
+        '&appshare=android_qq&id=9333150211&ADTAG=wxfshare',
+      );
+      final songs = await platform.getPlaylistDetail('9333150211');
 
-    expect(api.primaryRequests, ['9333150211', '9333150211']);
-    expect(api.legacyRequests, ['9333150211', '9333150211']);
-    expect(playlist, isNotNull);
-    expect(playlist!.id, '9333150211');
-    expect(playlist.name, 'Legacy Imported QQ Playlist');
-    expect(playlist.songCount, 779);
-    expect(songs, hasLength(1));
-    expect(songs.single.id, 'legacy-song-mid');
-    expect(songs.single.name, 'Legacy QQ Song');
-  });
+      expect(api.primaryRequests, ['9333150211', '9333150211']);
+      expect(api.legacyRequests, ['9333150211', '9333150211']);
+      expect(playlist, isNotNull);
+      expect(playlist!.id, '9333150211');
+      expect(playlist.name, 'Legacy Imported QQ Playlist');
+      expect(playlist.songCount, 779);
+      expect(songs, hasLength(1));
+      expect(songs.single.id, 'legacy-song-mid');
+      expect(songs.single.name, 'Legacy QQ Song');
+    },
+  );
 
-  test('QQ import still uses legacy endpoint when modern detail throws', () async {
-    final platform = QqPlatform(api: _QqThrowingModernLegacyApi());
+  test(
+    'QQ import still uses legacy endpoint when modern detail throws',
+    () async {
+      final platform = QqPlatform(api: _QqThrowingModernLegacyApi());
 
-    final playlist = await platform.parseShareLink(
-      'https://y.qq.com/n3/other/pages/details/playlist.html?id=9333150211',
-    );
-    final songs = await platform.getPlaylistDetail('9333150211');
+      final playlist = await platform.parseShareLink(
+        'https://y.qq.com/n3/other/pages/details/playlist.html?id=9333150211',
+      );
+      final songs = await platform.getPlaylistDetail('9333150211');
 
-    expect(playlist, isNotNull);
-    expect(playlist!.songCount, 1);
-    expect(songs, hasLength(1));
-    expect(songs.single.name, 'Legacy After Throw');
-  });
+      expect(playlist, isNotNull);
+      expect(playlist!.songCount, 1);
+      expect(songs, hasLength(1));
+      expect(songs.single.name, 'Legacy After Throw');
+    },
+  );
 
-  test('QQ playlist detail loads all modern pages beyond the first 200 songs', () async {
-    final api = _QqPagedPlaylistApi(total: 450);
-    final songs = await QqPlatform(api: api).getPlaylistDetail('450');
+  test(
+    'QQ playlist detail loads all modern pages beyond the first 200 songs',
+    () async {
+      final api = _QqPagedPlaylistApi(total: 450);
+      final songs = await QqPlatform(api: api).getPlaylistDetail('450');
 
-    expect(songs, hasLength(450));
-    expect(songs.first.id, 'mid-0');
-    expect(songs.last.id, 'mid-449');
-    expect(api.requestedPages, [
-      (begin: 0, count: 200),
-      (begin: 200, count: 200),
-      (begin: 400, count: 200),
-    ]);
-  });
+      expect(songs, hasLength(450));
+      expect(songs.first.id, 'mid-0');
+      expect(songs.last.id, 'mid-449');
+      expect(api.requestedPages, [
+        (begin: 0, count: 200),
+        (begin: 200, count: 200),
+        (begin: 400, count: 200),
+      ]);
+    },
+  );
 }
 
 class _MemorySessionStorage extends SessionStorage {
@@ -268,12 +297,7 @@ class _QqCreatePlaylistApi extends QqApi {
     return {
       'data': {
         'disslist': [
-          {
-            'dirid': 34,
-            'dissid': 999999,
-            'diss_name': '新歌单',
-            'song_cnt': 0,
-          },
+          {'dirid': 34, 'dissid': 999999, 'diss_name': '新歌单', 'song_cnt': 0},
         ],
       },
     };
@@ -291,12 +315,7 @@ class _QqCreateWithoutDissidApi extends QqApi {
     return {
       'data': {
         'disslist': [
-          {
-            'dirid': 12,
-            'dissid': '',
-            'diss_name': '12',
-            'song_cnt': 0,
-          },
+          {'dirid': 12, 'dissid': '', 'diss_name': '12', 'song_cnt': 0},
         ],
       },
     };

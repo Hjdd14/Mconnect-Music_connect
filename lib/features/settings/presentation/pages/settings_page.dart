@@ -125,22 +125,19 @@ class SettingsPage extends ConsumerWidget {
             subtitle: Text(
               isWindows ? 'Windows 悬浮歌词将在原生置顶窗口完成后启用' : '显示在其他应用上方，需要系统悬浮窗权限',
             ),
-            value: !isWindows && floatingLyrics.enabled,
-            onChanged: isWindows
-                ? null
-                : (value) async {
-                    if (value) {
-                      final allowed = await FloatingLyricsService.instance
-                          .canDrawOverlays();
-                      if (!allowed) {
-                        await FloatingLyricsService.instance
-                            .openOverlaySettings();
-                      }
-                    } else {
-                      await FloatingLyricsService.instance.hide();
-                    }
-                    await floatingLyricsNotifier.setEnabled(value);
-                  },
+            value: floatingLyrics.enabled,
+            onChanged: (value) async {
+              if (value) {
+                final allowed = await FloatingLyricsService.instance
+                    .canDrawOverlays();
+                if (!allowed) {
+                  await FloatingLyricsService.instance.openOverlaySettings();
+                }
+              } else {
+                await FloatingLyricsService.instance.hide();
+              }
+              await floatingLyricsNotifier.setEnabled(value);
+            },
           ),
           _ColorPresetTile(
             title: '歌词颜色',

@@ -4,6 +4,7 @@ import 'package:audio_service/audio_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mconnect/features/audio_effects/presentation/providers/audio_effects_provider.dart';
 import 'package:just_audio/just_audio.dart' as just_audio;
+import 'package:mconnect/features/player/data/playback_keep_alive_service.dart';
 import 'package:mconnect/features/player/data/playback_notification_service.dart';
 import 'package:mconnect/features/player/presentation/providers/player_provider.dart';
 import 'package:mconnect/features/player/data/player_playback_memory_store.dart';
@@ -516,6 +517,42 @@ void main() {
     await notifications.actions!.skipToPrevious();
     expect(notifier.state.currentSong?.id, 'media-1');
   });
+
+  test('keeps Android playback awake only while playback is active', () async {
+    final keepAlive = _FakePlaybackKeepAliveController();
+    final notifier = PlayerNotifier(
+      audioController: _FakeAudioController(),
+      audioControllerFactory: () => _FakeAudioController(),
+      platformResolver: (_) => _FakeMusicPlatform(),
+      keepAliveController: keepAlive,
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.playSong(_song('keep-alive'));
+    await pumpEventQueue();
+    expect(keepAlive.playingStates, contains(true));
+
+    await notifier.pause();
+    await pumpEventQueue();
+    expect(keepAlive.playingStates.last, isFalse);
+  });
+
+  test('dispose releases playback keep alive', () async {
+    final keepAlive = _FakePlaybackKeepAliveController();
+    final notifier = PlayerNotifier(
+      audioController: _FakeAudioController(),
+      audioControllerFactory: () => _FakeAudioController(),
+      platformResolver: (_) => _FakeMusicPlatform(),
+      keepAliveController: keepAlive,
+    );
+
+    await notifier.playSong(_song('dispose-keep-alive'));
+    notifier.dispose();
+    await pumpEventQueue();
+
+    expect(keepAlive.disposed, isTrue);
+    expect(keepAlive.playingStates.last, isFalse);
+  });
 }
 
 Song _song(String id, {PlatformType platform = PlatformType.netease}) => Song(
@@ -568,6 +605,12 @@ class _FakeAudioController implements PlayerAudioController {
       return Completer<void>().future;
     }
     _playing = false;
+    _playerStateController.add(
+      const AudioPlaybackState(
+        playing: false,
+        processingState: just_audio.ProcessingState.idle,
+      ),
+    );
   }
 
   @override
@@ -598,6 +641,12 @@ class _FakeAudioController implements PlayerAudioController {
   Future<void> pause() async {
     pauseCalls++;
     _playing = false;
+    _playerStateController.add(
+      const AudioPlaybackState(
+        playing: false,
+        processingState: just_audio.ProcessingState.ready,
+      ),
+    );
   }
 
   @override
@@ -630,6 +679,22 @@ class _FakeAudioController implements PlayerAudioController {
     await _positionController.close();
     await _durationController.close();
     await _playerStateController.close();
+  }
+}
+
+class _FakePlaybackKeepAliveController implements PlaybackKeepAliveController {
+  final List<bool> playingStates = [];
+  bool disposed = false;
+
+  @override
+  Future<void> setPlaying(bool playing) async {
+    playingStates.add(playing);
+  }
+
+  @override
+  Future<void> dispose() async {
+    disposed = true;
+    await setPlaying(false);
   }
 }
 

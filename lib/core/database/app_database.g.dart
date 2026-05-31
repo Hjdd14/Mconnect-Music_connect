@@ -15,56 +15,100 @@ class $SongsTable extends Songs with TableInfo<$SongsTable, SongRecord> {
   static const VerificationMeta _idMeta = const VerificationMeta('id');
   @override
   late final GeneratedColumn<String> id = GeneratedColumn<String>(
-    'id', aliasedName, false,
-    type: DriftSqlType.string, requiredDuringInsert: true,
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
   );
-  static const VerificationMeta _platformMeta = const VerificationMeta('platform');
+  static const VerificationMeta _platformMeta = const VerificationMeta(
+    'platform',
+  );
   @override
   late final GeneratedColumn<String> platform = GeneratedColumn<String>(
-    'platform', aliasedName, false,
-    type: DriftSqlType.string, requiredDuringInsert: true,
+    'platform',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
   );
   static const VerificationMeta _nameMeta = const VerificationMeta('name');
   @override
   late final GeneratedColumn<String> name = GeneratedColumn<String>(
-    'name', aliasedName, false,
-    type: DriftSqlType.string, requiredDuringInsert: true,
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
   );
-  static const VerificationMeta _artistsMeta = const VerificationMeta('artists');
+  static const VerificationMeta _artistsMeta = const VerificationMeta(
+    'artists',
+  );
   @override
   late final GeneratedColumn<String> artists = GeneratedColumn<String>(
-    'artists', aliasedName, false,
-    type: DriftSqlType.string, requiredDuringInsert: true,
+    'artists',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
   );
-  static const VerificationMeta _albumNameMeta = const VerificationMeta('albumName');
+  static const VerificationMeta _albumNameMeta = const VerificationMeta(
+    'albumName',
+  );
   @override
   late final GeneratedColumn<String> albumName = GeneratedColumn<String>(
-    'album_name', aliasedName, true,
-    type: DriftSqlType.string, requiredDuringInsert: false,
+    'album_name',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
   );
-  static const VerificationMeta _albumCoverMeta = const VerificationMeta('albumCover');
+  static const VerificationMeta _albumCoverMeta = const VerificationMeta(
+    'albumCover',
+  );
   @override
   late final GeneratedColumn<String> albumCover = GeneratedColumn<String>(
-    'album_cover', aliasedName, true,
-    type: DriftSqlType.string, requiredDuringInsert: false,
+    'album_cover',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
   );
-  static const VerificationMeta _durationMsMeta = const VerificationMeta('durationMs');
+  static const VerificationMeta _durationMsMeta = const VerificationMeta(
+    'durationMs',
+  );
   @override
   late final GeneratedColumn<int> durationMs = GeneratedColumn<int>(
-    'duration_ms', aliasedName, false,
-    type: DriftSqlType.int, requiredDuringInsert: false,
+    'duration_ms',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
-  static const VerificationMeta _fingerprintMeta = const VerificationMeta('fingerprint');
+  static const VerificationMeta _fingerprintMeta = const VerificationMeta(
+    'fingerprint',
+  );
   @override
   late final GeneratedColumn<String> fingerprint = GeneratedColumn<String>(
-    'fingerprint', aliasedName, false,
-    type: DriftSqlType.string, requiredDuringInsert: true,
+    'fingerprint',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
   );
 
   @override
-  List<GeneratedColumn> get $columns =>
-      [id, platform, name, artists, albumName, albumCover, durationMs, fingerprint];
+  List<GeneratedColumn> get $columns => [
+    id,
+    platform,
+    name,
+    artists,
+    albumName,
+    albumCover,
+    durationMs,
+    fingerprint,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -84,31 +128,55 @@ class $SongsTable extends Songs with TableInfo<$SongsTable, SongRecord> {
       context.missing(_idMeta);
     }
     if (data.containsKey('platform')) {
-      context.handle(_platformMeta, platform.isAcceptableOrUnknown(data['platform']!, _platformMeta));
+      context.handle(
+        _platformMeta,
+        platform.isAcceptableOrUnknown(data['platform']!, _platformMeta),
+      );
     } else if (isInserting) {
       context.missing(_platformMeta);
     }
     if (data.containsKey('name')) {
-      context.handle(_nameMeta, name.isAcceptableOrUnknown(data['name']!, _nameMeta));
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
     } else if (isInserting) {
       context.missing(_nameMeta);
     }
     if (data.containsKey('artists')) {
-      context.handle(_artistsMeta, artists.isAcceptableOrUnknown(data['artists']!, _artistsMeta));
+      context.handle(
+        _artistsMeta,
+        artists.isAcceptableOrUnknown(data['artists']!, _artistsMeta),
+      );
     } else if (isInserting) {
       context.missing(_artistsMeta);
     }
     if (data.containsKey('album_name')) {
-      context.handle(_albumNameMeta, albumName.isAcceptableOrUnknown(data['album_name']!, _albumNameMeta));
+      context.handle(
+        _albumNameMeta,
+        albumName.isAcceptableOrUnknown(data['album_name']!, _albumNameMeta),
+      );
     }
     if (data.containsKey('album_cover')) {
-      context.handle(_albumCoverMeta, albumCover.isAcceptableOrUnknown(data['album_cover']!, _albumCoverMeta));
+      context.handle(
+        _albumCoverMeta,
+        albumCover.isAcceptableOrUnknown(data['album_cover']!, _albumCoverMeta),
+      );
     }
     if (data.containsKey('duration_ms')) {
-      context.handle(_durationMsMeta, durationMs.isAcceptableOrUnknown(data['duration_ms']!, _durationMsMeta));
+      context.handle(
+        _durationMsMeta,
+        durationMs.isAcceptableOrUnknown(data['duration_ms']!, _durationMsMeta),
+      );
     }
     if (data.containsKey('fingerprint')) {
-      context.handle(_fingerprintMeta, fingerprint.isAcceptableOrUnknown(data['fingerprint']!, _fingerprintMeta));
+      context.handle(
+        _fingerprintMeta,
+        fingerprint.isAcceptableOrUnknown(
+          data['fingerprint']!,
+          _fingerprintMeta,
+        ),
+      );
     } else if (isInserting) {
       context.missing(_fingerprintMeta);
     }
@@ -121,14 +189,38 @@ class $SongsTable extends Songs with TableInfo<$SongsTable, SongRecord> {
   SongRecord map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
     return SongRecord(
-      id: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}id'])!,
-      platform: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}platform'])!,
-      name: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}name'])!,
-      artists: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}artists'])!,
-      albumName: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}album_name']),
-      albumCover: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}album_cover']),
-      durationMs: attachedDatabase.typeMapping.read(DriftSqlType.int, data['${effectivePrefix}duration_ms'])!,
-      fingerprint: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}fingerprint'])!,
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      platform: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}platform'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      artists: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}artists'],
+      )!,
+      albumName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}album_name'],
+      ),
+      albumCover: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}album_cover'],
+      ),
+      durationMs: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}duration_ms'],
+      )!,
+      fingerprint: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}fingerprint'],
+      )!,
     );
   }
 
@@ -183,8 +275,12 @@ class SongRecord extends DataClass implements Insertable<SongRecord> {
       platform: Value(platform),
       name: Value(name),
       artists: Value(artists),
-      albumName: albumName == null && nullToAbsent ? const Value.absent() : Value(albumName),
-      albumCover: albumCover == null && nullToAbsent ? const Value.absent() : Value(albumCover),
+      albumName: albumName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(albumName),
+      albumCover: albumCover == null && nullToAbsent
+          ? const Value.absent()
+          : Value(albumCover),
       durationMs: Value(durationMs),
       fingerprint: Value(fingerprint),
     );
@@ -210,11 +306,10 @@ class SongRecord extends DataClass implements Insertable<SongRecord> {
   factory SongRecord.fromJsonString(
     String encodedJson, {
     ValueSerializer? serializer,
-  }) =>
-      SongRecord.fromJson(
-        DataClass.parseJson(encodedJson) as Map<String, dynamic>,
-        serializer: serializer,
-      );
+  }) => SongRecord.fromJson(
+    DataClass.parseJson(encodedJson) as Map<String, dynamic>,
+    serializer: serializer,
+  );
 
   @override
   Map<String, dynamic> toJson({ValueSerializer? serializer}) {
@@ -240,17 +335,16 @@ class SongRecord extends DataClass implements Insertable<SongRecord> {
     Value<String?> albumCover = const Value.absent(),
     int? durationMs,
     String? fingerprint,
-  }) =>
-      SongRecord(
-        id: id ?? this.id,
-        platform: platform ?? this.platform,
-        name: name ?? this.name,
-        artists: artists ?? this.artists,
-        albumName: albumName.present ? albumName.value : this.albumName,
-        albumCover: albumCover.present ? albumCover.value : this.albumCover,
-        durationMs: durationMs ?? this.durationMs,
-        fingerprint: fingerprint ?? this.fingerprint,
-      );
+  }) => SongRecord(
+    id: id ?? this.id,
+    platform: platform ?? this.platform,
+    name: name ?? this.name,
+    artists: artists ?? this.artists,
+    albumName: albumName.present ? albumName.value : this.albumName,
+    albumCover: albumCover.present ? albumCover.value : this.albumCover,
+    durationMs: durationMs ?? this.durationMs,
+    fingerprint: fingerprint ?? this.fingerprint,
+  );
 
   SongRecord copyWithCompanion(SongsCompanion data) {
     return SongRecord(
@@ -259,9 +353,15 @@ class SongRecord extends DataClass implements Insertable<SongRecord> {
       name: data.name.present ? data.name.value : this.name,
       artists: data.artists.present ? data.artists.value : this.artists,
       albumName: data.albumName.present ? data.albumName.value : this.albumName,
-      albumCover: data.albumCover.present ? data.albumCover.value : this.albumCover,
-      durationMs: data.durationMs.present ? data.durationMs.value : this.durationMs,
-      fingerprint: data.fingerprint.present ? data.fingerprint.value : this.fingerprint,
+      albumCover: data.albumCover.present
+          ? data.albumCover.value
+          : this.albumCover,
+      durationMs: data.durationMs.present
+          ? data.durationMs.value
+          : this.durationMs,
+      fingerprint: data.fingerprint.present
+          ? data.fingerprint.value
+          : this.fingerprint,
     );
   }
 
@@ -281,7 +381,16 @@ class SongRecord extends DataClass implements Insertable<SongRecord> {
   }
 
   @override
-  int get hashCode => Object.hash(id, platform, name, artists, albumName, albumCover, durationMs, fingerprint);
+  int get hashCode => Object.hash(
+    id,
+    platform,
+    name,
+    artists,
+    albumName,
+    albumCover,
+    durationMs,
+    fingerprint,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -326,11 +435,11 @@ class SongsCompanion extends UpdateCompanion<SongRecord> {
     this.albumCover = const Value.absent(),
     this.durationMs = const Value.absent(),
     required String fingerprint,
-  })  : id = Value(id),
-        platform = Value(platform),
-        name = Value(name),
-        artists = Value(artists),
-        fingerprint = Value(fingerprint);
+  }) : id = Value(id),
+       platform = Value(platform),
+       name = Value(name),
+       artists = Value(artists),
+       fingerprint = Value(fingerprint);
 
   static Insertable<SongRecord> custom({
     Expression<String>? id,
@@ -383,10 +492,14 @@ class SongsCompanion extends UpdateCompanion<SongRecord> {
     if (platform.present) map['platform'] = Variable<String>(platform.value);
     if (name.present) map['name'] = Variable<String>(name.value);
     if (artists.present) map['artists'] = Variable<String>(artists.value);
-    if (albumName.present) map['album_name'] = Variable<String>(albumName.value);
-    if (albumCover.present) map['album_cover'] = Variable<String>(albumCover.value);
-    if (durationMs.present) map['duration_ms'] = Variable<int>(durationMs.value);
-    if (fingerprint.present) map['fingerprint'] = Variable<String>(fingerprint.value);
+    if (albumName.present)
+      map['album_name'] = Variable<String>(albumName.value);
+    if (albumCover.present)
+      map['album_cover'] = Variable<String>(albumCover.value);
+    if (durationMs.present)
+      map['duration_ms'] = Variable<int>(durationMs.value);
+    if (fingerprint.present)
+      map['fingerprint'] = Variable<String>(fingerprint.value);
     return map;
   }
 
@@ -418,40 +531,68 @@ class $ListeningHistoryTable extends ListeningHistory
   static const VerificationMeta _idMeta = const VerificationMeta('id');
   @override
   late final GeneratedColumn<int> id = GeneratedColumn<int>(
-    'id', aliasedName, false,
+    'id',
+    aliasedName,
+    false,
     hasAutoIncrement: true,
     type: DriftSqlType.int,
     requiredDuringInsert: false,
-    defaultConstraints: GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'),
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
   );
   static const VerificationMeta _songIdMeta = const VerificationMeta('songId');
   @override
   late final GeneratedColumn<String> songId = GeneratedColumn<String>(
-    'song_id', aliasedName, false,
-    type: DriftSqlType.string, requiredDuringInsert: true,
+    'song_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
   );
-  static const VerificationMeta _platformMeta = const VerificationMeta('platform');
+  static const VerificationMeta _platformMeta = const VerificationMeta(
+    'platform',
+  );
   @override
   late final GeneratedColumn<String> platform = GeneratedColumn<String>(
-    'platform', aliasedName, false,
-    type: DriftSqlType.string, requiredDuringInsert: true,
+    'platform',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
   );
-  static const VerificationMeta _listenedAtMeta = const VerificationMeta('listenedAt');
+  static const VerificationMeta _listenedAtMeta = const VerificationMeta(
+    'listenedAt',
+  );
   @override
   late final GeneratedColumn<int> listenedAt = GeneratedColumn<int>(
-    'listened_at', aliasedName, false,
-    type: DriftSqlType.int, requiredDuringInsert: true,
+    'listened_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
   );
-  static const VerificationMeta _durationListenedMeta = const VerificationMeta('durationListened');
+  static const VerificationMeta _durationListenedMeta = const VerificationMeta(
+    'durationListened',
+  );
   @override
   late final GeneratedColumn<int> durationListened = GeneratedColumn<int>(
-    'duration_listened', aliasedName, false,
-    type: DriftSqlType.int, requiredDuringInsert: false,
+    'duration_listened',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
 
   @override
-  List<GeneratedColumn> get $columns => [id, songId, platform, listenedAt, durationListened];
+  List<GeneratedColumn> get $columns => [
+    id,
+    songId,
+    platform,
+    listenedAt,
+    durationListened,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -469,22 +610,37 @@ class $ListeningHistoryTable extends ListeningHistory
       context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
     }
     if (data.containsKey('song_id')) {
-      context.handle(_songIdMeta, songId.isAcceptableOrUnknown(data['song_id']!, _songIdMeta));
+      context.handle(
+        _songIdMeta,
+        songId.isAcceptableOrUnknown(data['song_id']!, _songIdMeta),
+      );
     } else if (isInserting) {
       context.missing(_songIdMeta);
     }
     if (data.containsKey('platform')) {
-      context.handle(_platformMeta, platform.isAcceptableOrUnknown(data['platform']!, _platformMeta));
+      context.handle(
+        _platformMeta,
+        platform.isAcceptableOrUnknown(data['platform']!, _platformMeta),
+      );
     } else if (isInserting) {
       context.missing(_platformMeta);
     }
     if (data.containsKey('listened_at')) {
-      context.handle(_listenedAtMeta, listenedAt.isAcceptableOrUnknown(data['listened_at']!, _listenedAtMeta));
+      context.handle(
+        _listenedAtMeta,
+        listenedAt.isAcceptableOrUnknown(data['listened_at']!, _listenedAtMeta),
+      );
     } else if (isInserting) {
       context.missing(_listenedAtMeta);
     }
     if (data.containsKey('duration_listened')) {
-      context.handle(_durationListenedMeta, durationListened.isAcceptableOrUnknown(data['duration_listened']!, _durationListenedMeta));
+      context.handle(
+        _durationListenedMeta,
+        durationListened.isAcceptableOrUnknown(
+          data['duration_listened']!,
+          _durationListenedMeta,
+        ),
+      );
     }
     return context;
   }
@@ -492,17 +648,34 @@ class $ListeningHistoryTable extends ListeningHistory
   @override
   Set<GeneratedColumn> get $primaryKey => {id};
   @override
-  List<Set<GeneratedColumn>> get uniqueKeys => [{songId, platform, listenedAt}];
+  List<Set<GeneratedColumn>> get uniqueKeys => [
+    {songId, platform, listenedAt},
+  ];
 
   @override
   ListeningHistoryEntry map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
     return ListeningHistoryEntry(
-      id: attachedDatabase.typeMapping.read(DriftSqlType.int, data['${effectivePrefix}id'])!,
-      songId: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}song_id'])!,
-      platform: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}platform'])!,
-      listenedAt: attachedDatabase.typeMapping.read(DriftSqlType.int, data['${effectivePrefix}listened_at'])!,
-      durationListened: attachedDatabase.typeMapping.read(DriftSqlType.int, data['${effectivePrefix}duration_listened'])!,
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      songId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}song_id'],
+      )!,
+      platform: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}platform'],
+      )!,
+      listenedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}listened_at'],
+      )!,
+      durationListened: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}duration_listened'],
+      )!,
     );
   }
 
@@ -512,7 +685,8 @@ class $ListeningHistoryTable extends ListeningHistory
   }
 }
 
-class ListeningHistoryEntry extends DataClass implements Insertable<ListeningHistoryEntry> {
+class ListeningHistoryEntry extends DataClass
+    implements Insertable<ListeningHistoryEntry> {
   final int id;
   final String songId;
   final String platform;
@@ -565,11 +739,10 @@ class ListeningHistoryEntry extends DataClass implements Insertable<ListeningHis
   factory ListeningHistoryEntry.fromJsonString(
     String encodedJson, {
     ValueSerializer? serializer,
-  }) =>
-      ListeningHistoryEntry.fromJson(
-        DataClass.parseJson(encodedJson) as Map<String, dynamic>,
-        serializer: serializer,
-      );
+  }) => ListeningHistoryEntry.fromJson(
+    DataClass.parseJson(encodedJson) as Map<String, dynamic>,
+    serializer: serializer,
+  );
 
   @override
   Map<String, dynamic> toJson({ValueSerializer? serializer}) {
@@ -589,22 +762,25 @@ class ListeningHistoryEntry extends DataClass implements Insertable<ListeningHis
     String? platform,
     int? listenedAt,
     int? durationListened,
-  }) =>
-      ListeningHistoryEntry(
-        id: id ?? this.id,
-        songId: songId ?? this.songId,
-        platform: platform ?? this.platform,
-        listenedAt: listenedAt ?? this.listenedAt,
-        durationListened: durationListened ?? this.durationListened,
-      );
+  }) => ListeningHistoryEntry(
+    id: id ?? this.id,
+    songId: songId ?? this.songId,
+    platform: platform ?? this.platform,
+    listenedAt: listenedAt ?? this.listenedAt,
+    durationListened: durationListened ?? this.durationListened,
+  );
 
   ListeningHistoryEntry copyWithCompanion(ListeningHistoryCompanion data) {
     return ListeningHistoryEntry(
       id: data.id.present ? data.id.value : this.id,
       songId: data.songId.present ? data.songId.value : this.songId,
       platform: data.platform.present ? data.platform.value : this.platform,
-      listenedAt: data.listenedAt.present ? data.listenedAt.value : this.listenedAt,
-      durationListened: data.durationListened.present ? data.durationListened.value : this.durationListened,
+      listenedAt: data.listenedAt.present
+          ? data.listenedAt.value
+          : this.listenedAt,
+      durationListened: data.durationListened.present
+          ? data.durationListened.value
+          : this.durationListened,
     );
   }
 
@@ -621,7 +797,8 @@ class ListeningHistoryEntry extends DataClass implements Insertable<ListeningHis
   }
 
   @override
-  int get hashCode => Object.hash(id, songId, platform, listenedAt, durationListened);
+  int get hashCode =>
+      Object.hash(id, songId, platform, listenedAt, durationListened);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -654,9 +831,9 @@ class ListeningHistoryCompanion extends UpdateCompanion<ListeningHistoryEntry> {
     required String platform,
     required int listenedAt,
     this.durationListened = const Value.absent(),
-  })  : songId = Value(songId),
-        platform = Value(platform),
-        listenedAt = Value(listenedAt);
+  }) : songId = Value(songId),
+       platform = Value(platform),
+       listenedAt = Value(listenedAt);
 
   static Insertable<ListeningHistoryEntry> custom({
     Expression<int>? id,
@@ -696,8 +873,10 @@ class ListeningHistoryCompanion extends UpdateCompanion<ListeningHistoryEntry> {
     if (id.present) map['id'] = Variable<int>(id.value);
     if (songId.present) map['song_id'] = Variable<String>(songId.value);
     if (platform.present) map['platform'] = Variable<String>(platform.value);
-    if (listenedAt.present) map['listened_at'] = Variable<int>(listenedAt.value);
-    if (durationListened.present) map['duration_listened'] = Variable<int>(durationListened.value);
+    if (listenedAt.present)
+      map['listened_at'] = Variable<int>(listenedAt.value);
+    if (durationListened.present)
+      map['duration_listened'] = Variable<int>(durationListened.value);
     return map;
   }
 
@@ -726,29 +905,46 @@ class $UserLikesTable extends UserLikes
   static const VerificationMeta _idMeta = const VerificationMeta('id');
   @override
   late final GeneratedColumn<int> id = GeneratedColumn<int>(
-    'id', aliasedName, false,
+    'id',
+    aliasedName,
+    false,
     hasAutoIncrement: true,
     type: DriftSqlType.int,
     requiredDuringInsert: false,
-    defaultConstraints: GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'),
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
   );
   static const VerificationMeta _songIdMeta = const VerificationMeta('songId');
   @override
   late final GeneratedColumn<String> songId = GeneratedColumn<String>(
-    'song_id', aliasedName, false,
-    type: DriftSqlType.string, requiredDuringInsert: true,
+    'song_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
   );
-  static const VerificationMeta _platformMeta = const VerificationMeta('platform');
+  static const VerificationMeta _platformMeta = const VerificationMeta(
+    'platform',
+  );
   @override
   late final GeneratedColumn<String> platform = GeneratedColumn<String>(
-    'platform', aliasedName, false,
-    type: DriftSqlType.string, requiredDuringInsert: true,
+    'platform',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
   );
-  static const VerificationMeta _addedAtMeta = const VerificationMeta('addedAt');
+  static const VerificationMeta _addedAtMeta = const VerificationMeta(
+    'addedAt',
+  );
   @override
   late final GeneratedColumn<int> addedAt = GeneratedColumn<int>(
-    'added_at', aliasedName, false,
-    type: DriftSqlType.int, requiredDuringInsert: true,
+    'added_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
   );
 
   @override
@@ -770,17 +966,26 @@ class $UserLikesTable extends UserLikes
       context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
     }
     if (data.containsKey('song_id')) {
-      context.handle(_songIdMeta, songId.isAcceptableOrUnknown(data['song_id']!, _songIdMeta));
+      context.handle(
+        _songIdMeta,
+        songId.isAcceptableOrUnknown(data['song_id']!, _songIdMeta),
+      );
     } else if (isInserting) {
       context.missing(_songIdMeta);
     }
     if (data.containsKey('platform')) {
-      context.handle(_platformMeta, platform.isAcceptableOrUnknown(data['platform']!, _platformMeta));
+      context.handle(
+        _platformMeta,
+        platform.isAcceptableOrUnknown(data['platform']!, _platformMeta),
+      );
     } else if (isInserting) {
       context.missing(_platformMeta);
     }
     if (data.containsKey('added_at')) {
-      context.handle(_addedAtMeta, addedAt.isAcceptableOrUnknown(data['added_at']!, _addedAtMeta));
+      context.handle(
+        _addedAtMeta,
+        addedAt.isAcceptableOrUnknown(data['added_at']!, _addedAtMeta),
+      );
     } else if (isInserting) {
       context.missing(_addedAtMeta);
     }
@@ -790,16 +995,30 @@ class $UserLikesTable extends UserLikes
   @override
   Set<GeneratedColumn> get $primaryKey => {id};
   @override
-  List<Set<GeneratedColumn>> get uniqueKeys => [{songId, platform}];
+  List<Set<GeneratedColumn>> get uniqueKeys => [
+    {songId, platform},
+  ];
 
   @override
   UserLike map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
     return UserLike(
-      id: attachedDatabase.typeMapping.read(DriftSqlType.int, data['${effectivePrefix}id'])!,
-      songId: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}song_id'])!,
-      platform: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}platform'])!,
-      addedAt: attachedDatabase.typeMapping.read(DriftSqlType.int, data['${effectivePrefix}added_at'])!,
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      songId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}song_id'],
+      )!,
+      platform: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}platform'],
+      )!,
+      addedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}added_at'],
+      )!,
     );
   }
 
@@ -857,11 +1076,10 @@ class UserLike extends DataClass implements Insertable<UserLike> {
   factory UserLike.fromJsonString(
     String encodedJson, {
     ValueSerializer? serializer,
-  }) =>
-      UserLike.fromJson(
-        DataClass.parseJson(encodedJson) as Map<String, dynamic>,
-        serializer: serializer,
-      );
+  }) => UserLike.fromJson(
+    DataClass.parseJson(encodedJson) as Map<String, dynamic>,
+    serializer: serializer,
+  );
 
   @override
   Map<String, dynamic> toJson({ValueSerializer? serializer}) {
@@ -874,13 +1092,17 @@ class UserLike extends DataClass implements Insertable<UserLike> {
     };
   }
 
-  UserLike copyWith({int? id, String? songId, String? platform, int? addedAt}) =>
-      UserLike(
-        id: id ?? this.id,
-        songId: songId ?? this.songId,
-        platform: platform ?? this.platform,
-        addedAt: addedAt ?? this.addedAt,
-      );
+  UserLike copyWith({
+    int? id,
+    String? songId,
+    String? platform,
+    int? addedAt,
+  }) => UserLike(
+    id: id ?? this.id,
+    songId: songId ?? this.songId,
+    platform: platform ?? this.platform,
+    addedAt: addedAt ?? this.addedAt,
+  );
 
   UserLike copyWithCompanion(UserLikesCompanion data) {
     return UserLike(
@@ -932,9 +1154,9 @@ class UserLikesCompanion extends UpdateCompanion<UserLike> {
     required String songId,
     required String platform,
     required int addedAt,
-  })  : songId = Value(songId),
-        platform = Value(platform),
-        addedAt = Value(addedAt);
+  }) : songId = Value(songId),
+       platform = Value(platform),
+       addedAt = Value(addedAt);
 
   static Insertable<UserLike> custom({
     Expression<int>? id,
@@ -998,36 +1220,63 @@ class $LyricsCacheTable extends LyricsCache
   static const VerificationMeta _songIdMeta = const VerificationMeta('songId');
   @override
   late final GeneratedColumn<String> songId = GeneratedColumn<String>(
-    'song_id', aliasedName, false,
-    type: DriftSqlType.string, requiredDuringInsert: true,
+    'song_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
   );
-  static const VerificationMeta _platformMeta = const VerificationMeta('platform');
+  static const VerificationMeta _platformMeta = const VerificationMeta(
+    'platform',
+  );
   @override
   late final GeneratedColumn<String> platform = GeneratedColumn<String>(
-    'platform', aliasedName, false,
-    type: DriftSqlType.string, requiredDuringInsert: true,
+    'platform',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
   );
-  static const VerificationMeta _contentMeta = const VerificationMeta('content');
+  static const VerificationMeta _contentMeta = const VerificationMeta(
+    'content',
+  );
   @override
   late final GeneratedColumn<String> content = GeneratedColumn<String>(
-    'content', aliasedName, false,
-    type: DriftSqlType.string, requiredDuringInsert: true,
+    'content',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
   );
   static const VerificationMeta _formatMeta = const VerificationMeta('format');
   @override
   late final GeneratedColumn<String> format = GeneratedColumn<String>(
-    'format', aliasedName, false,
-    type: DriftSqlType.string, requiredDuringInsert: true,
+    'format',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
   );
-  static const VerificationMeta _syncedAtMeta = const VerificationMeta('syncedAt');
+  static const VerificationMeta _syncedAtMeta = const VerificationMeta(
+    'syncedAt',
+  );
   @override
   late final GeneratedColumn<int> syncedAt = GeneratedColumn<int>(
-    'synced_at', aliasedName, false,
-    type: DriftSqlType.int, requiredDuringInsert: true,
+    'synced_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
   );
 
   @override
-  List<GeneratedColumn> get $columns => [songId, platform, content, format, syncedAt];
+  List<GeneratedColumn> get $columns => [
+    songId,
+    platform,
+    content,
+    format,
+    syncedAt,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -1042,27 +1291,42 @@ class $LyricsCacheTable extends LyricsCache
     final context = VerificationContext();
     final data = instance.toColumns(true);
     if (data.containsKey('song_id')) {
-      context.handle(_songIdMeta, songId.isAcceptableOrUnknown(data['song_id']!, _songIdMeta));
+      context.handle(
+        _songIdMeta,
+        songId.isAcceptableOrUnknown(data['song_id']!, _songIdMeta),
+      );
     } else if (isInserting) {
       context.missing(_songIdMeta);
     }
     if (data.containsKey('platform')) {
-      context.handle(_platformMeta, platform.isAcceptableOrUnknown(data['platform']!, _platformMeta));
+      context.handle(
+        _platformMeta,
+        platform.isAcceptableOrUnknown(data['platform']!, _platformMeta),
+      );
     } else if (isInserting) {
       context.missing(_platformMeta);
     }
     if (data.containsKey('content')) {
-      context.handle(_contentMeta, content.isAcceptableOrUnknown(data['content']!, _contentMeta));
+      context.handle(
+        _contentMeta,
+        content.isAcceptableOrUnknown(data['content']!, _contentMeta),
+      );
     } else if (isInserting) {
       context.missing(_contentMeta);
     }
     if (data.containsKey('format')) {
-      context.handle(_formatMeta, format.isAcceptableOrUnknown(data['format']!, _formatMeta));
+      context.handle(
+        _formatMeta,
+        format.isAcceptableOrUnknown(data['format']!, _formatMeta),
+      );
     } else if (isInserting) {
       context.missing(_formatMeta);
     }
     if (data.containsKey('synced_at')) {
-      context.handle(_syncedAtMeta, syncedAt.isAcceptableOrUnknown(data['synced_at']!, _syncedAtMeta));
+      context.handle(
+        _syncedAtMeta,
+        syncedAt.isAcceptableOrUnknown(data['synced_at']!, _syncedAtMeta),
+      );
     } else if (isInserting) {
       context.missing(_syncedAtMeta);
     }
@@ -1076,11 +1340,26 @@ class $LyricsCacheTable extends LyricsCache
   LyricsCacheEntry map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
     return LyricsCacheEntry(
-      songId: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}song_id'])!,
-      platform: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}platform'])!,
-      content: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}content'])!,
-      format: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}format'])!,
-      syncedAt: attachedDatabase.typeMapping.read(DriftSqlType.int, data['${effectivePrefix}synced_at'])!,
+      songId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}song_id'],
+      )!,
+      platform: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}platform'],
+      )!,
+      content: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}content'],
+      )!,
+      format: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}format'],
+      )!,
+      syncedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}synced_at'],
+      )!,
     );
   }
 
@@ -1090,7 +1369,8 @@ class $LyricsCacheTable extends LyricsCache
   }
 }
 
-class LyricsCacheEntry extends DataClass implements Insertable<LyricsCacheEntry> {
+class LyricsCacheEntry extends DataClass
+    implements Insertable<LyricsCacheEntry> {
   final String songId;
   final String platform;
   final String content;
@@ -1143,11 +1423,10 @@ class LyricsCacheEntry extends DataClass implements Insertable<LyricsCacheEntry>
   factory LyricsCacheEntry.fromJsonString(
     String encodedJson, {
     ValueSerializer? serializer,
-  }) =>
-      LyricsCacheEntry.fromJson(
-        DataClass.parseJson(encodedJson) as Map<String, dynamic>,
-        serializer: serializer,
-      );
+  }) => LyricsCacheEntry.fromJson(
+    DataClass.parseJson(encodedJson) as Map<String, dynamic>,
+    serializer: serializer,
+  );
 
   @override
   Map<String, dynamic> toJson({ValueSerializer? serializer}) {
@@ -1167,14 +1446,13 @@ class LyricsCacheEntry extends DataClass implements Insertable<LyricsCacheEntry>
     String? content,
     String? format,
     int? syncedAt,
-  }) =>
-      LyricsCacheEntry(
-        songId: songId ?? this.songId,
-        platform: platform ?? this.platform,
-        content: content ?? this.content,
-        format: format ?? this.format,
-        syncedAt: syncedAt ?? this.syncedAt,
-      );
+  }) => LyricsCacheEntry(
+    songId: songId ?? this.songId,
+    platform: platform ?? this.platform,
+    content: content ?? this.content,
+    format: format ?? this.format,
+    syncedAt: syncedAt ?? this.syncedAt,
+  );
 
   LyricsCacheEntry copyWithCompanion(LyricsCacheCompanion data) {
     return LyricsCacheEntry(
@@ -1232,11 +1510,11 @@ class LyricsCacheCompanion extends UpdateCompanion<LyricsCacheEntry> {
     required String content,
     required String format,
     required int syncedAt,
-  })  : songId = Value(songId),
-        platform = Value(platform),
-        content = Value(content),
-        format = Value(format),
-        syncedAt = Value(syncedAt);
+  }) : songId = Value(songId),
+       platform = Value(platform),
+       content = Value(content),
+       format = Value(format),
+       syncedAt = Value(syncedAt);
 
   static Insertable<LyricsCacheEntry> custom({
     Expression<String>? songId,
@@ -1306,37 +1584,64 @@ class $PlaylistsTable extends Playlists
   static const VerificationMeta _idMeta = const VerificationMeta('id');
   @override
   late final GeneratedColumn<String> id = GeneratedColumn<String>(
-    'id', aliasedName, false,
-    type: DriftSqlType.string, requiredDuringInsert: true,
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
   );
-  static const VerificationMeta _platformMeta = const VerificationMeta('platform');
+  static const VerificationMeta _platformMeta = const VerificationMeta(
+    'platform',
+  );
   @override
   late final GeneratedColumn<String> platform = GeneratedColumn<String>(
-    'platform', aliasedName, false,
-    type: DriftSqlType.string, requiredDuringInsert: true,
+    'platform',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
   );
   static const VerificationMeta _nameMeta = const VerificationMeta('name');
   @override
   late final GeneratedColumn<String> name = GeneratedColumn<String>(
-    'name', aliasedName, false,
-    type: DriftSqlType.string, requiredDuringInsert: true,
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
   );
-  static const VerificationMeta _songCountMeta = const VerificationMeta('songCount');
+  static const VerificationMeta _songCountMeta = const VerificationMeta(
+    'songCount',
+  );
   @override
   late final GeneratedColumn<int> songCount = GeneratedColumn<int>(
-    'song_count', aliasedName, false,
-    type: DriftSqlType.int, requiredDuringInsert: false,
+    'song_count',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
-  static const VerificationMeta _syncedAtMeta = const VerificationMeta('syncedAt');
+  static const VerificationMeta _syncedAtMeta = const VerificationMeta(
+    'syncedAt',
+  );
   @override
   late final GeneratedColumn<int> syncedAt = GeneratedColumn<int>(
-    'synced_at', aliasedName, true,
-    type: DriftSqlType.int, requiredDuringInsert: false,
+    'synced_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
   );
 
   @override
-  List<GeneratedColumn> get $columns => [id, platform, name, songCount, syncedAt];
+  List<GeneratedColumn> get $columns => [
+    id,
+    platform,
+    name,
+    songCount,
+    syncedAt,
+  ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -1356,20 +1661,32 @@ class $PlaylistsTable extends Playlists
       context.missing(_idMeta);
     }
     if (data.containsKey('platform')) {
-      context.handle(_platformMeta, platform.isAcceptableOrUnknown(data['platform']!, _platformMeta));
+      context.handle(
+        _platformMeta,
+        platform.isAcceptableOrUnknown(data['platform']!, _platformMeta),
+      );
     } else if (isInserting) {
       context.missing(_platformMeta);
     }
     if (data.containsKey('name')) {
-      context.handle(_nameMeta, name.isAcceptableOrUnknown(data['name']!, _nameMeta));
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
     } else if (isInserting) {
       context.missing(_nameMeta);
     }
     if (data.containsKey('song_count')) {
-      context.handle(_songCountMeta, songCount.isAcceptableOrUnknown(data['song_count']!, _songCountMeta));
+      context.handle(
+        _songCountMeta,
+        songCount.isAcceptableOrUnknown(data['song_count']!, _songCountMeta),
+      );
     }
     if (data.containsKey('synced_at')) {
-      context.handle(_syncedAtMeta, syncedAt.isAcceptableOrUnknown(data['synced_at']!, _syncedAtMeta));
+      context.handle(
+        _syncedAtMeta,
+        syncedAt.isAcceptableOrUnknown(data['synced_at']!, _syncedAtMeta),
+      );
     }
     return context;
   }
@@ -1381,11 +1698,26 @@ class $PlaylistsTable extends Playlists
   Playlist map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
     return Playlist(
-      id: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}id'])!,
-      platform: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}platform'])!,
-      name: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}name'])!,
-      songCount: attachedDatabase.typeMapping.read(DriftSqlType.int, data['${effectivePrefix}song_count'])!,
-      syncedAt: attachedDatabase.typeMapping.read(DriftSqlType.int, data['${effectivePrefix}synced_at']),
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      platform: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}platform'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      songCount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}song_count'],
+      )!,
+      syncedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}synced_at'],
+      ),
     );
   }
 
@@ -1429,7 +1761,9 @@ class Playlist extends DataClass implements Insertable<Playlist> {
       platform: Value(platform),
       name: Value(name),
       songCount: Value(songCount),
-      syncedAt: syncedAt == null && nullToAbsent ? const Value.absent() : Value(syncedAt),
+      syncedAt: syncedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(syncedAt),
     );
   }
 
@@ -1450,11 +1784,10 @@ class Playlist extends DataClass implements Insertable<Playlist> {
   factory Playlist.fromJsonString(
     String encodedJson, {
     ValueSerializer? serializer,
-  }) =>
-      Playlist.fromJson(
-        DataClass.parseJson(encodedJson) as Map<String, dynamic>,
-        serializer: serializer,
-      );
+  }) => Playlist.fromJson(
+    DataClass.parseJson(encodedJson) as Map<String, dynamic>,
+    serializer: serializer,
+  );
 
   @override
   Map<String, dynamic> toJson({ValueSerializer? serializer}) {
@@ -1474,14 +1807,13 @@ class Playlist extends DataClass implements Insertable<Playlist> {
     String? name,
     int? songCount,
     Value<int?> syncedAt = const Value.absent(),
-  }) =>
-      Playlist(
-        id: id ?? this.id,
-        platform: platform ?? this.platform,
-        name: name ?? this.name,
-        songCount: songCount ?? this.songCount,
-        syncedAt: syncedAt.present ? syncedAt.value : this.syncedAt,
-      );
+  }) => Playlist(
+    id: id ?? this.id,
+    platform: platform ?? this.platform,
+    name: name ?? this.name,
+    songCount: songCount ?? this.songCount,
+    syncedAt: syncedAt.present ? syncedAt.value : this.syncedAt,
+  );
 
   Playlist copyWithCompanion(PlaylistsCompanion data) {
     return Playlist(
@@ -1539,9 +1871,9 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
     required String name,
     this.songCount = const Value.absent(),
     this.syncedAt = const Value.absent(),
-  })  : id = Value(id),
-        platform = Value(platform),
-        name = Value(name);
+  }) : id = Value(id),
+       platform = Value(platform),
+       name = Value(name);
 
   static Insertable<Playlist> custom({
     Expression<String>? id,
@@ -1603,7 +1935,8 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
 
 mixin _$SongsDaoMixin on DatabaseAccessor<AppDatabase> {
   $SongsTable get songs => attachedDatabase.songs;
-  $ListeningHistoryTable get listeningHistory => attachedDatabase.listeningHistory;
+  $ListeningHistoryTable get listeningHistory =>
+      attachedDatabase.listeningHistory;
   $UserLikesTable get userLikes => attachedDatabase.userLikes;
   $LyricsCacheTable get lyricsCache => attachedDatabase.lyricsCache;
   $PlaylistsTable get playlists => attachedDatabase.playlists;
@@ -1611,7 +1944,8 @@ mixin _$SongsDaoMixin on DatabaseAccessor<AppDatabase> {
 
 mixin _$HistoryDaoMixin on DatabaseAccessor<AppDatabase> {
   $SongsTable get songs => attachedDatabase.songs;
-  $ListeningHistoryTable get listeningHistory => attachedDatabase.listeningHistory;
+  $ListeningHistoryTable get listeningHistory =>
+      attachedDatabase.listeningHistory;
 }
 
 mixin _$LikesDaoMixin on DatabaseAccessor<AppDatabase> {
@@ -1629,7 +1963,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
 
   late final $SongsTable songs = $SongsTable(this);
-  late final $ListeningHistoryTable listeningHistory = $ListeningHistoryTable(this);
+  late final $ListeningHistoryTable listeningHistory = $ListeningHistoryTable(
+    this,
+  );
   late final $UserLikesTable userLikes = $UserLikesTable(this);
   late final $LyricsCacheTable lyricsCache = $LyricsCacheTable(this);
   late final $PlaylistsTable playlists = $PlaylistsTable(this);
@@ -1637,7 +1973,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final SongsDao songsDao = SongsDao(this as AppDatabase);
   late final HistoryDao historyDao = HistoryDao(this as AppDatabase);
   late final LikesDao likesDao = LikesDao(this as AppDatabase);
-  late final LyricsCacheDao lyricsCacheDao = LyricsCacheDao(this as AppDatabase);
+  late final LyricsCacheDao lyricsCacheDao = LyricsCacheDao(
+    this as AppDatabase,
+  );
 
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
@@ -1645,10 +1983,10 @@ abstract class _$AppDatabase extends GeneratedDatabase {
 
   @override
   List<DatabaseSchemaEntity> get allSchemaEntities => [
-        songs,
-        listeningHistory,
-        userLikes,
-        lyricsCache,
-        playlists,
-      ];
+    songs,
+    listeningHistory,
+    userLikes,
+    lyricsCache,
+    playlists,
+  ];
 }

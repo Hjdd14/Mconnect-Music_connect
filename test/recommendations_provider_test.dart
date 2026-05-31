@@ -40,36 +40,30 @@ void main() {
     },
   );
 
-  test(
-    'daily recommendations ignore unsupported platform failures',
-    () async {
-      final notifier = RecommendationsNotifier(
-        supportedTypes: const [PlatformType.netease, PlatformType.qq],
-        platformResolver: (platform) {
-          if (platform == PlatformType.netease) {
-            return _FakeRecommendationPlatform(
-              platform: platform,
-              songs: [_song('netease-1', platform)],
-            );
-          }
+  test('daily recommendations ignore unsupported platform failures', () async {
+    final notifier = RecommendationsNotifier(
+      supportedTypes: const [PlatformType.netease, PlatformType.qq],
+      platformResolver: (platform) {
+        if (platform == PlatformType.netease) {
           return _FakeRecommendationPlatform(
             platform: platform,
-            error: StateError('qq failed'),
+            songs: [_song('netease-1', platform)],
           );
-        },
-      );
+        }
+        return _FakeRecommendationPlatform(
+          platform: platform,
+          error: StateError('qq failed'),
+        );
+      },
+    );
 
-      await notifier.loadRecommendations();
+    await notifier.loadRecommendations();
 
-      expect(notifier.state.error, isNull);
-      expect(
-        notifier.state.songsForPlatform(PlatformType.netease),
-        hasLength(1),
-      );
-      expect(notifier.state.songsForPlatform(PlatformType.qq), isEmpty);
-      expect(notifier.state.errorsByPlatform[PlatformType.qq], isNull);
-    },
-  );
+    expect(notifier.state.error, isNull);
+    expect(notifier.state.songsForPlatform(PlatformType.netease), hasLength(1));
+    expect(notifier.state.songsForPlatform(PlatformType.qq), isEmpty);
+    expect(notifier.state.errorsByPlatform[PlatformType.qq], isNull);
+  });
 
   test(
     'daily recommendations report login required only when no platforms are logged in',
