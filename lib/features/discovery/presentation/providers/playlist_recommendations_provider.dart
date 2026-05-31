@@ -48,10 +48,10 @@ class PlaylistRecommendationsNotifier
   PlaylistRecommendationsNotifier({
     List<PlatformType>? supportedTypes,
     MusicPlatform Function(PlatformType)? platformResolver,
-  })  : _supportedTypes =
-            (() => supportedTypes ?? PlatformRegistry.supportedTypes),
-        _platformResolver = platformResolver ?? PlatformRegistry.get,
-        super(const PlaylistRecommendationsState());
+  }) : _supportedTypes = (() =>
+           supportedTypes ?? PlatformRegistry.supportedTypes),
+       _platformResolver = platformResolver ?? PlatformRegistry.get,
+       super(const PlaylistRecommendationsState());
 
   Future<void> loadRecommendations() async {
     state = state.copyWith(
@@ -95,7 +95,10 @@ class PlaylistRecommendationsNotifier
   }
 }
 
-final playlistRecommendationsProvider = StateNotifierProvider<
-    PlaylistRecommendationsNotifier, PlaylistRecommendationsState>((ref) {
-  return PlaylistRecommendationsNotifier();
-});
+final playlistRecommendationsProvider =
+    StateNotifierProvider<
+      PlaylistRecommendationsNotifier,
+      PlaylistRecommendationsState
+    >((ref) {
+      return PlaylistRecommendationsNotifier();
+    });

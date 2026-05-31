@@ -92,19 +92,26 @@ class _LyricsDisplayState extends ConsumerState<LyricsDisplay> {
   Widget build(BuildContext context) {
     final lyricsAsync = ref.watch(lyricsProvider);
     final position = _position;
-    final currentSongId = ref.watch(playerProvider.select((s) => s.currentSong?.id));
+    final currentSongId = ref.watch(
+      playerProvider.select((s) => s.currentSong?.id),
+    );
 
     return lyricsAsync.when(
-      loading: () => const Center(
-        child: CircularProgressIndicator(strokeWidth: 2),
-      ),
+      loading: () =>
+          const Center(child: CircularProgressIndicator(strokeWidth: 2)),
       error: (_, __) => Center(
-        child: Text('歌词加载失败', style: TextStyle(color: Theme.of(context).colorScheme.outline)),
+        child: Text(
+          '歌词加载失败',
+          style: TextStyle(color: Theme.of(context).colorScheme.outline),
+        ),
       ),
       data: (doc) {
         if (doc == null || doc.lines.isEmpty) {
           return Center(
-            child: Text('暂无歌词', style: TextStyle(color: Theme.of(context).colorScheme.outline)),
+            child: Text(
+              '暂无歌词',
+              style: TextStyle(color: Theme.of(context).colorScheme.outline),
+            ),
           );
         }
 
@@ -137,8 +144,8 @@ class _LyricsDisplayState extends ConsumerState<LyricsDisplay> {
           });
         }
 
-        final hasWordTiming = doc.format == LyricsFormat.qrc ||
-            doc.format == LyricsFormat.krc;
+        final hasWordTiming =
+            doc.format == LyricsFormat.qrc || doc.format == LyricsFormat.krc;
 
         return NotificationListener<ScrollNotification>(
           onNotification: (notification) {

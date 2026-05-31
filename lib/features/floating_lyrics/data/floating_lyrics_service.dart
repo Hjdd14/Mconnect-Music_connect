@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 
 import 'floating_lyrics_models.dart';
@@ -6,11 +8,31 @@ class FloatingLyricsService {
   FloatingLyricsService._({MethodChannel? channel})
     : _channel =
           channel ??
-          const MethodChannel('com.mconnect.mconnect/floating_lyrics');
+          const MethodChannel('com.mconnect.mconnect/floating_lyrics') {
+    _channel.setMethodCallHandler(_handleNativeCall);
+  }
 
   static final instance = FloatingLyricsService._();
 
   final MethodChannel _channel;
+  final _closedByUserController = StreamController<void>.broadcast();
+  final _lockChangedController = StreamController<bool>.broadcast();
+
+  Stream<void> get closedByUserStream => _closedByUserController.stream;
+
+  Stream<bool> get lockChangedStream => _lockChangedController.stream;
+
+  Future<void> _handleNativeCall(MethodCall call) async {
+    switch (call.method) {
+      case 'closedByUser':
+        _closedByUserController.add(null);
+      case 'lockChanged':
+        final locked = call.arguments;
+        if (locked is bool) {
+          _lockChangedController.add(locked);
+        }
+    }
+  }
 
   Future<T?> _invokeOptional<T>(String method, [Object? arguments]) async {
     try {

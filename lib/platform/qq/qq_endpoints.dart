@@ -2,7 +2,8 @@ class QqEndpoints {
   QqEndpoints._();
 
   static const String musicu = 'https://u.y.qq.com/cgi-bin/musicu.fcg';
-  static const String lyricBase = 'https://i.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg';
+  static const String lyricBase =
+      'https://i.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg';
   static const String qrShow = 'https://ssl.ptlogin2.qq.com/ptqrshow';
   static const String qrLogin = 'https://ssl.ptlogin2.qq.com/ptqrlogin';
 
@@ -10,7 +11,8 @@ class QqEndpoints {
   static const String moduleUserPlaylist = 'playlist.UserPlayList';
   static const String methodGetUserPlaylist = 'GetUserPlayList';
 
-  static const String modulePlaylistDetail = 'playlist.PlayListPlayDetailService';
+  static const String modulePlaylistDetail =
+      'playlist.PlayListPlayDetailService';
   static const String methodGetPlaylistDetail = 'GetPlayListDetail';
 
   static const String moduleFavRead = 'music.musicasset.SongFavRead';

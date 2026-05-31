@@ -10,7 +10,10 @@ class SessionStorage {
   static const _userPrefix = 'user_';
 
   Future<void> saveCookie(PlatformType platform, String cookie) async {
-    await _storage.write(key: '${_cookiePrefix}${platform.name}', value: cookie);
+    await _storage.write(
+      key: '${_cookiePrefix}${platform.name}',
+      value: cookie,
+    );
   }
 
   Future<String?> loadCookie(PlatformType platform) async {

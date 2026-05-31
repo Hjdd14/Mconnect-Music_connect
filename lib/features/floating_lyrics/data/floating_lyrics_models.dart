@@ -11,6 +11,7 @@ class FloatingLyricsSettings {
   final double shadowOpacity;
   final double width;
   final double height;
+  final bool isLocked;
 
   const FloatingLyricsSettings({
     this.enabled = false,
@@ -22,6 +23,7 @@ class FloatingLyricsSettings {
     this.shadowOpacity = 0.78,
     this.width = 320,
     this.height = 92,
+    this.isLocked = false,
   });
 
   FloatingLyricsSettings copyWith({
@@ -34,6 +36,7 @@ class FloatingLyricsSettings {
     double? shadowOpacity,
     double? width,
     double? height,
+    bool? isLocked,
   }) {
     return FloatingLyricsSettings(
       enabled: enabled ?? this.enabled,
@@ -45,6 +48,7 @@ class FloatingLyricsSettings {
       shadowOpacity: shadowOpacity ?? this.shadowOpacity,
       width: width ?? this.width,
       height: height ?? this.height,
+      isLocked: isLocked ?? this.isLocked,
     );
   }
 
@@ -59,6 +63,7 @@ class FloatingLyricsSettings {
       'shadowOpacity': shadowOpacity,
       'width': width,
       'height': height,
+      'isLocked': isLocked,
     };
   }
 
@@ -79,6 +84,7 @@ class FloatingLyricsSettings {
       shadowOpacity: (json['shadowOpacity'] as num?)?.toDouble() ?? 0.78,
       width: (json['width'] as num?)?.toDouble() ?? 320,
       height: (json['height'] as num?)?.toDouble() ?? 92,
+      isLocked: json['isLocked'] as bool? ?? false,
     );
   }
 }

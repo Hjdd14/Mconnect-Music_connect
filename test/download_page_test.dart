@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mconnect/core/platform/platform_utils.dart';
 import 'package:mconnect/features/download/data/download_directory_service.dart';
 import 'package:mconnect/features/download/data/repositories/download_manager.dart';
 import 'package:mconnect/features/download/domain/entities/download_task.dart';
@@ -21,6 +22,7 @@ void main() {
 
   setUp(() {
     calls.clear();
+    PlatformUtils.setDebugOverride(AppPlatform.android);
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
           calls.add(call);
@@ -29,6 +31,7 @@ void main() {
   });
 
   tearDown(() {
+    PlatformUtils.setDebugOverride(null);
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null);
   });

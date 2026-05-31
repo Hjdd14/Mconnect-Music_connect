@@ -58,7 +58,8 @@ class WordByWordLine extends StatelessWidget {
               ),
               children: words.map((w) {
                 final isPlayed = currentPosition >= w.start + w.duration;
-                final isPlaying = currentPosition >= w.start &&
+                final isPlaying =
+                    currentPosition >= w.start &&
                     currentPosition < w.start + w.duration;
                 final color = isPlayed || isPlaying
                     ? Theme.of(context).colorScheme.primary
@@ -66,10 +67,7 @@ class WordByWordLine extends StatelessWidget {
 
                 return TextSpan(
                   text: w.word,
-                  style: TextStyle(
-                    color: color,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(color: color, fontWeight: FontWeight.bold),
                 );
               }).toList(),
             ),

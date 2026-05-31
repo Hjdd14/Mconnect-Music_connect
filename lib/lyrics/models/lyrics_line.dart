@@ -26,7 +26,8 @@ class LyricsLine {
   });
 
   bool get hasWordTiming => words != null && words!.isNotEmpty;
-  bool get hasTranslation => translation != null && translation!.trim().isNotEmpty;
+  bool get hasTranslation =>
+      translation != null && translation!.trim().isNotEmpty;
 }
 
 class LyricsDocument {
@@ -86,10 +87,12 @@ class LyricsDocument {
         final msStr = match.group(3)!;
         final ms = msStr.length == 2 ? int.parse(msStr) * 10 : int.parse(msStr);
 
-        lines.add(LyricsLine(
-          timestamp: Duration(minutes: min, seconds: sec, milliseconds: ms),
-          text: text,
-        ));
+        lines.add(
+          LyricsLine(
+            timestamp: Duration(minutes: min, seconds: sec, milliseconds: ms),
+            text: text,
+          ),
+        );
       }
     }
 
@@ -149,30 +152,31 @@ class LyricsDocument {
         for (final wm in wordMatches) {
           final wordDuration = int.parse(wm.group(2)!);
           final word = wm.group(3)!;
-          words.add(WordTiming(
-            word: word,
-            start: Duration(milliseconds: currentMs),
-            duration: Duration(milliseconds: wordDuration),
-          ));
+          words.add(
+            WordTiming(
+              word: word,
+              start: Duration(milliseconds: currentMs),
+              duration: Duration(milliseconds: wordDuration),
+            ),
+          );
           currentMs += wordDuration;
         }
       }
 
       final text = textContent.replaceAll(RegExp(r'<[^>]+>'), '').trim();
       if (text.isEmpty) continue;
-      lines.add(LyricsLine(
-        timestamp: Duration(milliseconds: timestamp),
-        text: text,
-        words: words.isNotEmpty ? words : null,
-      ));
+      lines.add(
+        LyricsLine(
+          timestamp: Duration(milliseconds: timestamp),
+          text: text,
+          words: words.isNotEmpty ? words : null,
+        ),
+      );
     }
 
     lines.sort((a, b) => a.timestamp.compareTo(b.timestamp));
 
-    return LyricsDocument(
-      lines: lines,
-      format: LyricsFormat.krc,
-    );
+    return LyricsDocument(lines: lines, format: LyricsFormat.krc);
   }
 
   /// Parse QRC format (QQ Music - decrypted content)
@@ -193,25 +197,26 @@ class LyricsDocument {
         final wordStart = int.parse(wm.group(1)!);
         final wordDuration = int.parse(wm.group(2)!);
         final word = wm.group(3)!;
-        words.add(WordTiming(
-          word: word,
-          start: Duration(milliseconds: timestamp + wordStart),
-          duration: Duration(milliseconds: wordDuration),
-        ));
+        words.add(
+          WordTiming(
+            word: word,
+            start: Duration(milliseconds: timestamp + wordStart),
+            duration: Duration(milliseconds: wordDuration),
+          ),
+        );
       }
 
-      lines.add(LyricsLine(
-        timestamp: Duration(milliseconds: timestamp),
-        text: text,
-        words: words.isNotEmpty ? words : null,
-      ));
+      lines.add(
+        LyricsLine(
+          timestamp: Duration(milliseconds: timestamp),
+          text: text,
+          words: words.isNotEmpty ? words : null,
+        ),
+      );
     }
 
     lines.sort((a, b) => a.timestamp.compareTo(b.timestamp));
 
-    return LyricsDocument(
-      lines: lines,
-      format: LyricsFormat.qrc,
-    );
+    return LyricsDocument(lines: lines, format: LyricsFormat.qrc);
   }
 }

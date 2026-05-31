@@ -53,7 +53,8 @@ class HistoryNotifier extends StateNotifier<HistoryState> {
   Timer? _pendingRecordTimer;
   String? _pendingRecordKey;
 
-  HistoryNotifier(this._historyDao, this._songsDao) : super(const HistoryState()) {
+  HistoryNotifier(this._historyDao, this._songsDao)
+    : super(const HistoryState()) {
     loadHistory();
   }
 
@@ -62,21 +63,31 @@ class HistoryNotifier extends StateNotifier<HistoryState> {
     try {
       final records = await _historyDao.getRecentHistory(limit: 200);
       // Batch query instead of N+1
-      final keys = records.map((r) => (id: r.songId, platform: r.platform)).toList();
+      final keys = records
+          .map((r) => (id: r.songId, platform: r.platform))
+          .toList();
       final songRecords = await _songsDao.getSongsByIds(keys);
       final songMap = {for (final r in songRecords) '${r.platform}_${r.id}': r};
       final entries = <HistoryEntry>[];
       for (final record in records) {
         final songRecord = songMap['${record.platform}_${record.songId}'];
         if (songRecord != null) {
-          entries.add(HistoryEntry(
-            song: _recordToSong(songRecord),
-            listenedAt: DateTime.fromMillisecondsSinceEpoch(record.listenedAt),
-            durationListenedMs: record.durationListened,
-          ));
+          entries.add(
+            HistoryEntry(
+              song: _recordToSong(songRecord),
+              listenedAt: DateTime.fromMillisecondsSinceEpoch(
+                record.listenedAt,
+              ),
+              durationListenedMs: record.durationListened,
+            ),
+          );
         }
       }
-      state = state.copyWith(entries: entries, isLoading: false, error: () => null);
+      state = state.copyWith(
+        entries: entries,
+        isLoading: false,
+        error: () => null,
+      );
     } catch (e) {
       state = state.copyWith(isLoading: false, error: () => '加载历史失败');
     }
@@ -98,7 +109,11 @@ class HistoryNotifier extends StateNotifier<HistoryState> {
 
     try {
       await _songsDao.insertSong(_songToCompanion(song));
-      await _historyDao.recordListen(song.id, song.platform.name, durationMs: durationMs);
+      await _historyDao.recordListen(
+        song.id,
+        song.platform.name,
+        durationMs: durationMs,
+      );
 
       // Update in-memory state so the UI sees the new entry immediately
       final newEntry = HistoryEntry(
@@ -146,7 +161,10 @@ class HistoryNotifier extends StateNotifier<HistoryState> {
       orElse: () => PlatformType.netease,
     );
     final artistsList = record.artists.isNotEmpty
-        ? record.artists.split(',').map((a) => Artist(id: '', name: a.trim())).toList()
+        ? record.artists
+              .split(',')
+              .map((a) => Artist(id: '', name: a.trim()))
+              .toList()
         : <Artist>[];
     return Song(
       id: record.id,
@@ -175,15 +193,19 @@ class HistoryNotifier extends StateNotifier<HistoryState> {
   }
 }
 
-final historyProvider = StateNotifierProvider<HistoryNotifier, HistoryState>((ref) {
+final historyProvider = StateNotifierProvider<HistoryNotifier, HistoryState>((
+  ref,
+) {
   final db = database;
   final notifier = HistoryNotifier(db.historyDao, db.songsDao);
 
   ref.listen<PlayerState>(playerProvider, (prev, next) {
     final song = next.currentSong;
     final changedSong =
-        prev?.currentSong?.id != song?.id || prev?.currentSong?.platform != song?.platform;
-    final startedPlaying = next.isPlaying && (prev?.isPlaying != true || changedSong);
+        prev?.currentSong?.id != song?.id ||
+        prev?.currentSong?.platform != song?.platform;
+    final startedPlaying =
+        next.isPlaying && (prev?.isPlaying != true || changedSong);
     if (song != null && startedPlaying) {
       notifier.scheduleRecordAfterPlaybackStarts(song);
     }

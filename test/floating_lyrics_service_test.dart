@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mconnect/core/platform/platform_utils.dart';
 import 'package:mconnect/features/floating_lyrics/data/floating_lyrics_models.dart';
 import 'package:mconnect/features/floating_lyrics/data/floating_lyrics_service.dart';
 
@@ -12,6 +13,7 @@ void main() {
 
   setUp(() {
     calls.clear();
+    PlatformUtils.setDebugOverride(AppPlatform.android);
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
           calls.add(call);
@@ -27,6 +29,7 @@ void main() {
   });
 
   tearDown(() {
+    PlatformUtils.setDebugOverride(null);
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null);
   });
@@ -39,7 +42,7 @@ void main() {
   });
 
   test('show sends transparent default style to native overlay', () async {
-    const settings = FloatingLyricsSettings(enabled: true);
+    const settings = FloatingLyricsSettings(enabled: true, isLocked: true);
     const payload = FloatingLyricsPayload(
       text: 'Everything that kills me makes me feel alive',
       translation: '凡是击垮我的一切，都让我感到自己仍然鲜活',
@@ -55,6 +58,7 @@ void main() {
     expect(args['backgroundColor'], Colors.transparent.toARGB32());
     expect(args['textColor'], settings.textColor.toARGB32());
     expect(args['highlightColor'], settings.highlightColor.toARGB32());
+    expect(args['isLocked'], isTrue);
   });
 
   test('update and hide call native overlay methods', () async {
@@ -77,6 +81,19 @@ void main() {
 
       expect(hidden, isFalse);
       expect(calls, isEmpty);
+    },
+  );
+
+  test(
+    'Windows asks the native floating lyrics channel for availability',
+    () async {
+      PlatformUtils.setDebugOverride(AppPlatform.windows);
+      addTearDown(() => PlatformUtils.setDebugOverride(null));
+
+      final allowed = await FloatingLyricsService.instance.canDrawOverlays();
+
+      expect(allowed, isTrue);
+      expect(calls.single.method, 'canDrawOverlays');
     },
   );
 }

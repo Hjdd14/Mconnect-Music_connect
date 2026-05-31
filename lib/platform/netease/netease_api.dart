@@ -10,8 +10,10 @@ class NeteaseApi {
   String? _musicA;
 
   NeteaseApi({Dio? dio})
-      : _dio = dio ??
-            Dio(BaseOptions(
+    : _dio =
+          dio ??
+          Dio(
+            BaseOptions(
               baseUrl: 'https://music.163.com',
               headers: {
                 'User-Agent':
@@ -21,7 +23,8 @@ class NeteaseApi {
               },
               connectTimeout: const Duration(seconds: 15),
               receiveTimeout: const Duration(seconds: 15),
-            )) {
+            ),
+          ) {
     _initCookie();
   }
 
@@ -34,7 +37,8 @@ class NeteaseApi {
     final csrf = _randomHex(rng, 16);
     _csrf = csrf;
 
-    _cookie = 'os=pc; appver=3.0.18.203152; osver=Microsoft-Windows-10-Professional-build-22631-64bit'
+    _cookie =
+        'os=pc; appver=3.0.18.203152; osver=Microsoft-Windows-10-Professional-build-22631-64bit'
         '; deviceId=$deviceId; channel=netease'
         '; NMTID=$nmtid; _ntes_nuid=$ntesNuid'
         '; __csrf=$csrf; __remember_me=true'
@@ -44,7 +48,10 @@ class NeteaseApi {
   }
 
   String _randomHex(Random rng, int length) {
-    return List.generate(length, (_) => rng.nextInt(16).toRadixString(16)).join();
+    return List.generate(
+      length,
+      (_) => rng.nextInt(16).toRadixString(16),
+    ).join();
   }
 
   void setCookie(String cookie) {
@@ -143,7 +150,10 @@ class NeteaseApi {
   }
 
   /// Generic GET request
-  Future<Map<String, dynamic>> get(String path, {Map<String, dynamic>? query}) async {
+  Future<Map<String, dynamic>> get(
+    String path, {
+    Map<String, dynamic>? query,
+  }) async {
     final response = await _dio.get(path, queryParameters: query);
     _captureCookie(response);
     _captureMusicA(response);
@@ -151,7 +161,10 @@ class NeteaseApi {
   }
 
   /// Generic POST request (form-encoded, no encryption)
-  Future<Map<String, dynamic>> post(String path, {Map<String, dynamic>? params}) async {
+  Future<Map<String, dynamic>> post(
+    String path, {
+    Map<String, dynamic>? params,
+  }) async {
     final response = await _dio.post(
       path,
       data: params,
@@ -163,39 +176,53 @@ class NeteaseApi {
   }
 
   /// Search songs (GET, no encryption)
-  Future<Map<String, dynamic>> search(String keyword,
-      {int page = 1, int limit = 30, int type = 1}) async {
-    return get(NeteaseEndpoints.search, query: {
-      's': keyword,
-      'type': type,
-      'limit': limit,
-      'offset': (page - 1) * limit,
-    });
+  Future<Map<String, dynamic>> search(
+    String keyword, {
+    int page = 1,
+    int limit = 30,
+    int type = 1,
+  }) async {
+    return get(
+      NeteaseEndpoints.search,
+      query: {
+        's': keyword,
+        'type': type,
+        'limit': limit,
+        'offset': (page - 1) * limit,
+      },
+    );
   }
 
-  Future<Map<String, dynamic>> searchPlaylists(String keyword,
-      {int page = 1, int limit = 30}) {
+  Future<Map<String, dynamic>> searchPlaylists(
+    String keyword, {
+    int page = 1,
+    int limit = 30,
+  }) {
     return search(keyword, page: page, limit: limit, type: 1000);
   }
 
   /// Get song playback URL (POST, form-encoded)
-  Future<Map<String, dynamic>> getSongUrl(String songId,
-      {String level = 'exhigh'}) async {
-    return post(NeteaseEndpoints.songUrl, params: {
-      'ids': jsonEncode([songId]),
-      'level': level,
-      'encodeType': '',
-      'csrf': _csrf ?? '',
-    });
+  Future<Map<String, dynamic>> getSongUrl(
+    String songId, {
+    String level = 'exhigh',
+  }) async {
+    return post(
+      NeteaseEndpoints.songUrl,
+      params: {
+        'ids': jsonEncode([songId]),
+        'level': level,
+        'encodeType': '',
+        'csrf': _csrf ?? '',
+      },
+    );
   }
 
   /// Get lyrics (GET, no encryption)
   Future<Map<String, dynamic>> getLyric(String songId) async {
-    return get(NeteaseEndpoints.lyric, query: {
-      'id': songId,
-      'lv': -1,
-      'tv': -1,
-    });
+    return get(
+      NeteaseEndpoints.lyric,
+      query: {'id': songId, 'lv': -1, 'tv': -1},
+    );
   }
 
   /// QR code key (POST, form-encoded)
@@ -206,10 +233,7 @@ class NeteaseApi {
   /// Check QR code login status (POST, form-encoded)
   /// Returns: 800=expired, 801=waiting, 802=scanned, 803=success
   Future<Map<String, dynamic>> checkQr(String key) async {
-    return post(NeteaseEndpoints.qrCheck, params: {
-      'key': key,
-      'type': 3,
-    });
+    return post(NeteaseEndpoints.qrCheck, params: {'key': key, 'type': 3});
   }
 
   /// Get user info (POST, form-encoded)
@@ -218,23 +242,25 @@ class NeteaseApi {
   }
 
   /// Get user playlists (POST, form-encoded)
-  Future<Map<String, dynamic>> getUserPlaylist(String uid,
-      {int limit = 30, int offset = 0}) async {
-    return post(NeteaseEndpoints.userPlaylist, params: {
-      'uid': uid,
-      'limit': limit,
-      'offset': offset,
-    });
+  Future<Map<String, dynamic>> getUserPlaylist(
+    String uid, {
+    int limit = 30,
+    int offset = 0,
+  }) async {
+    return post(
+      NeteaseEndpoints.userPlaylist,
+      params: {'uid': uid, 'limit': limit, 'offset': offset},
+    );
   }
 
   /// Get playlist detail (POST, form-encoded). The first detail response is
   /// capped so huge playlists do not block the UI; callers can use trackIds and
   /// getSongDetails() to page in the remaining songs.
-  Future<Map<String, dynamic>> getPlaylistDetail(String id, {int n = 1000}) async {
-    return post(NeteaseEndpoints.playlistDetail, params: {
-      'id': id,
-      'n': n,
-    });
+  Future<Map<String, dynamic>> getPlaylistDetail(
+    String id, {
+    int n = 1000,
+  }) async {
+    return post(NeteaseEndpoints.playlistDetail, params: {'id': id, 'n': n});
   }
 
   /// Get song details for a batch of song IDs.
@@ -243,13 +269,16 @@ class NeteaseApi {
     final normalizedIds = ids
         .map((id) => int.tryParse(id) ?? id)
         .toList(growable: false);
-    return post('/api/v3/song/detail', params: {
-      'ids': jsonEncode(normalizedIds),
-      'c': jsonEncode([
-        for (final id in normalizedIds) {'id': id},
-      ]),
-      'csrf': _csrf ?? '',
-    });
+    return post(
+      '/api/v3/song/detail',
+      params: {
+        'ids': jsonEncode(normalizedIds),
+        'c': jsonEncode([
+          for (final id in normalizedIds) {'id': id},
+        ]),
+        'csrf': _csrf ?? '',
+      },
+    );
   }
 
   /// Get daily recommendations (GET, no encryption)
@@ -258,26 +287,38 @@ class NeteaseApi {
   }
 
   /// Like a song (POST, form-encoded)
-  Future<Map<String, dynamic>> likeSong(String songId, {bool like = true}) async {
-    return post(NeteaseEndpoints.like, params: {
-      'trackId': songId,
-      'like': like,
-    });
+  Future<Map<String, dynamic>> likeSong(
+    String songId, {
+    bool like = true,
+  }) async {
+    return post(
+      NeteaseEndpoints.like,
+      params: {'trackId': songId, 'like': like},
+    );
   }
 
-  Future<Map<String, dynamic>> createPlaylist(String name, {int privacy = 0}) async {
-    return post('/api/playlist/create', params: {
-      'name': name,
-      'privacy': privacy,
-      'type': 'NORMAL',
-      'csrf': _csrf ?? '',
-    });
+  Future<Map<String, dynamic>> createPlaylist(
+    String name, {
+    int privacy = 0,
+  }) async {
+    return post(
+      '/api/playlist/create',
+      params: {
+        'name': name,
+        'privacy': privacy,
+        'type': 'NORMAL',
+        'csrf': _csrf ?? '',
+      },
+    );
   }
 
-  Future<Map<String, dynamic>> subscribePlaylist(String playlistId, {bool subscribe = true}) async {
-    return post('/api/playlist/${subscribe ? 'subscribe' : 'unsubscribe'}', params: {
-      'id': playlistId,
-      'csrf': _csrf ?? '',
-    });
+  Future<Map<String, dynamic>> subscribePlaylist(
+    String playlistId, {
+    bool subscribe = true,
+  }) async {
+    return post(
+      '/api/playlist/${subscribe ? 'subscribe' : 'unsubscribe'}',
+      params: {'id': playlistId, 'csrf': _csrf ?? ''},
+    );
   }
 }

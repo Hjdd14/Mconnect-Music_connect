@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mconnect/core/diagnostics/diagnostics_service.dart';
+import 'package:mconnect/core/platform/platform_utils.dart';
 import 'package:mconnect/core/theme/app_theme.dart';
 import 'package:mconnect/core/theme/theme_provider.dart';
 import 'package:mconnect/features/auth/presentation/providers/auth_provider.dart';
@@ -24,18 +25,26 @@ class SettingsPage extends ConsumerWidget {
     Color(0xFF111827),
   ];
 
-  static const _lyricTextPresets = [
+  static const lyricTextPresets = [
     Color(0xFFFFF4F8),
     Colors.white,
     Color(0xFFB8F7FF),
     Color(0xFFFFF2A8),
+    Color(0xFF111827),
+    Color(0xFF0F172A),
+    Color(0xFF1F2937),
+    Color(0xFF312E81),
   ];
 
-  static const _lyricHighlightPresets = [
+  static const lyricHighlightPresets = [
     Color(0xFFFFD44A),
     Color(0xFF31C27C),
     Color(0xFF64B5F6),
     Color(0xFFFF7AAE),
+    Color(0xFF1E3A8A),
+    Color(0xFF14532D),
+    Color(0xFF581C87),
+    Color(0xFF7F1D1D),
   ];
 
   @override
@@ -51,6 +60,7 @@ class SettingsPage extends ConsumerWidget {
     final sleepTimer = ref.watch(sleepTimerProvider);
     final sleepTimerNotifier = ref.read(sleepTimerProvider.notifier);
     final authState = ref.watch(authProvider);
+    final isWindows = PlatformUtils.isWindows;
 
     return Scaffold(
       appBar: AppBar(title: const Text('设置')),
@@ -112,7 +122,9 @@ class SettingsPage extends ConsumerWidget {
           SwitchListTile(
             secondary: const Icon(Icons.picture_in_picture_alt_outlined),
             title: const Text('桌面悬浮歌词'),
-            subtitle: const Text('显示在其他应用上方，需要系统悬浮窗权限'),
+            subtitle: Text(
+              isWindows ? 'Windows 悬浮歌词将在原生置顶窗口完成后启用' : '显示在其他应用上方，需要系统悬浮窗权限',
+            ),
             value: floatingLyrics.enabled,
             onChanged: (value) async {
               if (value) {
@@ -132,7 +144,7 @@ class SettingsPage extends ConsumerWidget {
             subtitle: '透明背景下的主歌词颜色',
             icon: Icons.format_color_text,
             selectedColor: floatingLyrics.textColor,
-            presets: _lyricTextPresets,
+            presets: lyricTextPresets,
             fallbackColor: const Color(0xFFFFF4F8),
             onSelected: floatingLyricsNotifier.setTextColor,
           ),
@@ -141,7 +153,7 @@ class SettingsPage extends ConsumerWidget {
             subtitle: '逐字歌词和当前播放片段的颜色',
             icon: Icons.border_color_outlined,
             selectedColor: floatingLyrics.highlightColor,
-            presets: _lyricHighlightPresets,
+            presets: lyricHighlightPresets,
             fallbackColor: const Color(0xFFFFD44A),
             onSelected: floatingLyricsNotifier.setHighlightColor,
           ),
@@ -199,91 +211,99 @@ class SettingsPage extends ConsumerWidget {
           SwitchListTile(
             secondary: const Icon(Icons.equalizer),
             title: const Text('均衡器'),
-            subtitle: const Text('调整播放音频的频段增益，设备不支持时会自动忽略'),
-            value: audioEffects.equalizerEnabled,
-            onChanged: audioEffectsNotifier.setEqualizerEnabled,
+            subtitle: Text(
+              isWindows
+                  ? 'Windows 端暂不启用 Android 原生均衡器'
+                  : '调整播放音频的频段增益，设备不支持时会自动忽略',
+            ),
+            value: !isWindows && audioEffects.equalizerEnabled,
+            onChanged: isWindows
+                ? null
+                : audioEffectsNotifier.setEqualizerEnabled,
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child: ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.tune),
-              title: const Text('均衡器预设'),
-              subtitle: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final preset in EqualizerPreset.values)
-                    ChoiceChip(
-                      label: Text(preset.displayName),
-                      selected: audioEffects.equalizerPreset == preset,
-                      onSelected: (_) =>
-                          audioEffectsNotifier.setEqualizerPreset(preset),
-                    ),
-                ],
+          if (!isWindows) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.tune),
+                title: const Text('均衡器预设'),
+                subtitle: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final preset in EqualizerPreset.values)
+                      ChoiceChip(
+                        label: Text(preset.displayName),
+                        selected: audioEffects.equalizerPreset == preset,
+                        onSelected: (_) =>
+                            audioEffectsNotifier.setEqualizerPreset(preset),
+                      ),
+                  ],
+                ),
               ),
             ),
-          ),
-          _SliderTile(
-            title: '低频',
-            subtitle:
-                '${audioEffects.effectiveEqualizerBandGains[0].round()} dB',
-            icon: Icons.graphic_eq,
-            value: audioEffects.effectiveEqualizerBandGains[0],
-            min: -12,
-            max: 12,
-            divisions: 24,
-            onChanged: (value) =>
-                audioEffectsNotifier.setEqualizerBandGain(0, value),
-          ),
-          _SliderTile(
-            title: '中低频',
-            subtitle:
-                '${audioEffects.effectiveEqualizerBandGains[1].round()} dB',
-            icon: Icons.graphic_eq,
-            value: audioEffects.effectiveEqualizerBandGains[1],
-            min: -12,
-            max: 12,
-            divisions: 24,
-            onChanged: (value) =>
-                audioEffectsNotifier.setEqualizerBandGain(1, value),
-          ),
-          _SliderTile(
-            title: '中频',
-            subtitle:
-                '${audioEffects.effectiveEqualizerBandGains[2].round()} dB',
-            icon: Icons.graphic_eq,
-            value: audioEffects.effectiveEqualizerBandGains[2],
-            min: -12,
-            max: 12,
-            divisions: 24,
-            onChanged: (value) =>
-                audioEffectsNotifier.setEqualizerBandGain(2, value),
-          ),
-          _SliderTile(
-            title: '中高频',
-            subtitle:
-                '${audioEffects.effectiveEqualizerBandGains[3].round()} dB',
-            icon: Icons.graphic_eq,
-            value: audioEffects.effectiveEqualizerBandGains[3],
-            min: -12,
-            max: 12,
-            divisions: 24,
-            onChanged: (value) =>
-                audioEffectsNotifier.setEqualizerBandGain(3, value),
-          ),
-          _SliderTile(
-            title: '高频',
-            subtitle:
-                '${audioEffects.effectiveEqualizerBandGains[4].round()} dB',
-            icon: Icons.graphic_eq,
-            value: audioEffects.effectiveEqualizerBandGains[4],
-            min: -12,
-            max: 12,
-            divisions: 24,
-            onChanged: (value) =>
-                audioEffectsNotifier.setEqualizerBandGain(4, value),
-          ),
+            _SliderTile(
+              title: '低频',
+              subtitle:
+                  '${audioEffects.effectiveEqualizerBandGains[0].round()} dB',
+              icon: Icons.graphic_eq,
+              value: audioEffects.effectiveEqualizerBandGains[0],
+              min: -12,
+              max: 12,
+              divisions: 24,
+              onChanged: (value) =>
+                  audioEffectsNotifier.setEqualizerBandGain(0, value),
+            ),
+            _SliderTile(
+              title: '中低频',
+              subtitle:
+                  '${audioEffects.effectiveEqualizerBandGains[1].round()} dB',
+              icon: Icons.graphic_eq,
+              value: audioEffects.effectiveEqualizerBandGains[1],
+              min: -12,
+              max: 12,
+              divisions: 24,
+              onChanged: (value) =>
+                  audioEffectsNotifier.setEqualizerBandGain(1, value),
+            ),
+            _SliderTile(
+              title: '中频',
+              subtitle:
+                  '${audioEffects.effectiveEqualizerBandGains[2].round()} dB',
+              icon: Icons.graphic_eq,
+              value: audioEffects.effectiveEqualizerBandGains[2],
+              min: -12,
+              max: 12,
+              divisions: 24,
+              onChanged: (value) =>
+                  audioEffectsNotifier.setEqualizerBandGain(2, value),
+            ),
+            _SliderTile(
+              title: '中高频',
+              subtitle:
+                  '${audioEffects.effectiveEqualizerBandGains[3].round()} dB',
+              icon: Icons.graphic_eq,
+              value: audioEffects.effectiveEqualizerBandGains[3],
+              min: -12,
+              max: 12,
+              divisions: 24,
+              onChanged: (value) =>
+                  audioEffectsNotifier.setEqualizerBandGain(3, value),
+            ),
+            _SliderTile(
+              title: '高频',
+              subtitle:
+                  '${audioEffects.effectiveEqualizerBandGains[4].round()} dB',
+              icon: Icons.graphic_eq,
+              value: audioEffects.effectiveEqualizerBandGains[4],
+              min: -12,
+              max: 12,
+              divisions: 24,
+              onChanged: (value) =>
+                  audioEffectsNotifier.setEqualizerBandGain(4, value),
+            ),
+          ],
           SwitchListTile(
             secondary: const Icon(Icons.bedtime_outlined),
             title: const Text('睡眠定时'),

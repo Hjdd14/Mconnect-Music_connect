@@ -23,7 +23,12 @@ class LoginResult {
   final String? cookie;
   final String? error;
 
-  const LoginResult({required this.success, this.user, this.cookie, this.error});
+  const LoginResult({
+    required this.success,
+    this.user,
+    this.cookie,
+    this.error,
+  });
 }
 
 abstract class MusicPlatform {
@@ -36,6 +41,7 @@ abstract class MusicPlatform {
   Future<LoginResult> sendPhoneCode(String phone) async {
     return const LoginResult(success: false, error: '当前平台暂不支持获取验证码');
   }
+
   Future<LoginResult> loginByPhone(String phone, String code);
   Future<User?> getUserInfo();
   bool get isLoggedIn;
@@ -47,12 +53,19 @@ abstract class MusicPlatform {
 
   // Search
   Future<List<Song>> search(String keyword, {int page = 1, int limit = 30});
-  Future<List<Playlist>> searchPlaylists(String keyword, {int page = 1, int limit = 30}) async {
+  Future<List<Playlist>> searchPlaylists(
+    String keyword, {
+    int page = 1,
+    int limit = 30,
+  }) async {
     return const [];
   }
 
   // Playback
-  Future<String> getSongUrl(String songId, {AudioLevel quality = AudioLevel.low});
+  Future<String> getSongUrl(
+    String songId, {
+    AudioLevel quality = AudioLevel.low,
+  });
   Future<List<AudioQuality>> getAvailableQualities(String songId);
 
   // Lyrics
@@ -65,7 +78,10 @@ abstract class MusicPlatform {
   Future<bool> likeSong(String songId, {bool like = true});
   Future<bool> addSongToPlaylist(String playlistId, Song song) async => false;
   Future<Playlist?> createPlaylist(String name) async => null;
-  Future<bool> collectPlaylist(String playlistId, {bool collect = true}) async => false;
+  Future<bool> collectPlaylist(
+    String playlistId, {
+    bool collect = true,
+  }) async => false;
 
   // Recommendations
   Future<List<Song>> getDailyRecommendations();

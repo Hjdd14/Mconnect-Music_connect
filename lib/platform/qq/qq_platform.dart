@@ -546,7 +546,10 @@ class QqPlatform implements MusicPlatform {
     }
   }
 
-  Future<Playlist?> _findCreatedPlaylistByDirId(String dirId, String name) async {
+  Future<Playlist?> _findCreatedPlaylistByDirId(
+    String dirId,
+    String name,
+  ) async {
     if (dirId.isEmpty || _currentUser == null) return null;
     final playlists = await getUserPlaylists();
     for (final playlist in playlists) {
@@ -660,7 +663,9 @@ class QqPlatform implements MusicPlatform {
               'title':
                   metadata['title'] ?? metadata['dissname'] ?? metadata['name'],
               'picurl':
-                  metadata['picurl'] ?? metadata['logo'] ?? metadata['coverurl'],
+                  metadata['picurl'] ??
+                  metadata['logo'] ??
+                  metadata['coverurl'],
             };
       return Playlist(
         id: id,

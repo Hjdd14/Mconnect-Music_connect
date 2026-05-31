@@ -36,8 +36,8 @@ class MyPlaylistsNotifier extends StateNotifier<MyPlaylistsState> {
   final MyPlaylistsRepository _repository;
 
   MyPlaylistsNotifier({MyPlaylistsRepository? repository})
-      : _repository = repository ?? const MyPlaylistsRepository(),
-        super(const MyPlaylistsState()) {
+    : _repository = repository ?? const MyPlaylistsRepository(),
+      super(const MyPlaylistsState()) {
     load();
   }
 
@@ -53,10 +53,7 @@ class MyPlaylistsNotifier extends StateNotifier<MyPlaylistsState> {
       );
     } catch (e) {
       if (!mounted) return;
-      state = state.copyWith(
-        isLoading: false,
-        error: () => '加载我的歌单失败：$e',
-      );
+      state = state.copyWith(isLoading: false, error: () => '加载我的歌单失败：$e');
     }
   }
 
@@ -75,10 +72,7 @@ class MyPlaylistsNotifier extends StateNotifier<MyPlaylistsState> {
       return playlist;
     } catch (e) {
       if (mounted) {
-        state = state.copyWith(
-          isSaving: false,
-          error: () => '新建我的歌单失败：$e',
-        );
+        state = state.copyWith(isSaving: false, error: () => '新建我的歌单失败：$e');
       }
       return null;
     }
@@ -91,7 +85,10 @@ class MyPlaylistsNotifier extends StateNotifier<MyPlaylistsState> {
     if (state.isSaving) return null;
     state = state.copyWith(isSaving: true, error: () => null);
     try {
-      final playlist = await _repository.importPlaylist(name: name, songs: songs);
+      final playlist = await _repository.importPlaylist(
+        name: name,
+        songs: songs,
+      );
       final playlists = await _repository.getPlaylists();
       if (!mounted) return playlist;
       state = state.copyWith(
@@ -102,10 +99,7 @@ class MyPlaylistsNotifier extends StateNotifier<MyPlaylistsState> {
       return playlist;
     } catch (e) {
       if (mounted) {
-        state = state.copyWith(
-          isSaving: false,
-          error: () => '保存导入歌单失败：$e',
-        );
+        state = state.copyWith(isSaving: false, error: () => '保存导入歌单失败：$e');
       }
       return null;
     }
@@ -127,10 +121,7 @@ class MyPlaylistsNotifier extends StateNotifier<MyPlaylistsState> {
       return ok;
     } catch (e) {
       if (mounted) {
-        state = state.copyWith(
-          isSaving: false,
-          error: () => '添加到我的歌单失败：$e',
-        );
+        state = state.copyWith(isSaving: false, error: () => '添加到我的歌单失败：$e');
       }
       return false;
     }
@@ -156,10 +147,7 @@ class MyPlaylistsNotifier extends StateNotifier<MyPlaylistsState> {
       return ok;
     } catch (e) {
       if (mounted) {
-        state = state.copyWith(
-          isSaving: false,
-          error: () => '删除歌曲失败：$e',
-        );
+        state = state.copyWith(isSaving: false, error: () => '删除歌曲失败：$e');
       }
       return false;
     }
@@ -181,10 +169,7 @@ class MyPlaylistsNotifier extends StateNotifier<MyPlaylistsState> {
       return ok;
     } catch (e) {
       if (mounted) {
-        state = state.copyWith(
-          isSaving: false,
-          error: () => '删除歌单失败：$e',
-        );
+        state = state.copyWith(isSaving: false, error: () => '删除歌单失败：$e');
       }
       return false;
     }
@@ -222,5 +207,5 @@ class MyPlaylistsNotifier extends StateNotifier<MyPlaylistsState> {
 
 final myPlaylistsProvider =
     StateNotifierProvider<MyPlaylistsNotifier, MyPlaylistsState>((ref) {
-  return MyPlaylistsNotifier();
-});
+      return MyPlaylistsNotifier();
+    });

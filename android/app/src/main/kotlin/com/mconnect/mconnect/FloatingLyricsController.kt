@@ -18,13 +18,19 @@ import android.widget.TextView
 import io.flutter.plugin.common.MethodChannel
 import kotlin.math.max
 
-class FloatingLyricsController(private val activity: Activity) {
+class FloatingLyricsController(
+    private val activity: Activity,
+    private val channel: MethodChannel,
+) {
     private val windowManager =
         activity.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private var overlayView: FrameLayout? = null
     private var layoutParams: WindowManager.LayoutParams? = null
     private var lyricText: TextView? = null
     private var translationText: TextView? = null
+    private var resizeHandle: TextView? = null
+    private var lockButton: TextView? = null
+    private var isLocked = false
 
     fun canDrawOverlays(): Boolean {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
@@ -93,6 +99,7 @@ class FloatingLyricsController(private val activity: Activity) {
             .toInt()
         val height = (number(data["height"], 92.0) * activity.resources.displayMetrics.density)
             .toInt()
+        isLocked = bool(data["isLocked"], false)
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         } else {
@@ -155,16 +162,50 @@ class FloatingLyricsController(private val activity: Activity) {
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 Gravity.CENTER,
+            ).apply {
+                leftMargin = dp(8)
+                topMargin = dp(12)
+                rightMargin = dp(64)
+                bottomMargin = dp(8)
+            },
+        )
+        val controls = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        lockButton = controlButton("").apply {
+            setOnClickListener {
+                isLocked = !isLocked
+                applyLockState()
+                notifyLockChanged()
+            }
+        }
+        val closeButton = controlButton("X").apply {
+            setOnClickListener {
+                removeOverlay()
+                notifyClosedByUser()
+            }
+        }
+        controls.addView(lockButton!!)
+        controls.addView(closeButton)
+        root.addView(
+            controls,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP or Gravity.END,
             ),
         )
-        val resizeHandle = TextView(activity).apply {
-            text = "↘"
-            textSize = 14f
-            setTextColor(Color.argb(170, 255, 255, 255))
+        resizeHandle = TextView(activity).apply {
+            text = "SIZE"
+            textSize = 10f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.argb(180, 255, 255, 255))
+            setPadding(dp(6), dp(2), dp(6), dp(2))
             setShadowLayer(4f, 0f, 1f, Color.argb(190, 0, 0, 0))
         }
         root.addView(
-            resizeHandle,
+            resizeHandle!!,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -172,7 +213,8 @@ class FloatingLyricsController(private val activity: Activity) {
             ),
         )
 
-        installDragHandler(root, resizeHandle)
+        applyLockState()
+        installDragHandler(root, resizeHandle!!)
         windowManager.addView(root, params)
         overlayView = root
         layoutParams = params
@@ -191,6 +233,7 @@ class FloatingLyricsController(private val activity: Activity) {
             val params = layoutParams ?: return@OnTouchListener false
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    if (isLocked) return@OnTouchListener view == resizeHandle
                     startX = params.x
                     startY = params.y
                     startWidth = params.width
@@ -201,6 +244,7 @@ class FloatingLyricsController(private val activity: Activity) {
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
+                    if (isLocked) return@OnTouchListener view == resizeHandle
                     val dx = event.rawX - startRawX
                     val dy = event.rawY - startRawY
                     if (resizing) {
@@ -228,6 +272,7 @@ class FloatingLyricsController(private val activity: Activity) {
         val fontSize = number(data["fontSize"], 23.0).toFloat()
         val shadowOpacity = number(data["shadowOpacity"], 0.78).coerceIn(0.0, 1.0)
         val backgroundColor = intColor(data["backgroundColor"], Color.TRANSPARENT)
+        isLocked = bool(data["isLocked"], isLocked)
 
         overlayView?.setBackgroundColor(backgroundColor)
         lyricText?.apply {
@@ -256,6 +301,7 @@ class FloatingLyricsController(private val activity: Activity) {
         // Keep highlightColor consumed by the channel contract. Native word-level
         // highlighting can use this value when per-word timing is pushed later.
         lyricText?.tag = highlightColor
+        applyLockState()
     }
 
     private fun removeOverlay() {
@@ -269,6 +315,40 @@ class FloatingLyricsController(private val activity: Activity) {
         layoutParams = null
         lyricText = null
         translationText = null
+        resizeHandle = null
+        lockButton = null
+    }
+
+    private fun controlButton(label: String): TextView {
+        return TextView(activity).apply {
+            text = label
+            textSize = 10f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.argb(115, 0, 0, 0))
+            setPadding(dp(7), dp(3), dp(7), dp(3))
+            isClickable = true
+        }
+    }
+
+    private fun applyLockState() {
+        lockButton?.text = if (isLocked) "MOVE" else "LOCK"
+        resizeHandle?.visibility = if (isLocked) View.GONE else View.VISIBLE
+    }
+
+    private fun notifyClosedByUser() {
+        try {
+            channel.invokeMethod("closedByUser", null)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun notifyLockChanged() {
+        try {
+            channel.invokeMethod("lockChanged", isLocked)
+        } catch (_: Exception) {
+        }
     }
 
     private fun number(value: Any?, fallback: Double): Double {
@@ -280,6 +360,10 @@ class FloatingLyricsController(private val activity: Activity) {
 
     private fun string(value: Any?): String {
         return value as? String ?: ""
+    }
+
+    private fun bool(value: Any?, fallback: Boolean): Boolean {
+        return value as? Boolean ?: fallback
     }
 
     private fun intColor(value: Any?, fallback: Int): Int {

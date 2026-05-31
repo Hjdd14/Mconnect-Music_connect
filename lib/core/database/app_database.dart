@@ -32,7 +32,9 @@ class ListeningHistory extends Table {
   IntColumn get durationListened => integer().withDefault(const Constant(0))();
 
   @override
-  List<Set<Column>> get uniqueKeys => [{songId, platform, listenedAt}];
+  List<Set<Column>> get uniqueKeys => [
+    {songId, platform, listenedAt},
+  ];
 }
 
 @DataClassName('UserLike')
@@ -43,7 +45,9 @@ class UserLikes extends Table {
   IntColumn get addedAt => integer()(); // epoch ms
 
   @override
-  List<Set<Column>> get uniqueKeys => [{songId, platform}];
+  List<Set<Column>> get uniqueKeys => [
+    {songId, platform},
+  ];
 }
 
 class LyricsCache extends Table {
@@ -70,7 +74,9 @@ class Playlists extends Table {
 
 // --- DAOs ---
 
-@DriftAccessor(tables: [Songs, ListeningHistory, UserLikes, LyricsCache, Playlists])
+@DriftAccessor(
+  tables: [Songs, ListeningHistory, UserLikes, LyricsCache, Playlists],
+)
 class SongsDao extends DatabaseAccessor<AppDatabase> with _$SongsDaoMixin {
   SongsDao(AppDatabase db) : super(db);
 
@@ -90,17 +96,21 @@ class SongsDao extends DatabaseAccessor<AppDatabase> with _$SongsDaoMixin {
         .getSingleOrNull();
   }
 
-  Future<List<SongRecord>> getSongsByIds(List<({String id, String platform})> keys) async {
+  Future<List<SongRecord>> getSongsByIds(
+    List<({String id, String platform})> keys,
+  ) async {
     if (keys.isEmpty) return [];
     final results = <SongRecord>[];
     // Process in batches of 50 to avoid SQL variable limit
     for (var i = 0; i < keys.length; i += 50) {
       final batch = keys.skip(i).take(50).toList();
-      final query = select(songs)..where((t) {
-        final conditions = batch.map((k) =>
-          t.id.equals(k.id) & t.platform.equals(k.platform));
-        return conditions.reduce((a, b) => a | b);
-      });
+      final query = select(songs)
+        ..where((t) {
+          final conditions = batch.map(
+            (k) => t.id.equals(k.id) & t.platform.equals(k.platform),
+          );
+          return conditions.reduce((a, b) => a | b);
+        });
       results.addAll(await query.get());
     }
     return results;
@@ -111,13 +121,19 @@ class SongsDao extends DatabaseAccessor<AppDatabase> with _$SongsDaoMixin {
 class HistoryDao extends DatabaseAccessor<AppDatabase> with _$HistoryDaoMixin {
   HistoryDao(AppDatabase db) : super(db);
 
-  Future<void> recordListen(String songId, String platform, {int durationMs = 0}) async {
-    await into(listeningHistory).insert(ListeningHistoryCompanion.insert(
-      songId: songId,
-      platform: platform,
-      listenedAt: DateTime.now().millisecondsSinceEpoch,
-      durationListened: Value(durationMs),
-    ));
+  Future<void> recordListen(
+    String songId,
+    String platform, {
+    int durationMs = 0,
+  }) async {
+    await into(listeningHistory).insert(
+      ListeningHistoryCompanion.insert(
+        songId: songId,
+        platform: platform,
+        listenedAt: DateTime.now().millisecondsSinceEpoch,
+        durationListened: Value(durationMs),
+      ),
+    );
   }
 
   Future<List<ListeningHistoryEntry>> getRecentHistory({int limit = 50}) async {
@@ -154,10 +170,13 @@ class LikesDao extends DatabaseAccessor<AppDatabase> with _$LikesDaoMixin {
   }
 
   Future<bool> isLiked(String songId, String platform) async {
-    final result = await (select(userLikes)
-          ..where((t) => t.songId.equals(songId) & t.platform.equals(platform))
-          ..limit(1))
-        .get();
+    final result =
+        await (select(userLikes)
+              ..where(
+                (t) => t.songId.equals(songId) & t.platform.equals(platform),
+              )
+              ..limit(1))
+            .get();
     return result.isNotEmpty;
   }
 
@@ -170,27 +189,42 @@ class LikesDao extends DatabaseAccessor<AppDatabase> with _$LikesDaoMixin {
 }
 
 @DriftAccessor(tables: [LyricsCache])
-class LyricsCacheDao extends DatabaseAccessor<AppDatabase> with _$LyricsCacheDaoMixin {
+class LyricsCacheDao extends DatabaseAccessor<AppDatabase>
+    with _$LyricsCacheDaoMixin {
   LyricsCacheDao(AppDatabase db) : super(db);
 
   Future<String?> getCachedLyrics(String songId, String platform) async {
-    final result = await (select(lyricsCache)
-          ..where((t) => t.songId.equals(songId) & t.platform.equals(platform))
-          ..limit(1))
-        .get();
+    final result =
+        await (select(lyricsCache)
+              ..where(
+                (t) => t.songId.equals(songId) & t.platform.equals(platform),
+              )
+              ..limit(1))
+            .get();
     return result.isNotEmpty ? result.first.content : null;
   }
 
-  Future<({String content, String format})?> getCachedLyricsWithFormat(String songId, String platform) async {
-    final result = await (select(lyricsCache)
-          ..where((t) => t.songId.equals(songId) & t.platform.equals(platform))
-          ..limit(1))
-        .get();
+  Future<({String content, String format})?> getCachedLyricsWithFormat(
+    String songId,
+    String platform,
+  ) async {
+    final result =
+        await (select(lyricsCache)
+              ..where(
+                (t) => t.songId.equals(songId) & t.platform.equals(platform),
+              )
+              ..limit(1))
+            .get();
     if (result.isEmpty) return null;
     return (content: result.first.content, format: result.first.format);
   }
 
-  Future<void> cacheLyrics(String songId, String platform, String content, String format) async {
+  Future<void> cacheLyrics(
+    String songId,
+    String platform,
+    String content,
+    String format,
+  ) async {
     await into(lyricsCache).insert(
       LyricsCacheCompanion.insert(
         songId: songId,
@@ -206,18 +240,10 @@ class LyricsCacheDao extends DatabaseAccessor<AppDatabase> with _$LyricsCacheDao
 
 // --- Main Database ---
 
-@DriftDatabase(tables: [
-  Songs,
-  ListeningHistory,
-  UserLikes,
-  LyricsCache,
-  Playlists,
-], daos: [
-  SongsDao,
-  HistoryDao,
-  LikesDao,
-  LyricsCacheDao,
-])
+@DriftDatabase(
+  tables: [Songs, ListeningHistory, UserLikes, LyricsCache, Playlists],
+  daos: [SongsDao, HistoryDao, LikesDao, LyricsCacheDao],
+)
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
@@ -227,19 +253,21 @@ class AppDatabase extends _$AppDatabase {
   int get schemaVersion => 1;
 
   @override
-  MigrationStrategy get migration => MigrationStrategy(
-        onCreate: (m) => m.createAll(),
-      );
+  MigrationStrategy get migration =>
+      MigrationStrategy(onCreate: (m) => m.createAll());
 }
 
 LazyDatabase _openConnection() {
   return LazyDatabase(() async {
     final dbFolder = await getApplicationDocumentsDirectory();
     final file = File(p.join(dbFolder.path, 'mconnect.sqlite'));
-    return NativeDatabase.createInBackground(file, setup: (rawDb) {
-      rawDb.execute('PRAGMA journal_mode=WAL;');
-      rawDb.execute('PRAGMA busy_timeout=5000;');
-    });
+    return NativeDatabase.createInBackground(
+      file,
+      setup: (rawDb) {
+        rawDb.execute('PRAGMA journal_mode=WAL;');
+        rawDb.execute('PRAGMA busy_timeout=5000;');
+      },
+    );
   });
 }
 

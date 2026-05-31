@@ -6,15 +6,17 @@ import android.net.Uri
 import android.os.StrictMode
 import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
-import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import com.ryanheise.audioservice.AudioServiceActivity
 import java.io.File
 
-class MainActivity : FlutterActivity() {
+class MainActivity : AudioServiceActivity() {
     private val fileOpenerChannel = "com.mconnect.mconnect/file_opener"
     private val floatingLyricsChannel = "com.mconnect.mconnect/floating_lyrics"
+    private val playbackKeepAliveChannel = "com.mconnect.mconnect/playback_keep_alive"
     private var floatingLyricsController: FloatingLyricsController? = null
+    private var playbackKeepAliveController: PlaybackKeepAliveController? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -27,10 +29,26 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
-        floatingLyricsController = FloatingLyricsController(this)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, floatingLyricsChannel)
+        playbackKeepAliveController = PlaybackKeepAliveController(applicationContext)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, playbackKeepAliveChannel)
             .setMethodCallHandler { call, result ->
-                val controller = floatingLyricsController ?: FloatingLyricsController(this).also {
+                val controller = playbackKeepAliveController
+                    ?: PlaybackKeepAliveController(applicationContext).also {
+                        playbackKeepAliveController = it
+                    }
+                when (call.method) {
+                    "setPlaying" -> controller.setPlaying(call.arguments, result)
+                    else -> result.notImplemented()
+                }
+            }
+        val floatingLyricsMethodChannel =
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, floatingLyricsChannel)
+        floatingLyricsController = FloatingLyricsController(this, floatingLyricsMethodChannel)
+        floatingLyricsMethodChannel.setMethodCallHandler { call, result ->
+                val controller = floatingLyricsController ?: FloatingLyricsController(
+                    this,
+                    floatingLyricsMethodChannel,
+                ).also {
                     floatingLyricsController = it
                 }
                 when (call.method) {
@@ -47,6 +65,8 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         floatingLyricsController?.dispose()
         floatingLyricsController = null
+        playbackKeepAliveController?.release()
+        playbackKeepAliveController = null
         super.onDestroy()
     }
 

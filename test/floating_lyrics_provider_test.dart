@@ -1,12 +1,17 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:mconnect/features/floating_lyrics/presentation/providers/floating_lyrics_provider.dart';
 import 'package:mconnect/lyrics/models/lyrics_line.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  const channel = MethodChannel('com.mconnect.mconnect/floating_lyrics');
   late Directory tempDir;
 
   setUp(() async {
@@ -15,25 +20,33 @@ void main() {
     );
     Hive.init(tempDir.path);
     await Hive.openBox('settings');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async => true);
   });
 
   tearDown(() async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null);
     await Hive.close();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
     if (await tempDir.exists()) {
-      await tempDir.delete(recursive: true);
+      await _deleteTempDirWithRetry(tempDir);
     }
   });
 
   test('floating lyrics settings persist enabled and style values', () async {
     final notifier = FloatingLyricsNotifier();
+    addTearDown(notifier.dispose);
     await notifier.ready;
 
     await notifier.setEnabled(true);
     await notifier.setTextColor(const Color(0xFF00FFAA));
     await notifier.setHighlightColor(const Color(0xFFFFCC00));
     await notifier.setFontSize(30);
+    await notifier.setLocked(true);
 
     final restored = FloatingLyricsNotifier();
+    addTearDown(restored.dispose);
     await restored.ready;
 
     expect(restored.state.enabled, isTrue);
@@ -41,6 +54,44 @@ void main() {
     expect(restored.state.highlightColor, const Color(0xFFFFCC00));
     expect(restored.state.fontSize, 30);
     expect(restored.state.backgroundColor, Colors.transparent);
+    expect(restored.state.isLocked, isTrue);
+  });
+
+  test('native close event disables and persists the Flutter switch', () async {
+    final container = ProviderContainer();
+    container.read(floatingLyricsSyncProvider);
+
+    await container.read(floatingLyricsProvider.notifier).setEnabled(true);
+    expect(container.read(floatingLyricsProvider).enabled, isTrue);
+
+    await _sendNativeFloatingLyricsCall('closedByUser');
+    await pumpEventQueue();
+
+    expect(container.read(floatingLyricsProvider).enabled, isFalse);
+    container.dispose();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    final restored = FloatingLyricsNotifier();
+    addTearDown(restored.dispose);
+    await restored.ready;
+    expect(restored.state.enabled, isFalse);
+  });
+
+  test('native lock event updates and persists lock state', () async {
+    final container = ProviderContainer();
+    container.read(floatingLyricsSyncProvider);
+
+    await _sendNativeFloatingLyricsCall('lockChanged', true);
+    await pumpEventQueue();
+
+    expect(container.read(floatingLyricsProvider).isLocked, isTrue);
+    container.dispose();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    final restored = FloatingLyricsNotifier();
+    addTearDown(restored.dispose);
+    await restored.ready;
+    expect(restored.state.isLocked, isTrue);
   });
 
   test('payloadForPosition returns the active timed lyric line', () {
@@ -78,4 +129,26 @@ void main() {
     expect(payload.text, isEmpty);
     expect(payload.translation, isNull);
   });
+}
+
+Future<void> _sendNativeFloatingLyricsCall(String method, [Object? arguments]) {
+  const codec = StandardMethodCodec();
+  return TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .handlePlatformMessage(
+        'com.mconnect.mconnect/floating_lyrics',
+        codec.encodeMethodCall(MethodCall(method, arguments)),
+        (_) {},
+      );
+}
+
+Future<void> _deleteTempDirWithRetry(Directory dir) async {
+  for (var attempt = 0; attempt < 5; attempt++) {
+    try {
+      await dir.delete(recursive: true);
+      return;
+    } on FileSystemException {
+      if (attempt == 4) rethrow;
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+    }
+  }
 }

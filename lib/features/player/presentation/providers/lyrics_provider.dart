@@ -12,7 +12,9 @@ final lyricsProvider = FutureProvider.autoDispose<LyricsDocument?>((ref) async {
   final song = ref.watch(playerProvider.select((s) => s.currentSong));
   if (song == null) return null;
 
-  debugPrint('LyricsProvider: fetching for ${song.name} (${song.platform.name}, id=${song.id})');
+  debugPrint(
+    'LyricsProvider: fetching for ${song.name} (${song.platform.name}, id=${song.id})',
+  );
 
   try {
     if (song.platform == PlatformType.local) {
@@ -26,7 +28,10 @@ final lyricsProvider = FutureProvider.autoDispose<LyricsDocument?>((ref) async {
     final db = database;
 
     // Check local cache first — use stored format to avoid re-detection
-    final cached = await db.lyricsCacheDao.getCachedLyricsWithFormat(song.id, song.platform.name);
+    final cached = await db.lyricsCacheDao.getCachedLyricsWithFormat(
+      song.id,
+      song.platform.name,
+    );
     if (cached != null) {
       debugPrint('LyricsProvider: cache hit, format=${cached.format}');
       final format = _parseLyricsFormat(cached.format);
@@ -39,7 +44,9 @@ final lyricsProvider = FutureProvider.autoDispose<LyricsDocument?>((ref) async {
 
     // Fetch from API
     final platform = PlatformRegistry.get(song.platform);
-    debugPrint('LyricsProvider: calling ${song.platform.name} getLyrics(${song.id})');
+    debugPrint(
+      'LyricsProvider: calling ${song.platform.name} getLyrics(${song.id})',
+    );
     final raw = await platform.getLyrics(song.id);
     if (raw == null || raw.isEmpty) {
       debugPrint('LyricsProvider: raw lyrics is null or empty');
@@ -50,7 +57,12 @@ final lyricsProvider = FutureProvider.autoDispose<LyricsDocument?>((ref) async {
     // Cache the result with detected format
     final format = _formatForPlatform(song.platform, raw);
     debugPrint('LyricsProvider: detected format=${format.name}');
-    await db.lyricsCacheDao.cacheLyrics(song.id, song.platform.name, raw, format.name);
+    await db.lyricsCacheDao.cacheLyrics(
+      song.id,
+      song.platform.name,
+      raw,
+      format.name,
+    );
 
     return LyricsDocument.parse(raw, format);
   } catch (e, s) {
