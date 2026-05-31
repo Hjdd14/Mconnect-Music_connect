@@ -242,10 +242,12 @@ class NeteasePlatform implements MusicPlatform {
       throw Exception('无法获取播放地址');
     }
 
-    // Check for trial-only playback
     final freeTrialInfo = data['freeTrialInfo'];
     if (freeTrialInfo != null) {
-      debugPrint('Netease getSongUrl: TRIAL ONLY - $freeTrialInfo');
+      debugPrint(
+        'Netease getSongUrl: trial-only url rejected - $freeTrialInfo',
+      );
+      throw Exception('无法播放完整歌曲，当前账号只获取到试听片段');
     }
 
     final url = data['url'] as String?;

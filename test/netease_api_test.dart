@@ -121,6 +121,15 @@ void main() {
     },
   );
 
+  test('Netease playback rejects trial-only urls', () async {
+    final platform = NeteasePlatform(api: _NeteaseTrialPlaybackApi());
+
+    await expectLater(
+      platform.getSongUrl('trial-song'),
+      throwsA(isA<Exception>()),
+    );
+  });
+
   test('Netease import recognizes mobile playlist share links', () async {
     final api = _NeteaseShareApi();
     final playlist = await NeteasePlatform(api: api).parseShareLink(
@@ -148,6 +157,25 @@ void main() {
       ]);
     },
   );
+}
+
+class _NeteaseTrialPlaybackApi extends NeteaseApi {
+  @override
+  Future<Map<String, dynamic>> getSongUrl(
+    String songId, {
+    String level = 'exhigh',
+  }) async {
+    return {
+      'data': [
+        {
+          'url': 'https://m701.music.126.net/trial.mp3',
+          'level': 'standard',
+          'br': 128000,
+          'freeTrialInfo': {'start': 0, 'end': 30000},
+        },
+      ],
+    };
+  }
 }
 
 class _NeteaseShareApi extends NeteaseApi {

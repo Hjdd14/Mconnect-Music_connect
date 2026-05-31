@@ -15,6 +15,9 @@ class LyricsDisplay extends ConsumerStatefulWidget {
 }
 
 class _LyricsDisplayState extends ConsumerState<LyricsDisplay> {
+  static const double _listVerticalPadding = 80;
+  static const double _estimatedLineExtent = 58;
+
   final ScrollController _scrollController = ScrollController();
   final List<GlobalKey> _itemKeys = [];
   int _currentLineIndex = -1;
@@ -60,13 +63,34 @@ class _LyricsDisplayState extends ConsumerState<LyricsDisplay> {
 
     final key = _itemKeys[index];
     final context = key.currentContext;
-    if (context == null) return;
+    if (context == null) {
+      _scrollToEstimatedLineOffset(index);
+      return;
+    }
 
     Scrollable.ensureVisible(
       context,
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOut,
       alignment: 0.5, // center in viewport
+    );
+  }
+
+  void _scrollToEstimatedLineOffset(int index) {
+    final position = _scrollController.position;
+    final target =
+        _listVerticalPadding +
+        (index * _estimatedLineExtent) -
+        (position.viewportDimension / 2) +
+        (_estimatedLineExtent / 2);
+    final clamped = target.clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    _scrollController.animateTo(
+      clamped.toDouble(),
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
     );
   }
 
@@ -92,19 +116,26 @@ class _LyricsDisplayState extends ConsumerState<LyricsDisplay> {
   Widget build(BuildContext context) {
     final lyricsAsync = ref.watch(lyricsProvider);
     final position = _position;
-    final currentSongId = ref.watch(playerProvider.select((s) => s.currentSong?.id));
+    final currentSongId = ref.watch(
+      playerProvider.select((s) => s.currentSong?.id),
+    );
 
     return lyricsAsync.when(
-      loading: () => const Center(
-        child: CircularProgressIndicator(strokeWidth: 2),
-      ),
+      loading: () =>
+          const Center(child: CircularProgressIndicator(strokeWidth: 2)),
       error: (_, __) => Center(
-        child: Text('歌词加载失败', style: TextStyle(color: Theme.of(context).colorScheme.outline)),
+        child: Text(
+          '歌词加载失败',
+          style: TextStyle(color: Theme.of(context).colorScheme.outline),
+        ),
       ),
       data: (doc) {
         if (doc == null || doc.lines.isEmpty) {
           return Center(
-            child: Text('暂无歌词', style: TextStyle(color: Theme.of(context).colorScheme.outline)),
+            child: Text(
+              '暂无歌词',
+              style: TextStyle(color: Theme.of(context).colorScheme.outline),
+            ),
           );
         }
 
@@ -137,8 +168,8 @@ class _LyricsDisplayState extends ConsumerState<LyricsDisplay> {
           });
         }
 
-        final hasWordTiming = doc.format == LyricsFormat.qrc ||
-            doc.format == LyricsFormat.krc;
+        final hasWordTiming =
+            doc.format == LyricsFormat.qrc || doc.format == LyricsFormat.krc;
 
         return NotificationListener<ScrollNotification>(
           onNotification: (notification) {
@@ -147,7 +178,7 @@ class _LyricsDisplayState extends ConsumerState<LyricsDisplay> {
           },
           child: ListView.builder(
             controller: _scrollController,
-            padding: const EdgeInsets.symmetric(vertical: 80),
+            padding: const EdgeInsets.symmetric(vertical: _listVerticalPadding),
             itemCount: doc.lines.length,
             itemBuilder: (context, index) {
               final line = doc.lines[index];
