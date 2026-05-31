@@ -203,6 +203,194 @@ void main() {
   });
 
   test(
+    'sync skips repeated native updates while the same lyric remains active',
+    () async {
+      const channel = MethodChannel('com.mconnect.mconnect/floating_lyrics');
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call);
+            return switch (call.method) {
+              'canDrawOverlays' => true,
+              'hide' => true,
+              'update' => true,
+              _ => null,
+            };
+          });
+
+      const document = LyricsDocument(
+        lines: [
+          LyricsLine(
+            timestamp: Duration.zero,
+            text:
+                'This long lyric should stay visible while the position ticks',
+          ),
+          LyricsLine(timestamp: Duration(seconds: 10), text: 'Next lyric'),
+        ],
+      );
+      final player = _FloatingLyricsTestPlayerNotifier();
+      final container = ProviderContainer(
+        overrides: [
+          playerProvider.overrideWith((ref) => player),
+          lyricsProvider.overrideWith((ref) async => document),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(lyricsProvider.future);
+      container.read(floatingLyricsSyncProvider);
+
+      await container.read(floatingLyricsProvider.notifier).setEnabled(true);
+      await pumpEventQueue();
+      player.setPosition(const Duration(seconds: 3));
+      await pumpEventQueue();
+      player.setPosition(const Duration(seconds: 6));
+      await pumpEventQueue();
+
+      final updates = calls.where((call) => call.method == 'update').toList();
+      expect(updates, hasLength(1));
+      expect(
+        (updates.single.arguments as Map<Object?, Object?>)['text'],
+        document.lines.first.text,
+      );
+    },
+  );
+
+  test('sync updates native overlay when the active lyric changes', () async {
+    const channel = MethodChannel('com.mconnect.mconnect/floating_lyrics');
+    final calls = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          calls.add(call);
+          return switch (call.method) {
+            'canDrawOverlays' => true,
+            'hide' => true,
+            'update' => true,
+            _ => null,
+          };
+        });
+
+    const document = LyricsDocument(
+      lines: [
+        LyricsLine(timestamp: Duration.zero, text: 'First lyric'),
+        LyricsLine(timestamp: Duration(seconds: 10), text: 'Second lyric'),
+      ],
+    );
+    final player = _FloatingLyricsTestPlayerNotifier();
+    final container = ProviderContainer(
+      overrides: [
+        playerProvider.overrideWith((ref) => player),
+        lyricsProvider.overrideWith((ref) async => document),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(lyricsProvider.future);
+    container.read(floatingLyricsSyncProvider);
+
+    await container.read(floatingLyricsProvider.notifier).setEnabled(true);
+    await pumpEventQueue();
+    player.setPosition(const Duration(seconds: 11));
+    await pumpEventQueue();
+
+    final updates = calls.where((call) => call.method == 'update').toList();
+    expect(updates, hasLength(2));
+    expect(
+      (updates.last.arguments as Map<Object?, Object?>)['text'],
+      'Second lyric',
+    );
+  });
+
+  test(
+    'sync updates native overlay when style changes for the same lyric',
+    () async {
+      const channel = MethodChannel('com.mconnect.mconnect/floating_lyrics');
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call);
+            return switch (call.method) {
+              'canDrawOverlays' => true,
+              'hide' => true,
+              'update' => true,
+              _ => null,
+            };
+          });
+
+      const document = LyricsDocument(
+        lines: [LyricsLine(timestamp: Duration.zero, text: 'Styled lyric')],
+      );
+      final player = _FloatingLyricsTestPlayerNotifier();
+      final container = ProviderContainer(
+        overrides: [
+          playerProvider.overrideWith((ref) => player),
+          lyricsProvider.overrideWith((ref) async => document),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(lyricsProvider.future);
+      container.read(floatingLyricsSyncProvider);
+
+      await container.read(floatingLyricsProvider.notifier).setEnabled(true);
+      await pumpEventQueue();
+      await container
+          .read(floatingLyricsProvider.notifier)
+          .setTextColor(const Color(0xFF00FFAA));
+      await pumpEventQueue();
+
+      final updates = calls.where((call) => call.method == 'update').toList();
+      expect(updates, hasLength(2));
+      final latestArgs = updates.last.arguments as Map<Object?, Object?>;
+      expect(latestArgs['text'], 'Styled lyric');
+      expect(latestArgs['textColor'], const Color(0xFF00FFAA).toARGB32());
+    },
+  );
+
+  test(
+    'sync sends the current lyric again after close and re-enable',
+    () async {
+      const channel = MethodChannel('com.mconnect.mconnect/floating_lyrics');
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call);
+            return switch (call.method) {
+              'canDrawOverlays' => true,
+              'hide' => true,
+              'update' => true,
+              _ => null,
+            };
+          });
+
+      const document = LyricsDocument(
+        lines: [LyricsLine(timestamp: Duration.zero, text: 'Reopened lyric')],
+      );
+      final player = _FloatingLyricsTestPlayerNotifier();
+      final container = ProviderContainer(
+        overrides: [
+          playerProvider.overrideWith((ref) => player),
+          lyricsProvider.overrideWith((ref) async => document),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(lyricsProvider.future);
+      container.read(floatingLyricsSyncProvider);
+
+      await container.read(floatingLyricsProvider.notifier).setEnabled(true);
+      await pumpEventQueue();
+      await _sendNativeFloatingLyricsCall('closedByUser');
+      await pumpEventQueue();
+      await container.read(floatingLyricsProvider.notifier).setEnabled(true);
+      await pumpEventQueue();
+
+      final updates = calls.where((call) => call.method == 'update').toList();
+      expect(updates, hasLength(2));
+      expect(
+        (updates.last.arguments as Map<Object?, Object?>)['text'],
+        'Reopened lyric',
+      );
+    },
+  );
+
+  test(
     'native close event prevents delayed sync from reopening the window',
     () async {
       const channel = MethodChannel('com.mconnect.mconnect/floating_lyrics');
@@ -276,6 +464,10 @@ class _FloatingLyricsTestPlayerNotifier extends PlayerNotifier {
       position: Duration.zero,
       duration: const Duration(minutes: 3),
     );
+  }
+
+  void setPosition(Duration position) {
+    state = state.copyWith(position: position);
   }
 }
 

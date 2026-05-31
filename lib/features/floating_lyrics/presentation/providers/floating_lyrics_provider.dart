@@ -102,6 +102,7 @@ class FloatingLyricsSyncController {
   final List<ProviderSubscription> _subscriptions = [];
   final List<StreamSubscription> _nativeSubscriptions = [];
   FloatingLyricsPayload? _lastPayload;
+  String? _lastNativeSignature;
   int _syncGeneration = 0;
 
   FloatingLyricsSyncController(this._ref, {FloatingLyricsService? service})
@@ -135,6 +136,7 @@ class FloatingLyricsSyncController {
       _service.closedByUserStream.listen((_) async {
         _syncGeneration++;
         _lastPayload = null;
+        _lastNativeSignature = null;
         await _service.hide();
         await _ref.read(floatingLyricsProvider.notifier).setEnabled(false);
       }),
@@ -183,21 +185,26 @@ class FloatingLyricsSyncController {
     final settings = _ref.read(floatingLyricsProvider);
     if (!settings.enabled) {
       _lastPayload = null;
+      _lastNativeSignature = null;
       await _service.hide();
       return;
     }
 
     final lyrics = _ref.read(lyricsProvider).valueOrNull;
     if (lyrics == null || lyrics.lines.isEmpty) {
+      _lastNativeSignature = null;
       return;
     }
     final position = _ref.read(playerProvider).position;
     final payload = payloadForPosition(lyrics, position);
     if (payload.text.trim().isEmpty &&
         (payload.translation?.trim().isEmpty ?? true)) {
+      _lastNativeSignature = null;
       return;
     }
     _lastPayload = payload;
+    final signature = _nativeSignature(payload, settings);
+    if (_lastNativeSignature == signature) return;
 
     final hasPermission = await _service.canDrawOverlays();
     if (syncGeneration != _syncGeneration) return;
@@ -209,6 +216,9 @@ class FloatingLyricsSyncController {
       return;
     }
     await _service.update(payload, latestSettings);
+    if (syncGeneration == _syncGeneration) {
+      _lastNativeSignature = _nativeSignature(payload, latestSettings);
+    }
   }
 
   FloatingLyricsPayload? get lastPayloadForTest => _lastPayload;
@@ -220,5 +230,25 @@ class FloatingLyricsSyncController {
     for (final sub in _nativeSubscriptions) {
       unawaited(sub.cancel());
     }
+  }
+
+  static String _nativeSignature(
+    FloatingLyricsPayload payload,
+    FloatingLyricsSettings settings,
+  ) {
+    return [
+      payload.text,
+      payload.translation ?? '',
+      payload.progress.clamp(0, 1),
+      settings.textColor.toARGB32(),
+      settings.highlightColor.toARGB32(),
+      settings.backgroundColor.toARGB32(),
+      settings.fontSize,
+      settings.strokeWidth,
+      settings.shadowOpacity,
+      settings.width,
+      settings.height,
+      settings.isLocked,
+    ].join('\u001f');
   }
 }

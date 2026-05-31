@@ -106,6 +106,25 @@ void main() {
     expect(source, isNot(contains('if (argb < 0)')));
   });
 
+  test(
+    'Android native floating lyrics uses stable system TextView rendering',
+    () {
+      final source = File(
+        'android/app/src/main/kotlin/com/mconnect/mconnect/FloatingLyricsController.kt',
+      ).readAsStringSync();
+
+      expect(source, isNot(contains('FastMarqueeTextView')));
+      expect(source, isNot(contains('override fun onDraw')));
+      expect(source, isNot(contains('canvas.drawText')));
+      expect(source, contains('lyricText = TextView(activity).apply'));
+      expect(source, contains('translationText = TextView(activity).apply'));
+      expect(source, contains('minHeight = dp('));
+      expect(source, contains('setTextIfChanged'));
+      expect(source, isNot(contains('this.text = text')));
+      expect(source, isNot(contains('this.text = translation')));
+    },
+  );
+
   test('native window resize events are exposed as a typed stream', () async {
     final events = <({int width, int height})>[];
     final sub = FloatingLyricsService.instance.windowResizedStream.listen(

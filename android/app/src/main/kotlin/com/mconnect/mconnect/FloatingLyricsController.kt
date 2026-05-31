@@ -3,13 +3,12 @@ package com.mconnect.mconnect
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
-import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
-import android.os.SystemClock
 import android.provider.Settings
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -129,16 +128,18 @@ class FloatingLyricsController(
             gravity = Gravity.CENTER
             setBackgroundColor(Color.TRANSPARENT)
         }
-        lyricText = FastMarqueeTextView(activity).apply {
+        lyricText = TextView(activity).apply {
             gravity = Gravity.CENTER
             typeface = Typeface.DEFAULT_BOLD
             includeFontPadding = false
+            minHeight = dp(34)
             configureMarquee()
         }
-        translationText = FastMarqueeTextView(activity).apply {
+        translationText = TextView(activity).apply {
             gravity = Gravity.CENTER
             includeFontPadding = false
             alpha = 0.82f
+            minHeight = dp(22)
             configureMarquee()
         }
         column.addView(
@@ -278,7 +279,7 @@ class FloatingLyricsController(
 
         overlayView?.setBackgroundColor(backgroundColor)
         lyricText?.apply {
-            this.text = text
+            setTextIfChanged(text)
             textSize = fontSize
             isSelected = text.isNotBlank()
             setTextColor(if (text.isBlank()) Color.TRANSPARENT else textColor)
@@ -290,7 +291,7 @@ class FloatingLyricsController(
             )
         }
         translationText?.apply {
-            this.text = translation
+            setTextIfChanged(translation)
             visibility = if (translation.isBlank()) View.GONE else View.VISIBLE
             isSelected = translation.isNotBlank()
             textSize = (fontSize * 0.62f).coerceAtLeast(11f)
@@ -341,7 +342,17 @@ class FloatingLyricsController(
         maxLines = 1
         setSingleLine(true)
         setHorizontallyScrolling(true)
+        ellipsize = TextUtils.TruncateAt.MARQUEE
+        marqueeRepeatLimit = -1
+        isFocusable = true
+        isFocusableInTouchMode = true
         isSelected = true
+    }
+
+    private fun TextView.setTextIfChanged(value: String) {
+        if (text?.toString() != value) {
+            text = value
+        }
     }
 
     private fun applyLockState() {
@@ -387,68 +398,5 @@ class FloatingLyricsController(
 
     private fun dp(value: Int): Int {
         return (value * activity.resources.displayMetrics.density).toInt()
-    }
-}
-
-private class FastMarqueeTextView(context: Context) : TextView(context) {
-    private val speedPxPerSecond = 96f * resources.displayMetrics.density
-    private val gapPx = 72f * resources.displayMetrics.density
-    private val startDelayMs = 350L
-    private var startedAt = SystemClock.uptimeMillis()
-
-    override fun onTextChanged(
-        text: CharSequence?,
-        start: Int,
-        lengthBefore: Int,
-        lengthAfter: Int,
-    ) {
-        super.onTextChanged(text, start, lengthBefore, lengthAfter)
-        resetMarquee()
-    }
-
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
-        resetMarquee()
-    }
-
-    override fun onDraw(canvas: Canvas) {
-        val value = text?.toString().orEmpty()
-        if (value.isBlank()) return
-
-        val availableWidth = width - paddingLeft - paddingRight
-        if (availableWidth <= 0) return
-
-        val textWidth = paint.measureText(value)
-        val metrics = paint.fontMetrics
-        val availableHeight = height - paddingTop - paddingBottom
-        val baseline = paddingTop +
-            (availableHeight - metrics.ascent - metrics.descent) / 2f
-
-        canvas.save()
-        canvas.clipRect(paddingLeft, paddingTop, width - paddingRight, height - paddingBottom)
-        if (textWidth <= availableWidth) {
-            val x = paddingLeft + (availableWidth - textWidth) / 2f
-            canvas.drawText(value, x, baseline, paint)
-        } else {
-            val elapsed = SystemClock.uptimeMillis() - startedAt
-            val traveled = if (elapsed <= startDelayMs) {
-                0f
-            } else {
-                ((elapsed - startDelayMs) * speedPxPerSecond / 1000f) %
-                    (textWidth + availableWidth + gapPx)
-            }
-            val x = paddingLeft + availableWidth - traveled
-            canvas.drawText(value, x, baseline, paint)
-            if (x + textWidth + gapPx < paddingLeft + availableWidth) {
-                canvas.drawText(value, x + textWidth + gapPx, baseline, paint)
-            }
-            postInvalidateOnAnimation()
-        }
-        canvas.restore()
-    }
-
-    private fun resetMarquee() {
-        startedAt = SystemClock.uptimeMillis()
-        postInvalidateOnAnimation()
     }
 }
