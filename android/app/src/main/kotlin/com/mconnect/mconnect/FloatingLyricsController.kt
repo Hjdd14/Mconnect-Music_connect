@@ -26,6 +26,7 @@ class FloatingLyricsController(private val activity: Activity) {
     private var layoutParams: WindowManager.LayoutParams? = null
     private var lyricText: TextView? = null
     private var translationText: TextView? = null
+    private var resizeHandle: TextView? = null
 
     fun canDrawOverlays(): Boolean {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
@@ -164,6 +165,7 @@ class FloatingLyricsController(private val activity: Activity) {
             setTextColor(Color.argb(170, 255, 255, 255))
             setShadowLayer(4f, 0f, 1f, Color.argb(190, 0, 0, 0))
         }
+        this.resizeHandle = resizeHandle
         root.addView(
             resizeHandle,
             FrameLayout.LayoutParams(
@@ -273,20 +275,6 @@ class FloatingLyricsController(private val activity: Activity) {
         lyricText = null
         translationText = null
         resizeHandle = null
-        lockButton = null
-    }
-
-    private fun controlButton(label: String): TextView {
-        return TextView(activity).apply {
-            text = label
-            textSize = 10f
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.argb(115, 0, 0, 0))
-            setPadding(dp(7), dp(3), dp(7), dp(3))
-            isClickable = true
-        }
     }
 
     private fun TextView.configureMarquee() {
@@ -296,25 +284,6 @@ class FloatingLyricsController(private val activity: Activity) {
         marqueeRepeatLimit = -1
         setHorizontallyScrolling(true)
         isSelected = true
-    }
-
-    private fun applyLockState() {
-        lockButton?.text = if (isLocked) "MOVE" else "LOCK"
-        resizeHandle?.visibility = if (isLocked) View.GONE else View.VISIBLE
-    }
-
-    private fun notifyClosedByUser() {
-        try {
-            channel.invokeMethod("closedByUser", null)
-        } catch (_: Exception) {
-        }
-    }
-
-    private fun notifyLockChanged() {
-        try {
-            channel.invokeMethod("lockChanged", isLocked)
-        } catch (_: Exception) {
-        }
     }
 
     private fun number(value: Any?, fallback: Double): Double {

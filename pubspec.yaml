@@ -25,6 +25,8 @@ dependencies:
   # Audio Playback
   just_audio: ^0.9.42
   audio_service: ^0.18.17
+  audio_session: ^0.1.25
+  just_audio_windows: ^0.2.3
 
   # Local Storage
   drift: ^2.22.0

@@ -8,7 +8,9 @@ class FloatingLyricsService {
   FloatingLyricsService._({MethodChannel? channel})
     : _channel =
           channel ??
-          const MethodChannel('com.mconnect.mconnect/floating_lyrics');
+          const MethodChannel('com.mconnect.mconnect/floating_lyrics') {
+    _channel.setMethodCallHandler(_handleNativeCall);
+  }
 
   static final instance = FloatingLyricsService._();
 

@@ -6,18 +6,21 @@ import android.net.Uri
 import android.os.StrictMode
 import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
-import io.flutter.embedding.android.FlutterActivity
+import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
-class MainActivity : FlutterActivity() {
+class MainActivity : AudioServiceActivity() {
     private val fileOpenerChannel = "com.mconnect.mconnect/file_opener"
     private val floatingLyricsChannel = "com.mconnect.mconnect/floating_lyrics"
+    private val playbackKeepAliveChannel = "com.mconnect.mconnect/playback_keep_alive"
     private var floatingLyricsController: FloatingLyricsController? = null
+    private var playbackKeepAliveController: PlaybackKeepAliveController? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, fileOpenerChannel)
             .setMethodCallHandler { call, result ->
                 val path = call.arguments as? String
@@ -27,12 +30,27 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+
+        playbackKeepAliveController = PlaybackKeepAliveController(applicationContext)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, playbackKeepAliveChannel)
+            .setMethodCallHandler { call, result ->
+                val controller = playbackKeepAliveController
+                    ?: PlaybackKeepAliveController(applicationContext).also {
+                        playbackKeepAliveController = it
+                    }
+                when (call.method) {
+                    "setPlaying" -> controller.setPlaying(call.arguments, result)
+                    else -> result.notImplemented()
+                }
+            }
+
         floatingLyricsController = FloatingLyricsController(this)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, floatingLyricsChannel)
             .setMethodCallHandler { call, result ->
-                val controller = floatingLyricsController ?: FloatingLyricsController(this).also {
-                    floatingLyricsController = it
-                }
+                val controller = floatingLyricsController
+                    ?: FloatingLyricsController(this).also {
+                        floatingLyricsController = it
+                    }
                 when (call.method) {
                     "canDrawOverlays" -> result.success(controller.canDrawOverlays())
                     "openOverlaySettings" -> controller.openOverlaySettings(result)
@@ -47,6 +65,8 @@ class MainActivity : FlutterActivity() {
     override fun onDestroy() {
         floatingLyricsController?.dispose()
         floatingLyricsController = null
+        playbackKeepAliveController?.release()
+        playbackKeepAliveController = null
         super.onDestroy()
     }
 
@@ -61,10 +81,10 @@ class MainActivity : FlutterActivity() {
                 setDataAndType(uri, mimeType)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            startActivity(Intent.createChooser(intent, "打开文件"))
+            startActivity(Intent.createChooser(intent, "Open file"))
             result.success(true)
         } catch (e: ActivityNotFoundException) {
-            result.error("OPEN_FAILED", "没有可用的应用打开该文件", null)
+            result.error("OPEN_FAILED", "No app can open this file", null)
         } catch (e: Exception) {
             result.error("OPEN_FAILED", e.message, null)
         }
@@ -97,22 +117,20 @@ class MainActivity : FlutterActivity() {
                 it.resolveActivity(packageManager) != null
             } ?: intents.last()
 
-            startActivity(Intent.createChooser(intent, "打开文件夹"))
+            startActivity(Intent.createChooser(intent, "Open folder"))
             result.success(true)
         } catch (e: ActivityNotFoundException) {
-            // Some file managers only accept file:// for folder navigation. Keep it
-            // as a fallback after the FileProvider attempts above.
             try {
                 val previousPolicy = StrictMode.getVmPolicy()
                 StrictMode.setVmPolicy(StrictMode.VmPolicy.Builder().build())
                 val fallback = Intent(Intent.ACTION_VIEW).apply {
                     setDataAndType(Uri.fromFile(folder), "resource/folder")
                 }
-                startActivity(Intent.createChooser(fallback, "打开文件夹"))
+                startActivity(Intent.createChooser(fallback, "Open folder"))
                 StrictMode.setVmPolicy(previousPolicy)
                 result.success(true)
             } catch (fallbackError: Exception) {
-                result.error("OPEN_FAILED", "没有可用的应用打开该文件夹", null)
+                result.error("OPEN_FAILED", "No app can open this folder", null)
             }
         } catch (e: Exception) {
             result.error("OPEN_FAILED", e.message, null)

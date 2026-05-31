@@ -1,9 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mconnect/core/diagnostics/diagnostics_service.dart';
+import 'package:mconnect/core/platform/platform_utils.dart';
 import 'package:mconnect/features/audio_effects/presentation/providers/audio_effects_provider.dart';
 import 'package:just_audio/just_audio.dart' as just_audio;
 import 'package:mconnect/features/player/presentation/providers/player_provider.dart';
+import 'package:mconnect/features/player/data/playback_keep_alive_service.dart';
+import 'package:mconnect/features/player/data/playback_notification_service.dart';
 import 'package:mconnect/features/player/data/player_playback_memory_store.dart';
 import 'package:mconnect/models/artist.dart';
 import 'package:mconnect/models/audio_quality.dart';
@@ -15,6 +19,20 @@ import 'package:mconnect/core/storage/session_storage.dart';
 import 'package:mconnect/platform/base/music_platform.dart';
 
 void main() {
+  test('Windows does not create an Android equalizer', () {
+    PlatformUtils.setDebugOverride(AppPlatform.windows);
+    addTearDown(() => PlatformUtils.setDebugOverride(null));
+
+    expect(createAndroidEqualizerForPlatform(), isNull);
+  });
+
+  test('non-Windows desktop does not create an Android equalizer', () {
+    PlatformUtils.setDebugOverride(AppPlatform.linux);
+    addTearDown(() => PlatformUtils.setDebugOverride(null));
+
+    expect(createAndroidEqualizerForPlatform(), isNull);
+  });
+
   test(
     'default construction does not eagerly create the audio controller',
     () async {
@@ -240,6 +258,49 @@ void main() {
 
     expect(notifier.state.isTransitioning, isFalse);
     expect(notifier.state.isPlaying, isTrue);
+  });
+
+  test(
+    'syncs Android background playback state while playing changes',
+    () async {
+      final audio = _FakeAudioController();
+      final notification = _FakePlaybackNotificationController();
+      final keepAlive = _FakePlaybackKeepAliveController();
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        platformResolver: (_) => _FakeMusicPlatform(),
+        audioControllerFactory: () => _FakeAudioController(),
+        notificationController: notification,
+        keepAliveController: keepAlive,
+      );
+      addTearDown(notifier.dispose);
+
+      await notifier.playSong(_song('background-sync'));
+      await notifier.pause();
+      await pumpEventQueue();
+
+      expect(keepAlive.playingStates, [true, false]);
+      expect(notification.attached, isTrue);
+      expect(notification.updates.last.isPlaying, isFalse);
+      expect(notification.updates.last.currentSong?.id, 'background-sync');
+    },
+  );
+
+  test('dispose detaches notification and releases playback keep alive', () {
+    final notification = _FakePlaybackNotificationController();
+    final keepAlive = _FakePlaybackKeepAliveController();
+    final notifier = PlayerNotifier(
+      audioController: _FakeAudioController(),
+      platformResolver: (_) => _FakeMusicPlatform(),
+      audioControllerFactory: () => _FakeAudioController(),
+      notificationController: notification,
+      keepAliveController: keepAlive,
+    );
+
+    notifier.dispose();
+
+    expect(notification.detached, isTrue);
+    expect(keepAlive.disposed, isTrue);
   });
 
   test('a hanging seek does not block playing another song', () async {
@@ -611,6 +672,69 @@ class _FakeAudioController implements PlayerAudioController {
     await _positionController.close();
     await _durationController.close();
     await _playerStateController.close();
+  }
+}
+
+class _FakePlaybackKeepAliveController implements PlaybackKeepAliveController {
+  final List<bool> playingStates = [];
+  bool disposed = false;
+
+  @override
+  Future<void> setPlaying(bool playing) async {
+    playingStates.add(playing);
+  }
+
+  @override
+  Future<void> dispose() async {
+    disposed = true;
+    playingStates.add(false);
+  }
+}
+
+class _PlaybackNotificationUpdate {
+  final Song? currentSong;
+  final bool isPlaying;
+
+  const _PlaybackNotificationUpdate({
+    required this.currentSong,
+    required this.isPlaying,
+  });
+}
+
+class _FakePlaybackNotificationController
+    implements PlaybackNotificationController {
+  final List<_PlaybackNotificationUpdate> updates = [];
+  bool attached = false;
+  bool detached = false;
+
+  @override
+  Future<void> initialize({DiagnosticsService? diagnostics}) async {}
+
+  @override
+  void attach(PlaybackNotificationActions actions) {
+    attached = true;
+  }
+
+  @override
+  void detach() {
+    detached = true;
+  }
+
+  @override
+  void update({
+    required Song? currentSong,
+    required List<Song> playlist,
+    required int currentIndex,
+    required bool isPlaying,
+    required Duration position,
+    required Duration duration,
+  }) {
+    updates.add(
+      _PlaybackNotificationUpdate(
+        currentSong: currentSong,
+        isPlaying: isPlaying,
+      ),
+    );
   }
 }
 

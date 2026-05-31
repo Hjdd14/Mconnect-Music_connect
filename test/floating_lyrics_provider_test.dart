@@ -1,12 +1,16 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:mconnect/features/floating_lyrics/presentation/providers/floating_lyrics_provider.dart';
 import 'package:mconnect/lyrics/models/lyrics_line.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   late Directory tempDir;
 
   setUp(() async {
@@ -100,4 +104,14 @@ void main() {
     expect(payload.text, isEmpty);
     expect(payload.translation, isNull);
   });
+}
+
+Future<void> _sendNativeFloatingLyricsCall(String method, [Object? arguments]) {
+  const codec = StandardMethodCodec();
+  return TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .handlePlatformMessage(
+        'com.mconnect.mconnect/floating_lyrics',
+        codec.encodeMethodCall(MethodCall(method, arguments)),
+        (_) {},
+      );
 }

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 import '../../../../core/diagnostics/diagnostics_service.dart';
+import '../../../../core/platform/platform_utils.dart';
 import '../../../audio_effects/presentation/providers/audio_effects_provider.dart';
 import '../../../../models/audio_quality.dart';
 import '../../../../models/platform_type.dart';
@@ -12,6 +13,8 @@ import '../../../../models/song.dart';
 import '../../../../platform/base/platform_registry.dart';
 import '../../../../platform/base/music_platform.dart';
 import '../../data/player_playback_memory_store.dart';
+import '../../data/playback_keep_alive_service.dart';
+import '../../data/playback_notification_service.dart' as playback_notification;
 
 enum RepeatMode { off, all, one }
 
@@ -47,17 +50,19 @@ abstract class PlayerAudioController {
 
 class JustAudioController implements PlayerAudioController {
   final AudioPlayer _player;
-  final AndroidEqualizer _equalizer;
+  final AndroidEqualizer? _equalizer;
 
   JustAudioController([AudioPlayer? player, AndroidEqualizer? equalizer])
-    : this._(player, equalizer ?? AndroidEqualizer());
+    : this._(player, equalizer ?? createAndroidEqualizerForPlatform());
 
-  JustAudioController._(AudioPlayer? player, AndroidEqualizer equalizer)
+  JustAudioController._(AudioPlayer? player, AndroidEqualizer? equalizer)
     : _equalizer = equalizer,
       _player =
           player ??
           AudioPlayer(
-            audioPipeline: AudioPipeline(androidAudioEffects: [equalizer]),
+            audioPipeline: equalizer == null
+                ? null
+                : AudioPipeline(androidAudioEffects: [equalizer]),
           );
 
   AudioPlayer get player => _player;
@@ -106,9 +111,11 @@ class JustAudioController implements PlayerAudioController {
     required bool enabled,
     required List<double> bandGains,
   }) async {
-    await _equalizer.setEnabled(enabled);
+    final equalizer = _equalizer;
+    if (equalizer == null) return;
+    await equalizer.setEnabled(enabled);
     if (!enabled) return;
-    final parameters = await _equalizer.parameters;
+    final parameters = await equalizer.parameters;
     final count = min(parameters.bands.length, bandGains.length);
     for (var i = 0; i < count; i++) {
       final gain = bandGains[i].clamp(
@@ -121,6 +128,11 @@ class JustAudioController implements PlayerAudioController {
 
   @override
   Future<void> dispose() => _player.dispose();
+}
+
+@visibleForTesting
+AndroidEqualizer? createAndroidEqualizerForPlatform() {
+  return PlatformUtils.isAndroid ? AndroidEqualizer() : null;
 }
 
 class PlayerState {
@@ -220,6 +232,9 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   final Duration _qualitySwitchTimeout;
   final Duration _playbackMemorySaveInterval;
   final PlayerPlaybackMemoryStore _playbackMemoryStore;
+  final playback_notification.PlaybackNotificationController
+  _notificationController;
+  final PlaybackKeepAliveController _keepAliveController;
   final List<StreamSubscription> _subscriptions = [];
   final _mutex = _AudioMutex();
   bool _isSwitchingQuality = false;
@@ -245,6 +260,9 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     PlayerPlaybackMemoryStore playbackMemoryStore =
         const NoopPlayerPlaybackMemoryStore(),
     Duration playbackMemorySaveInterval = const Duration(seconds: 5),
+    playback_notification.PlaybackNotificationController?
+    notificationController,
+    PlaybackKeepAliveController? keepAliveController,
   }) : _audioController = audioController,
        _platformResolver = platformResolver ?? PlatformRegistry.get,
        _audioControllerFactory =
@@ -254,11 +272,37 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
        _qualitySwitchTimeout = qualitySwitchTimeout ?? audioOperationTimeout,
        _playbackMemoryStore = playbackMemoryStore,
        _playbackMemorySaveInterval = playbackMemorySaveInterval,
+       _notificationController =
+           notificationController ??
+           playback_notification
+               .AudioServicePlaybackNotificationController
+               .instance,
+       _keepAliveController =
+           keepAliveController ??
+           MethodChannelPlaybackKeepAliveController.instance,
        super(const PlayerState()) {
+    _notificationController.attach(
+      playback_notification.PlaybackNotificationActions(
+        play: _playFromNotification,
+        pause: pause,
+        skipToNext: skipToNext,
+        skipToPrevious: skipToPrevious,
+        seek: seek,
+      ),
+    );
     if (audioController != null) {
       _setupListeners(audioController);
     }
     unawaited(_restorePlaybackMemory());
+    _syncNotificationState();
+  }
+
+  Future<void> _playFromNotification() async {
+    if (_restoredSourceNeedsLoad && state.currentSong != null) {
+      await _playRestoredSong();
+      return;
+    }
+    await togglePlay();
   }
 
   PlayerAudioController _ensureAudioController() {
@@ -272,6 +316,25 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
   void _setState(PlayerState nextState) {
     state = nextState;
+    _syncNotificationState();
+    _syncPlaybackKeepAlive(nextState.isPlaying);
+  }
+
+  void _syncNotificationState() {
+    _notificationController.update(
+      currentSong: state.currentSong,
+      playlist: state.playlist,
+      currentIndex: state.currentIndex,
+      isPlaying: state.isPlaying,
+      position: state.position,
+      duration: state.duration,
+    );
+  }
+
+  void _syncPlaybackKeepAlive(bool isPlaying) {
+    if (_lastKeepAlivePlaying == isPlaying) return;
+    _lastKeepAlivePlaying = isPlaying;
+    unawaited(_keepAliveController.setPlaying(isPlaying));
   }
 
   void _setupListeners(PlayerAudioController controller) {
@@ -282,7 +345,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         final sec = pos.inSeconds;
         if (sec != _lastPositionSecond) {
           _lastPositionSecond = sec;
-          state = state.copyWith(position: pos);
+          _setState(state.copyWith(position: pos));
           _schedulePlaybackMemorySave();
         }
       }),
@@ -304,9 +367,11 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
               state.isTransitioning &&
               (playerState.playing ||
                   playerState.processingState == ProcessingState.ready);
-          state = state.copyWith(
-            isPlaying: playerState.playing,
-            isTransitioning: clearTransition ? false : state.isTransitioning,
+          _setState(
+            state.copyWith(
+              isPlaying: playerState.playing,
+              isTransitioning: clearTransition ? false : state.isTransitioning,
+            ),
           );
           _schedulePlaybackMemorySave();
           if (playerState.processingState == ProcessingState.completed) {
@@ -344,17 +409,19 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       if (currentIndex < 0) currentIndex = 0;
       _lastPositionSecond = memory.position.inSeconds;
       _restoredSourceNeedsLoad = true;
-      state = state.copyWith(
-        currentSong: memory.currentSong,
-        playlist: playlist,
-        currentIndex: currentIndex,
-        isPlaying: false,
-        position: memory.position,
-        duration: memory.duration,
-        currentQuality: memory.currentQuality,
-        qualityPreference: memory.qualityPreference,
-        error: () => null,
-        isTransitioning: false,
+      _setState(
+        state.copyWith(
+          currentSong: memory.currentSong,
+          playlist: playlist,
+          currentIndex: currentIndex,
+          isPlaying: false,
+          position: memory.position,
+          duration: memory.duration,
+          currentQuality: memory.currentQuality,
+          qualityPreference: memory.qualityPreference,
+          error: () => null,
+          isTransitioning: false,
+        ),
       );
     } catch (e, s) {
       debugPrint('PlayerNotifier restore playback memory failed: $e');
@@ -593,10 +660,12 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     if (requestId != null && requestId != _playRequestId) return;
     debugPrint('PlayerNotifier play error: $error');
     debugPrint('PlayerNotifier play stack: $stack');
-    state = state.copyWith(
-      isPlaying: false,
-      isTransitioning: false,
-      error: () => 'Playback failed: $error',
+    _setState(
+      state.copyWith(
+        isPlaying: false,
+        isTransitioning: false,
+        error: () => 'Playback failed: $error',
+      ),
     );
     if (error is PlatformException || error is TimeoutException) {
       unawaited(_recreatePlayer());
@@ -612,9 +681,11 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       debugPrint(
         'PlayerNotifier: transition watchdog released request $requestId',
       );
-      state = state.copyWith(
-        isTransitioning: false,
-        error: () => 'Playback is taking longer than expected.',
+      _setState(
+        state.copyWith(
+          isTransitioning: false,
+          error: () => 'Playback is taking longer than expected.',
+        ),
       );
     });
   }
@@ -720,21 +791,25 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         final newPlaylist = List<Song>.from(state.playlist);
         if (newIndex == -1) {
           newPlaylist.add(song);
-          state = state.copyWith(
-            currentSong: song,
-            playlist: newPlaylist,
-            currentIndex: newPlaylist.length - 1,
-            position: Duration.zero,
-            error: () => null,
-            isTransitioning: true,
+          _setState(
+            state.copyWith(
+              currentSong: song,
+              playlist: newPlaylist,
+              currentIndex: newPlaylist.length - 1,
+              position: Duration.zero,
+              error: () => null,
+              isTransitioning: true,
+            ),
           );
         } else {
-          state = state.copyWith(
-            currentSong: song,
-            currentIndex: newIndex,
-            position: Duration.zero,
-            error: () => null,
-            isTransitioning: true,
+          _setState(
+            state.copyWith(
+              currentSong: song,
+              currentIndex: newIndex,
+              position: Duration.zero,
+              error: () => null,
+              isTransitioning: true,
+            ),
           );
         }
         _schedulePlaybackMemorySave();
@@ -742,7 +817,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         final playbackQuality = await _resolvePlaybackQuality(song, platform);
         if (requestId != _playRequestId) return;
         if (playbackQuality != state.currentQuality) {
-          state = state.copyWith(currentQuality: playbackQuality);
+          _setState(state.copyWith(currentQuality: playbackQuality));
         }
         final url = song.platform == PlatformType.local
             ? Uri.file(song.id).toString()
@@ -779,7 +854,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         debugPrint('playSong: play() invoked');
 
         if (requestId == _playRequestId) {
-          state = state.copyWith(isPlaying: true, isTransitioning: false);
+          _setState(state.copyWith(isPlaying: true, isTransitioning: false));
           _schedulePlaybackMemorySave();
           _cancelTransitionWatchdog();
           DiagnosticsService.instance.record(
@@ -793,10 +868,12 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         debugPrint('Playback error: $e');
         debugPrint('Playback stack: $s');
         _cancelTransitionWatchdog();
-        state = state.copyWith(
-          isPlaying: false,
-          isTransitioning: false,
-          error: () => '播放失败: ${e.toString()}',
+        _setState(
+          state.copyWith(
+            isPlaying: false,
+            isTransitioning: false,
+            error: () => '播放失败: ${e.toString()}',
+          ),
         );
         DiagnosticsService.instance.recordError(
           'player.playSong',
@@ -809,7 +886,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   }
 
   Future<void> playPlaylist(List<Song> songs, {int startIndex = 0}) async {
-    state = state.copyWith(playlist: songs, currentIndex: startIndex);
+    _setState(state.copyWith(playlist: songs, currentIndex: startIndex));
     _schedulePlaybackMemorySave();
     if (startIndex < songs.length) {
       await playSong(songs[startIndex]);
@@ -874,10 +951,12 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       } catch (e, s) {
         if (requestId != _playRequestId) return;
         _cancelTransitionWatchdog();
-        state = state.copyWith(
-          isPlaying: false,
-          isTransitioning: false,
-          error: () => '鎾斁澶辫触: ${e.toString()}',
+        _setState(
+          state.copyWith(
+            isPlaying: false,
+            isTransitioning: false,
+            error: () => '鎾斁澶辫触: ${e.toString()}',
+          ),
         );
         DiagnosticsService.instance.recordError(
           'player.restorePlaybackMemory',
@@ -901,6 +980,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
           final fadeGeneration = _cancelActiveFades();
           await _runFade(from: 1, to: 0, generation: fadeGeneration);
           await audioController.pause().timeout(_audioOperationTimeout);
+          _setState(state.copyWith(isPlaying: false));
           if (_fadeEnabled) {
             await _safeSetVolume(1);
           }
@@ -972,10 +1052,12 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         await _safeSeek(currentPosition);
 
         if (requestId != _qualityRequestId) return;
-        state = state.copyWith(
-          currentQuality: quality,
-          qualityPreference: preference,
-          error: () => null,
+        _setState(
+          state.copyWith(
+            currentQuality: quality,
+            qualityPreference: preference,
+            error: () => null,
+          ),
         );
         _schedulePlaybackMemorySave();
 
@@ -986,7 +1068,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         }
       } on TimeoutException {
         if (requestId == _qualityRequestId) {
-          state = state.copyWith(error: () => '音质切换超时，请稍后重试');
+          _setState(state.copyWith(error: () => 'Quality switch timed out.'));
         }
       } catch (e) {
         debugPrint('Quality switch error: $e');
@@ -1001,7 +1083,11 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
           },
         );
         if (requestId == _qualityRequestId) {
-          state = state.copyWith(error: () => '音质切换失败: ${e.toString()}');
+          _setState(
+            state.copyWith(
+              error: () => 'Quality switch failed: ${e.toString()}',
+            ),
+          );
         }
       } finally {
         if (requestId == _qualityRequestId) {
@@ -1019,20 +1105,18 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         ..removeAt(state.currentIndex);
       others.shuffle();
       final newPlaylist = <Song>[?current, ...others];
-      state = state.copyWith(
-        isShuffle: true,
-        playlist: newPlaylist,
-        currentIndex: 0,
+      _setState(
+        state.copyWith(isShuffle: true, playlist: newPlaylist, currentIndex: 0),
       );
     } else {
-      state = state.copyWith(isShuffle: newShuffle);
+      _setState(state.copyWith(isShuffle: newShuffle));
     }
   }
 
   void cycleRepeatMode() {
     final modes = RepeatMode.values;
     final nextIndex = (state.repeatMode.index + 1) % modes.length;
-    state = state.copyWith(repeatMode: modes[nextIndex]);
+    _setState(state.copyWith(repeatMode: modes[nextIndex]));
   }
 
   Future<void> skipToNext() async {
@@ -1102,7 +1186,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
   Future<void> seek(Duration position) async {
     if (!mounted) return;
-    state = state.copyWith(position: position, isTransitioning: false);
+    _setState(state.copyWith(position: position, isTransitioning: false));
     _schedulePlaybackMemorySave();
     if (_restoredSourceNeedsLoad) return;
     await _safeSeek(position);
@@ -1116,6 +1200,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         final fadeGeneration = _cancelActiveFades();
         await _runFade(from: 1, to: 0, generation: fadeGeneration);
         await audioController.pause().timeout(_audioOperationTimeout);
+        _setState(state.copyWith(isPlaying: false));
         if (_fadeEnabled) {
           await _safeSetVolume(1);
         }
@@ -1133,7 +1218,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     );
     if (!exists) {
       newPlaylist.add(song);
-      state = state.copyWith(playlist: newPlaylist);
+      _setState(state.copyWith(playlist: newPlaylist));
       _schedulePlaybackMemorySave();
     }
   }
@@ -1146,6 +1231,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     for (final sub in _subscriptions) {
       sub.cancel();
     }
+    _notificationController.detach();
+    unawaited(_keepAliveController.dispose());
     _audioController?.dispose();
     super.dispose();
   }
