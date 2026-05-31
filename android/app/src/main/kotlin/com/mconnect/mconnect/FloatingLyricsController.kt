@@ -3,12 +3,13 @@ package com.mconnect.mconnect
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import android.provider.Settings
-import android.text.TextUtils
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -19,7 +20,10 @@ import android.widget.TextView
 import io.flutter.plugin.common.MethodChannel
 import kotlin.math.max
 
-class FloatingLyricsController(private val activity: Activity) {
+class FloatingLyricsController(
+    private val activity: Activity,
+    private val channel: MethodChannel,
+) {
     private val windowManager =
         activity.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private var overlayView: FrameLayout? = null
@@ -27,6 +31,8 @@ class FloatingLyricsController(private val activity: Activity) {
     private var lyricText: TextView? = null
     private var translationText: TextView? = null
     private var resizeHandle: TextView? = null
+    private var lockButton: TextView? = null
+    private var isLocked = false
 
     fun canDrawOverlays(): Boolean {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
@@ -123,13 +129,13 @@ class FloatingLyricsController(private val activity: Activity) {
             gravity = Gravity.CENTER
             setBackgroundColor(Color.TRANSPARENT)
         }
-        lyricText = TextView(activity).apply {
+        lyricText = FastMarqueeTextView(activity).apply {
             gravity = Gravity.CENTER
             typeface = Typeface.DEFAULT_BOLD
             includeFontPadding = false
             configureMarquee()
         }
-        translationText = TextView(activity).apply {
+        translationText = FastMarqueeTextView(activity).apply {
             gravity = Gravity.CENTER
             includeFontPadding = false
             alpha = 0.82f
@@ -159,9 +165,44 @@ class FloatingLyricsController(private val activity: Activity) {
                 Gravity.CENTER,
             ),
         )
+
+        val lockButton = controlButton("LOCK").apply {
+            setOnClickListener {
+                isLocked = !isLocked
+                applyLockState()
+                notifyLockChanged()
+            }
+        }
+        this.lockButton = lockButton
+        root.addView(
+            lockButton,
+            FrameLayout.LayoutParams(
+                dp(50),
+                dp(26),
+                Gravity.TOP or Gravity.START,
+            ),
+        )
+
+        val closeButton = controlButton("X").apply {
+            textSize = 13f
+            setOnClickListener {
+                removeOverlay()
+                notifyClosedByUser()
+            }
+        }
+        root.addView(
+            closeButton,
+            FrameLayout.LayoutParams(
+                dp(34),
+                dp(26),
+                Gravity.TOP or Gravity.END,
+            ),
+        )
+
         val resizeHandle = TextView(activity).apply {
-            text = "↘"
+            text = "//"
             textSize = 14f
+            gravity = Gravity.CENTER
             setTextColor(Color.argb(170, 255, 255, 255))
             setShadowLayer(4f, 0f, 1f, Color.argb(190, 0, 0, 0))
         }
@@ -169,8 +210,8 @@ class FloatingLyricsController(private val activity: Activity) {
         root.addView(
             resizeHandle,
             FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
+                dp(28),
+                dp(24),
                 Gravity.BOTTOM or Gravity.END,
             ),
         )
@@ -194,6 +235,7 @@ class FloatingLyricsController(private val activity: Activity) {
             val params = layoutParams ?: return@OnTouchListener false
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    if (isLocked) return@OnTouchListener false
                     startX = params.x
                     startY = params.y
                     startWidth = params.width
@@ -204,6 +246,7 @@ class FloatingLyricsController(private val activity: Activity) {
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
+                    if (isLocked) return@OnTouchListener false
                     val dx = event.rawX - startRawX
                     val dy = event.rawY - startRawY
                     if (resizing) {
@@ -231,6 +274,7 @@ class FloatingLyricsController(private val activity: Activity) {
         val fontSize = number(data["fontSize"], 23.0).toFloat()
         val shadowOpacity = number(data["shadowOpacity"], 0.78).coerceIn(0.0, 1.0)
         val backgroundColor = intColor(data["backgroundColor"], Color.TRANSPARENT)
+        isLocked = bool(data["isLocked"], isLocked)
 
         overlayView?.setBackgroundColor(backgroundColor)
         lyricText?.apply {
@@ -261,6 +305,7 @@ class FloatingLyricsController(private val activity: Activity) {
         // Keep highlightColor consumed by the channel contract. Native word-level
         // highlighting can use this value when per-word timing is pushed later.
         lyricText?.tag = highlightColor
+        applyLockState()
     }
 
     private fun removeOverlay() {
@@ -275,15 +320,47 @@ class FloatingLyricsController(private val activity: Activity) {
         lyricText = null
         translationText = null
         resizeHandle = null
+        lockButton = null
+        isLocked = false
+    }
+
+    private fun controlButton(label: String): TextView {
+        return TextView(activity).apply {
+            text = label
+            textSize = 10f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.argb(135, 0, 0, 0))
+            isClickable = true
+            isFocusable = false
+        }
     }
 
     private fun TextView.configureMarquee() {
         maxLines = 1
         setSingleLine(true)
-        ellipsize = TextUtils.TruncateAt.MARQUEE
-        marqueeRepeatLimit = -1
         setHorizontallyScrolling(true)
         isSelected = true
+    }
+
+    private fun applyLockState() {
+        lockButton?.text = if (isLocked) "MOVE" else "LOCK"
+        resizeHandle?.visibility = if (isLocked) View.GONE else View.VISIBLE
+    }
+
+    private fun notifyClosedByUser() {
+        try {
+            channel.invokeMethod("closedByUser", null)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun notifyLockChanged() {
+        try {
+            channel.invokeMethod("lockChanged", isLocked)
+        } catch (_: Exception) {
+        }
     }
 
     private fun number(value: Any?, fallback: Double): Double {
@@ -297,6 +374,10 @@ class FloatingLyricsController(private val activity: Activity) {
         return value as? String ?: ""
     }
 
+    private fun bool(value: Any?, fallback: Boolean): Boolean {
+        return value as? Boolean ?: fallback
+    }
+
     private fun intColor(value: Any?, fallback: Int): Int {
         return when (value) {
             is Number -> value.toInt()
@@ -306,5 +387,68 @@ class FloatingLyricsController(private val activity: Activity) {
 
     private fun dp(value: Int): Int {
         return (value * activity.resources.displayMetrics.density).toInt()
+    }
+}
+
+private class FastMarqueeTextView(context: Context) : TextView(context) {
+    private val speedPxPerSecond = 96f * resources.displayMetrics.density
+    private val gapPx = 72f * resources.displayMetrics.density
+    private val startDelayMs = 350L
+    private var startedAt = SystemClock.uptimeMillis()
+
+    override fun onTextChanged(
+        text: CharSequence?,
+        start: Int,
+        lengthBefore: Int,
+        lengthAfter: Int,
+    ) {
+        super.onTextChanged(text, start, lengthBefore, lengthAfter)
+        resetMarquee()
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        resetMarquee()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val value = text?.toString().orEmpty()
+        if (value.isBlank()) return
+
+        val availableWidth = width - paddingLeft - paddingRight
+        if (availableWidth <= 0) return
+
+        val textWidth = paint.measureText(value)
+        val metrics = paint.fontMetrics
+        val availableHeight = height - paddingTop - paddingBottom
+        val baseline = paddingTop +
+            (availableHeight - metrics.ascent - metrics.descent) / 2f
+
+        canvas.save()
+        canvas.clipRect(paddingLeft, paddingTop, width - paddingRight, height - paddingBottom)
+        if (textWidth <= availableWidth) {
+            val x = paddingLeft + (availableWidth - textWidth) / 2f
+            canvas.drawText(value, x, baseline, paint)
+        } else {
+            val elapsed = SystemClock.uptimeMillis() - startedAt
+            val traveled = if (elapsed <= startDelayMs) {
+                0f
+            } else {
+                ((elapsed - startDelayMs) * speedPxPerSecond / 1000f) %
+                    (textWidth + availableWidth + gapPx)
+            }
+            val x = paddingLeft + availableWidth - traveled
+            canvas.drawText(value, x, baseline, paint)
+            if (x + textWidth + gapPx < paddingLeft + availableWidth) {
+                canvas.drawText(value, x + textWidth + gapPx, baseline, paint)
+            }
+            postInvalidateOnAnimation()
+        }
+        canvas.restore()
+    }
+
+    private fun resetMarquee() {
+        startedAt = SystemClock.uptimeMillis()
+        postInvalidateOnAnimation()
     }
 }

@@ -366,9 +366,9 @@ int FloatingLyricsWindow::MarqueeOffset(int text_width, int rect_width) const {
     return (rect_width - text_width) / 2;
   }
 
-  constexpr int delay_ms = 900;
-  constexpr int gap = 80;
-  constexpr double pixels_per_second = 42.0;
+  constexpr int delay_ms = 350;
+  constexpr int gap = 72;
+  constexpr double pixels_per_second = 96.0;
   const DWORD elapsed = GetTickCount() - marquee_started_at_;
   if (elapsed < delay_ms) {
     return rect_width;

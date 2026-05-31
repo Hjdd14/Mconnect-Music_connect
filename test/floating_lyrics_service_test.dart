@@ -109,6 +109,19 @@ void main() {
 
     expect(events, [(width: 456, height: 118)]);
   });
+
+  test('native close events are exposed as a stream', () async {
+    var closedCount = 0;
+    final sub = FloatingLyricsService.instance.closedByUserStream.listen(
+      (_) => closedCount++,
+    );
+    addTearDown(sub.cancel);
+
+    await _sendNativeFloatingLyricsCall('closedByUser');
+    await pumpEventQueue();
+
+    expect(closedCount, 1);
+  });
 }
 
 Future<void> _sendNativeFloatingLyricsCall(String method, [Object? arguments]) {

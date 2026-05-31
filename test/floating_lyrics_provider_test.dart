@@ -33,6 +33,7 @@ void main() {
     await notifier.ready;
 
     await notifier.setEnabled(true);
+    await notifier.setLocked(true);
     await notifier.setTextColor(const Color(0xFF00FFAA));
     await notifier.setHighlightColor(const Color(0xFFFFCC00));
     await notifier.setFontSize(30);
@@ -41,6 +42,7 @@ void main() {
     await restored.ready;
 
     expect(restored.state.enabled, isTrue);
+    expect(restored.state.isLocked, isTrue);
     expect(restored.state.textColor, const Color(0xFF00FFAA));
     expect(restored.state.highlightColor, const Color(0xFFFFCC00));
     expect(restored.state.fontSize, 30);
@@ -68,6 +70,49 @@ void main() {
     expect(restored.state.width, 468);
     expect(restored.state.height, 128);
   });
+
+  test(
+    'native close event turns off and persists the floating lyrics switch',
+    () async {
+      final container = ProviderContainer();
+      container.read(floatingLyricsSyncProvider);
+
+      await container.read(floatingLyricsProvider.notifier).setEnabled(true);
+      expect(container.read(floatingLyricsProvider).enabled, isTrue);
+
+      await _sendNativeFloatingLyricsCall('closedByUser');
+      await pumpEventQueue();
+
+      expect(container.read(floatingLyricsProvider).enabled, isFalse);
+      container.dispose();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      final restored = FloatingLyricsNotifier();
+      addTearDown(restored.dispose);
+      await restored.ready;
+      expect(restored.state.enabled, isFalse);
+    },
+  );
+
+  test(
+    'native lock event updates and persists the floating lyrics lock state',
+    () async {
+      final container = ProviderContainer();
+      container.read(floatingLyricsSyncProvider);
+
+      await _sendNativeFloatingLyricsCall('lockChanged', true);
+      await pumpEventQueue();
+
+      expect(container.read(floatingLyricsProvider).isLocked, isTrue);
+      container.dispose();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      final restored = FloatingLyricsNotifier();
+      addTearDown(restored.dispose);
+      await restored.ready;
+      expect(restored.state.isLocked, isTrue);
+    },
+  );
 
   test('payloadForPosition returns the active timed lyric line', () {
     const document = LyricsDocument(

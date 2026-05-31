@@ -76,6 +76,42 @@ void main() {
     },
   );
 
+  testWidgets('floating lyrics color rows open a full color picker', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const ProviderScope(child: MaterialApp(home: SettingsPage())),
+    );
+
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('floating-lyrics-text-color-tile')),
+      220,
+      scrollable: find.byType(Scrollable).first,
+    );
+    final colorTile = tester.widget<ListTile>(
+      find.descendant(
+        of: find.byKey(const Key('floating-lyrics-text-color-tile')),
+        matching: find.byType(ListTile),
+      ),
+    );
+    colorTile.onTap!();
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('floating-color-picker-dialog')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('floating-color-picker-hue')), findsOneWidget);
+    expect(
+      find.byKey(const Key('floating-color-picker-saturation')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('floating-color-picker-value')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('settings page exposes low-risk audio enhancement controls', (
     tester,
   ) async {

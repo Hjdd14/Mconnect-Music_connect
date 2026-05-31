@@ -44,11 +44,13 @@ class MainActivity : AudioServiceActivity() {
                 }
             }
 
-        floatingLyricsController = FloatingLyricsController(this)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, floatingLyricsChannel)
+        val floatingLyricsMethodChannel =
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, floatingLyricsChannel)
+        floatingLyricsController = FloatingLyricsController(this, floatingLyricsMethodChannel)
+        floatingLyricsMethodChannel
             .setMethodCallHandler { call, result ->
                 val controller = floatingLyricsController
-                    ?: FloatingLyricsController(this).also {
+                    ?: FloatingLyricsController(this, floatingLyricsMethodChannel).also {
                         floatingLyricsController = it
                     }
                 when (call.method) {

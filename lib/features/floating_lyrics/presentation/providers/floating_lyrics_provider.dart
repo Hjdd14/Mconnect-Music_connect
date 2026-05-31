@@ -80,6 +80,10 @@ class FloatingLyricsNotifier extends StateNotifier<FloatingLyricsSettings> {
     );
   }
 
+  Future<void> setLocked(bool isLocked) async {
+    await _save(state.copyWith(isLocked: isLocked));
+  }
+
   Future<void> _save(FloatingLyricsSettings settings) async {
     state = settings;
     try {
@@ -124,6 +128,16 @@ class FloatingLyricsSyncController {
               width: size.width.toDouble(),
               height: size.height.toDouble(),
             );
+      }),
+    );
+    _nativeSubscriptions.add(
+      _service.closedByUserStream.listen((_) async {
+        await _ref.read(floatingLyricsProvider.notifier).setEnabled(false);
+      }),
+    );
+    _nativeSubscriptions.add(
+      _service.lockChangedStream.listen((isLocked) async {
+        await _ref.read(floatingLyricsProvider.notifier).setLocked(isLocked);
       }),
     );
   }

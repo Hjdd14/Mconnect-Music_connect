@@ -27,20 +27,6 @@ class SettingsPage extends ConsumerWidget {
     Color(0xFF111827),
   ];
 
-  static const _lyricTextPresets = [
-    Color(0xFFFFF4F8),
-    Colors.white,
-    Color(0xFFB8F7FF),
-    Color(0xFFFFF2A8),
-  ];
-
-  static const _lyricHighlightPresets = [
-    Color(0xFFFFD44A),
-    Color(0xFF31C27C),
-    Color(0xFF64B5F6),
-    Color(0xFFFF7AAE),
-  ];
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeSettings = ref.watch(themeSettingsProvider);
@@ -136,18 +122,20 @@ class SettingsPage extends ConsumerWidget {
           _ColorPresetTile(
             title: '歌词颜色',
             subtitle: '透明背景下的主歌词颜色',
+            key: const Key('floating-lyrics-text-color-tile'),
             icon: Icons.format_color_text,
             selectedColor: floatingLyrics.textColor,
-            presets: _lyricTextPresets,
+            presets: const [],
             fallbackColor: const Color(0xFFFFF4F8),
             onSelected: floatingLyricsNotifier.setTextColor,
           ),
           _ColorPresetTile(
             title: '高亮颜色',
             subtitle: '逐字歌词和当前播放片段的颜色',
+            key: const Key('floating-lyrics-highlight-color-tile'),
             icon: Icons.border_color_outlined,
             selectedColor: floatingLyrics.highlightColor,
-            presets: _lyricHighlightPresets,
+            presets: const [],
             fallbackColor: const Color(0xFFFFD44A),
             onSelected: floatingLyricsNotifier.setHighlightColor,
           ),
@@ -348,6 +336,7 @@ class _ColorPresetTile extends StatelessWidget {
   final ValueChanged<Color> onSelected;
 
   const _ColorPresetTile({
+    super.key,
     required this.title,
     required this.subtitle,
     required this.icon,
@@ -360,6 +349,7 @@ class _ColorPresetTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final usesFullPicker = presets.isEmpty;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Column(
@@ -369,6 +359,7 @@ class _ColorPresetTile extends StatelessWidget {
             leading: Icon(icon),
             title: Text(title),
             subtitle: Text(subtitle),
+            onTap: usesFullPicker ? () => _showFullColorPicker(context) : null,
             trailing: Container(
               width: 28,
               height: 28,
@@ -391,6 +382,12 @@ class _ColorPresetTile extends StatelessWidget {
                     selected: color.toARGB32() == selectedColor.toARGB32(),
                     onTap: () => onSelected(color),
                   ),
+                if (usesFullPicker)
+                  ActionChip(
+                    avatar: const Icon(Icons.color_lens_outlined, size: 18),
+                    label: const Text('Custom'),
+                    onPressed: () => _showFullColorPicker(context),
+                  ),
                 ActionChip(
                   avatar: const Icon(Icons.restart_alt, size: 18),
                   label: const Text('默认'),
@@ -401,6 +398,153 @@ class _ColorPresetTile extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Future<void> _showFullColorPicker(BuildContext context) async {
+    final picked = await showDialog<Color>(
+      context: context,
+      builder: (context) => _FullColorPickerDialog(
+        initialColor: selectedColor,
+        fallbackColor: fallbackColor,
+      ),
+    );
+    if (picked != null) {
+      onSelected(picked);
+    }
+  }
+}
+
+class _FullColorPickerDialog extends StatefulWidget {
+  final Color initialColor;
+  final Color fallbackColor;
+
+  const _FullColorPickerDialog({
+    required this.initialColor,
+    required this.fallbackColor,
+  });
+
+  @override
+  State<_FullColorPickerDialog> createState() => _FullColorPickerDialogState();
+}
+
+class _FullColorPickerDialogState extends State<_FullColorPickerDialog> {
+  late HSVColor _color = HSVColor.fromColor(widget.initialColor);
+
+  @override
+  Widget build(BuildContext context) {
+    final picked = _color.toColor();
+    return AlertDialog(
+      key: const Key('floating-color-picker-dialog'),
+      title: const Text('Custom color'),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: double.infinity,
+              height: 52,
+              decoration: BoxDecoration(
+                color: picked,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            _PickerSlider(
+              key: const Key('floating-color-picker-hue'),
+              label: 'Hue',
+              value: _color.hue,
+              min: 0,
+              max: 360,
+              onChanged: (value) {
+                setState(() {
+                  _color = _color.withHue(value);
+                });
+              },
+            ),
+            _PickerSlider(
+              key: const Key('floating-color-picker-saturation'),
+              label: 'Saturation',
+              value: _color.saturation,
+              min: 0,
+              max: 1,
+              onChanged: (value) {
+                setState(() {
+                  _color = _color.withSaturation(value);
+                });
+              },
+            ),
+            _PickerSlider(
+              key: const Key('floating-color-picker-value'),
+              label: 'Brightness',
+              value: _color.value,
+              min: 0,
+              max: 1,
+              onChanged: (value) {
+                setState(() {
+                  _color = _color.withValue(value);
+                });
+              },
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            setState(() {
+              _color = HSVColor.fromColor(widget.fallbackColor);
+            });
+          },
+          child: const Text('Default'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, picked),
+          child: const Text('OK'),
+        ),
+      ],
+    );
+  }
+}
+
+class _PickerSlider extends StatelessWidget {
+  final String label;
+  final double value;
+  final double min;
+  final double max;
+  final ValueChanged<double> onChanged;
+
+  const _PickerSlider({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        SizedBox(width: 88, child: Text(label)),
+        Expanded(
+          child: Slider(
+            value: value.clamp(min, max),
+            min: min,
+            max: max,
+            onChanged: onChanged,
+          ),
+        ),
+      ],
     );
   }
 }
