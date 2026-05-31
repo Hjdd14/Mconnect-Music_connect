@@ -102,6 +102,7 @@ class FloatingLyricsSyncController {
   final List<ProviderSubscription> _subscriptions = [];
   final List<StreamSubscription> _nativeSubscriptions = [];
   FloatingLyricsPayload? _lastPayload;
+  int _syncGeneration = 0;
 
   FloatingLyricsSyncController(this._ref, {FloatingLyricsService? service})
     : _service = service ?? FloatingLyricsService.instance {
@@ -132,6 +133,9 @@ class FloatingLyricsSyncController {
     );
     _nativeSubscriptions.add(
       _service.closedByUserStream.listen((_) async {
+        _syncGeneration++;
+        _lastPayload = null;
+        await _service.hide();
         await _ref.read(floatingLyricsProvider.notifier).setEnabled(false);
       }),
     );
@@ -151,10 +155,14 @@ class FloatingLyricsSyncController {
     }
 
     LyricsLine? active;
+    LyricsLine? firstVisible;
     for (final line in document.lines) {
+      if (!_hasVisibleText(line)) continue;
+      firstVisible ??= line;
       if (line.timestamp > position) break;
       active = line;
     }
+    active ??= firstVisible;
     if (active == null) {
       return const FloatingLyricsPayload(text: '');
     }
@@ -165,7 +173,13 @@ class FloatingLyricsSyncController {
     );
   }
 
+  static bool _hasVisibleText(LyricsLine line) {
+    return line.text.trim().isNotEmpty ||
+        (line.translation?.trim().isNotEmpty ?? false);
+  }
+
   Future<void> sync() async {
+    final syncGeneration = ++_syncGeneration;
     final settings = _ref.read(floatingLyricsProvider);
     if (!settings.enabled) {
       _lastPayload = null;
@@ -174,13 +188,27 @@ class FloatingLyricsSyncController {
     }
 
     final lyrics = _ref.read(lyricsProvider).valueOrNull;
+    if (lyrics == null || lyrics.lines.isEmpty) {
+      return;
+    }
     final position = _ref.read(playerProvider).position;
     final payload = payloadForPosition(lyrics, position);
+    if (payload.text.trim().isEmpty &&
+        (payload.translation?.trim().isEmpty ?? true)) {
+      return;
+    }
     _lastPayload = payload;
 
     final hasPermission = await _service.canDrawOverlays();
+    if (syncGeneration != _syncGeneration) return;
     if (!hasPermission) return;
-    await _service.update(payload, settings);
+    final latestSettings = _ref.read(floatingLyricsProvider);
+    if (!latestSettings.enabled) {
+      _lastPayload = null;
+      await _service.hide();
+      return;
+    }
+    await _service.update(payload, latestSettings);
   }
 
   FloatingLyricsPayload? get lastPayloadForTest => _lastPayload;

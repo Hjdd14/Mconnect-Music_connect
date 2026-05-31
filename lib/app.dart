@@ -48,6 +48,7 @@ class _MconnectAppState extends ConsumerState<MconnectApp>
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.detached) {
       unawaited(ref.read(playerProvider.notifier).flushPlaybackMemory());
+      unawaited(ref.read(playerProvider.notifier).reassertBackgroundPlayback());
     }
   }
 

@@ -327,6 +327,15 @@ class SettingsPage extends ConsumerWidget {
 }
 
 class _ColorPresetTile extends StatelessWidget {
+  static const _fullPickerQuickColors = [
+    Color(0xFFFFFFFF),
+    Color(0xFFFFF4F8),
+    Color(0xFFFFD44A),
+    Color(0xFF31C27C),
+    Color(0xFF2F80ED),
+    Color(0xFF111827),
+  ];
+
   final String title;
   final String subtitle;
   final IconData icon;
@@ -376,7 +385,8 @@ class _ColorPresetTile extends StatelessWidget {
               spacing: 10,
               runSpacing: 10,
               children: [
-                for (final color in presets)
+                for (final color
+                    in usesFullPicker ? _fullPickerQuickColors : presets)
                   _ColorSwatchButton(
                     color: color,
                     selected: color.toARGB32() == selectedColor.toARGB32(),
@@ -385,7 +395,7 @@ class _ColorPresetTile extends StatelessWidget {
                 if (usesFullPicker)
                   ActionChip(
                     avatar: const Icon(Icons.color_lens_outlined, size: 18),
-                    label: const Text('Custom'),
+                    label: const Text('自定义颜色'),
                     onPressed: () => _showFullColorPicker(context),
                   ),
                 ActionChip(

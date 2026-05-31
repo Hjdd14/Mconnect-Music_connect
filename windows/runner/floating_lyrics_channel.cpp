@@ -72,11 +72,33 @@ bool GetBool(const flutter::EncodableMap& map, const char* key, bool fallback) {
   return fallback;
 }
 
+bool GetColorArgb(const flutter::EncodableMap& map,
+                  const char* key,
+                  std::uint32_t* argb) {
+  const auto* value = FindValue(map, key);
+  if (value == nullptr || value->IsNull()) {
+    return false;
+  }
+  if (const auto* int32_value = std::get_if<int32_t>(value)) {
+    *argb = static_cast<std::uint32_t>(*int32_value);
+    return true;
+  }
+  if (const auto* int64_value = std::get_if<int64_t>(value)) {
+    *argb = static_cast<std::uint32_t>(*int64_value);
+    return true;
+  }
+  if (const auto* double_value = std::get_if<double>(value)) {
+    *argb = static_cast<std::uint32_t>(*double_value);
+    return true;
+  }
+  return false;
+}
+
 COLORREF GetColor(const flutter::EncodableMap& map,
                   const char* key,
                   COLORREF fallback) {
-  const int argb = GetInt(map, key, -1);
-  if (argb < 0) {
+  std::uint32_t argb = 0;
+  if (!GetColorArgb(map, key, &argb)) {
     return fallback;
   }
   return RGB((argb >> 16) & 0xff, (argb >> 8) & 0xff, argb & 0xff);

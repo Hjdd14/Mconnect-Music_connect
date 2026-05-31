@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
+import 'package:just_audio/just_audio.dart' as just_audio;
 
 import '../../../core/diagnostics/diagnostics_service.dart';
 import '../../../core/platform/platform_utils.dart';
 import '../../../models/song.dart';
+import 'player_audio_controller.dart';
 
 typedef PlaybackCommand = Future<void> Function();
 typedef PlaybackSeekCommand = Future<void> Function(Duration position);
@@ -42,15 +46,55 @@ abstract class PlaybackNotificationController {
   });
 }
 
-class AudioServicePlaybackNotificationController
+class NoopPlaybackNotificationController
     implements PlaybackNotificationController {
-  AudioServicePlaybackNotificationController._();
+  const NoopPlaybackNotificationController();
 
-  static final AudioServicePlaybackNotificationController instance =
-      AudioServicePlaybackNotificationController._();
+  @override
+  Future<void> initialize({DiagnosticsService? diagnostics}) async {}
 
-  final MconnectAudioHandler _handler = MconnectAudioHandler();
+  @override
+  void attach(PlaybackNotificationActions actions) {}
+
+  @override
+  void detach() {}
+
+  @override
+  void update({
+    required Song? currentSong,
+    required List<Song> playlist,
+    required int currentIndex,
+    required bool isPlaying,
+    required Duration position,
+    required Duration duration,
+  }) {}
+}
+
+class AudioServicePlayerController
+    implements PlaybackNotificationController, PlayerAudioController {
+  AudioServicePlayerController._({
+    MconnectAudioHandler? handler,
+    PlayerAudioController Function()? audioControllerFactory,
+  }) : _handler = handler ?? MconnectAudioHandler(),
+       _audioControllerFactory =
+           audioControllerFactory ?? (() => JustAudioController());
+
+  static final AudioServicePlayerController instance =
+      AudioServicePlayerController._();
+
+  final MconnectAudioHandler _handler;
+  final PlayerAudioController Function() _audioControllerFactory;
+  PlayerAudioController? _audioController;
   bool _initialized = false;
+
+  PlayerAudioController _ensureAudioController() {
+    final existing = _audioController;
+    if (existing != null) return existing;
+    final controller = _audioControllerFactory();
+    _audioController = controller;
+    _handler.bindAudioController(controller);
+    return controller;
+  }
 
   @override
   Future<void> initialize({DiagnosticsService? diagnostics}) async {
@@ -70,11 +114,7 @@ class AudioServicePlaybackNotificationController
       _initialized = true;
     } catch (error, stack) {
       debugPrint('PlaybackNotificationService initialize failed: $error');
-      diagnostics?.recordError(
-        'playback_notification.initialize',
-        error,
-        stack,
-      );
+      diagnostics?.recordError('audio_service_player.initialize', error, stack);
     }
   }
 
@@ -106,11 +146,81 @@ class AudioServicePlaybackNotificationController
       duration: duration,
     );
   }
+
+  @override
+  bool get playing => _ensureAudioController().playing;
+
+  @override
+  Duration get position => _ensureAudioController().position;
+
+  @override
+  Stream<Duration> get positionStream =>
+      _ensureAudioController().positionStream;
+
+  @override
+  Stream<Duration?> get durationStream =>
+      _ensureAudioController().durationStream;
+
+  @override
+  Stream<AudioPlaybackState> get playerStateStream =>
+      _ensureAudioController().playerStateStream;
+
+  @override
+  Future<void> stop() => _ensureAudioController().stop();
+
+  @override
+  Future<void> setUrl(String url) => _ensureAudioController().setUrl(url);
+
+  @override
+  Future<void> play() => _ensureAudioController().play();
+
+  @override
+  Future<void> pause() => _ensureAudioController().pause();
+
+  @override
+  Future<void> seek(Duration position) =>
+      _ensureAudioController().seek(position);
+
+  @override
+  Future<void> setVolume(double volume) =>
+      _ensureAudioController().setVolume(volume);
+
+  @override
+  Future<void> applyEqualizer({
+    required bool enabled,
+    required List<double> bandGains,
+  }) {
+    return _ensureAudioController().applyEqualizer(
+      enabled: enabled,
+      bandGains: bandGains,
+    );
+  }
+
+  @override
+  Future<void> dispose() async {
+    final controller = _audioController;
+    _audioController = null;
+    _handler.bindAudioController(null);
+    await controller?.dispose();
+  }
+}
+
+class AudioServicePlaybackNotificationController {
+  static AudioServicePlayerController get instance =>
+      AudioServicePlayerController.instance;
 }
 
 @visibleForTesting
 class MconnectAudioHandler extends BaseAudioHandler with SeekHandler {
   PlaybackNotificationActions? _actions;
+  PlayerAudioController? _audioController;
+  final List<StreamSubscription> _audioSubscriptions = [];
+  bool _hasCurrentSong = false;
+  bool _playing = false;
+  just_audio.ProcessingState _processingState = just_audio.ProcessingState.idle;
+  Duration _position = Duration.zero;
+  Duration _duration = Duration.zero;
+  int _queueIndex = -1;
 
   void attach(PlaybackNotificationActions actions) {
     _actions = actions;
@@ -118,6 +228,45 @@ class MconnectAudioHandler extends BaseAudioHandler with SeekHandler {
 
   void detach() {
     _actions = null;
+  }
+
+  void bindAudioController(PlayerAudioController? controller) {
+    if (identical(_audioController, controller)) return;
+    for (final sub in _audioSubscriptions) {
+      unawaited(sub.cancel());
+    }
+    _audioSubscriptions.clear();
+    _audioController = controller;
+    if (controller == null) {
+      _playing = false;
+      _processingState = just_audio.ProcessingState.idle;
+      _position = Duration.zero;
+      _broadcastPlaybackState();
+      return;
+    }
+
+    _playing = controller.playing;
+    _position = controller.position;
+    _audioSubscriptions.add(
+      controller.playerStateStream.listen((state) {
+        _playing = state.playing;
+        _processingState = state.processingState;
+        _broadcastPlaybackState();
+      }),
+    );
+    _audioSubscriptions.add(
+      controller.positionStream.listen((position) {
+        _position = position;
+        _broadcastPlaybackState();
+      }),
+    );
+    _audioSubscriptions.add(
+      controller.durationStream.listen((duration) {
+        _duration = duration ?? Duration.zero;
+        _broadcastPlaybackState();
+      }),
+    );
+    _broadcastPlaybackState();
   }
 
   void updatePlayback({
@@ -128,23 +277,48 @@ class MconnectAudioHandler extends BaseAudioHandler with SeekHandler {
     required Duration position,
     required Duration duration,
   }) {
-    final hasCurrentSong = currentSong != null;
-    final effectivePlaylist = hasCurrentSong
-        ? _normalizePlaylist(currentSong, playlist)
-        : const <Song>[];
-    final effectiveIndex = hasCurrentSong
-        ? _normalizeCurrentIndex(currentSong, effectivePlaylist, currentIndex)
-        : -1;
+    final song = currentSong;
+    _hasCurrentSong = song != null;
+    final List<Song> effectivePlaylist;
+    final int effectiveIndex;
+    if (song == null) {
+      effectivePlaylist = const <Song>[];
+      effectiveIndex = -1;
+    } else {
+      effectivePlaylist = _normalizePlaylist(song, playlist);
+      effectiveIndex = _normalizeCurrentIndex(
+        song,
+        effectivePlaylist,
+        currentIndex,
+      );
+    }
+    _queueIndex = effectiveIndex;
+    _duration = duration;
+    if (_audioController == null) {
+      _playing = isPlaying;
+      _position = position;
+      _processingState = _hasCurrentSong
+          ? just_audio.ProcessingState.ready
+          : just_audio.ProcessingState.idle;
+    }
 
     queue.add(buildPlaybackNotificationQueue(effectivePlaylist));
-    mediaItem.add(hasCurrentSong ? createPlaybackMediaItem(currentSong) : null);
+    mediaItem.add(song == null ? null : createPlaybackMediaItem(song));
+    _broadcastPlaybackState();
+  }
+
+  void _broadcastPlaybackState() {
     playbackState.add(
       buildPlaybackNotificationState(
-        hasCurrentSong: hasCurrentSong,
-        isPlaying: isPlaying,
-        position: position,
-        duration: duration,
-        queueIndex: effectiveIndex,
+        hasCurrentSong: _hasCurrentSong,
+        isPlaying: _playing,
+        position: _position,
+        duration: _duration,
+        queueIndex: _queueIndex,
+        processingState: _mapProcessingState(
+          _processingState,
+          hasCurrentSong: _hasCurrentSong,
+        ),
       ),
     );
   }
@@ -198,6 +372,7 @@ PlaybackState buildPlaybackNotificationState({
   required Duration position,
   required Duration duration,
   required int queueIndex,
+  AudioProcessingState? processingState,
 }) {
   final primaryControl = isPlaying ? MediaControl.pause : MediaControl.play;
   final controls = hasCurrentSong
@@ -220,13 +395,27 @@ PlaybackState buildPlaybackNotificationState({
       (index) => index,
     ),
     processingState: hasCurrentSong
-        ? AudioProcessingState.ready
+        ? (processingState ?? AudioProcessingState.ready)
         : AudioProcessingState.idle,
     playing: isPlaying,
     updatePosition: position,
     bufferedPosition: duration,
     queueIndex: hasCurrentSong && queueIndex >= 0 ? queueIndex : null,
   );
+}
+
+AudioProcessingState _mapProcessingState(
+  just_audio.ProcessingState state, {
+  required bool hasCurrentSong,
+}) {
+  if (!hasCurrentSong) return AudioProcessingState.idle;
+  return switch (state) {
+    just_audio.ProcessingState.idle => AudioProcessingState.idle,
+    just_audio.ProcessingState.loading => AudioProcessingState.loading,
+    just_audio.ProcessingState.buffering => AudioProcessingState.buffering,
+    just_audio.ProcessingState.ready => AudioProcessingState.ready,
+    just_audio.ProcessingState.completed => AudioProcessingState.completed,
+  };
 }
 
 MediaItem createPlaybackMediaItem(Song song, {String? sourceUrl}) {

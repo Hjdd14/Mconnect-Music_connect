@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mconnect/core/diagnostics/diagnostics_service.dart';
@@ -50,6 +51,16 @@ void main() {
       expect(created, 0);
     },
   );
+
+  test('Android default audio controller is hosted by AudioService', () {
+    final source = File(
+      'lib/features/player/presentation/providers/player_provider.dart',
+    ).readAsStringSync();
+
+    expect(source, contains('defaultPlayerAudioControllerFactory'));
+    expect(source, contains('AudioServicePlayerController.instance'));
+    expect(source, contains('PlatformUtils.isAndroid'));
+  });
 
   test(
     'playSong does not keep the audio mutex locked while play future is pending',
@@ -285,6 +296,28 @@ void main() {
       expect(notification.updates.last.currentSong?.id, 'background-sync');
     },
   );
+
+  test('reasserts Android background playback while already playing', () async {
+    final audio = _FakeAudioController();
+    final notification = _FakePlaybackNotificationController();
+    final keepAlive = _FakePlaybackKeepAliveController();
+    final notifier = PlayerNotifier(
+      audioController: audio,
+      platformResolver: (_) => _FakeMusicPlatform(),
+      audioControllerFactory: () => _FakeAudioController(),
+      notificationController: notification,
+      keepAliveController: keepAlive,
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.playSong(_song('background-reassert'));
+    await notifier.reassertBackgroundPlayback();
+
+    expect(keepAlive.playingStates, [true, true]);
+    expect(keepAlive.forceStates, [false, true]);
+    expect(notification.updates.last.isPlaying, isTrue);
+    expect(notification.updates.last.currentSong?.id, 'background-reassert');
+  });
 
   test('dispose detaches notification and releases playback keep alive', () {
     final notification = _FakePlaybackNotificationController();
@@ -677,11 +710,13 @@ class _FakeAudioController implements PlayerAudioController {
 
 class _FakePlaybackKeepAliveController implements PlaybackKeepAliveController {
   final List<bool> playingStates = [];
+  final List<bool> forceStates = [];
   bool disposed = false;
 
   @override
-  Future<void> setPlaying(bool playing) async {
+  Future<void> setPlaying(bool playing, {bool force = false}) async {
     playingStates.add(playing);
+    forceStates.add(force);
   }
 
   @override

@@ -8,7 +8,7 @@ class BackgroundAudioInitializer {
   static Future<void> initialize({DiagnosticsService? diagnostics}) async {
     if (!PlatformUtils.isAndroid) return;
     try {
-      await AudioServicePlaybackNotificationController.instance.initialize(
+      await AudioServicePlayerController.instance.initialize(
         diagnostics: diagnostics,
       );
     } catch (error, stack) {

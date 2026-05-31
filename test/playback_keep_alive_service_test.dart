@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mconnect/core/platform/platform_utils.dart';
@@ -36,6 +38,25 @@ void main() {
     expect(calls[0].arguments, isTrue);
     expect(calls[1].method, 'setPlaying');
     expect(calls[1].arguments, isFalse);
+  });
+
+  test('Android playback keep alive can force reassert playing', () async {
+    PlatformUtils.setDebugOverride(AppPlatform.android);
+    final calls = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          calls.add(call);
+          return null;
+        });
+
+    final controller = MethodChannelPlaybackKeepAliveController.instance
+      ..resetForTest();
+
+    await controller.setPlaying(true);
+    await controller.setPlaying(true, force: true);
+
+    expect(calls, hasLength(2));
+    expect(calls.map((call) => call.arguments), [true, true]);
   });
 
   test(
@@ -80,4 +101,31 @@ void main() {
       expect(calls, isEmpty);
     },
   );
+
+  test('Android background playback bridge files remain wired', () {
+    final main = File('lib/main.dart').readAsStringSync();
+    final manifest = File(
+      'android/app/src/main/AndroidManifest.xml',
+    ).readAsStringSync();
+    final activity = File(
+      'android/app/src/main/kotlin/com/mconnect/mconnect/MainActivity.kt',
+    ).readAsStringSync();
+
+    expect(main, contains('BackgroundAudioInitializer.initialize'));
+    expect(manifest, contains('com.ryanheise.audioservice.AudioService'));
+    expect(manifest, contains('MediaButtonReceiver'));
+    expect(activity, contains('class MainActivity : AudioServiceActivity()'));
+    expect(activity, contains('playback_keep_alive'));
+  });
+
+  test('Android keep alive holds and releases a Wi-Fi lock with wake lock', () {
+    final source = File(
+      'android/app/src/main/kotlin/com/mconnect/mconnect/PlaybackKeepAliveController.kt',
+    ).readAsStringSync();
+
+    expect(source, contains('WifiManager'));
+    expect(source, contains('WIFI_MODE_FULL_HIGH_PERF'));
+    expect(source, contains('wifiLock.acquire()'));
+    expect(source, contains('wifiLock.release()'));
+  });
 }

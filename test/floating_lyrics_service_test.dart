@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -93,6 +95,16 @@ void main() {
       expect(calls.single.method, 'canDrawOverlays');
     },
   );
+
+  test('Windows native color parser accepts opaque ARGB values', () {
+    final source = File(
+      'windows/runner/floating_lyrics_channel.cpp',
+    ).readAsStringSync();
+
+    expect(source, contains('std::uint32_t'));
+    expect(source, contains('static_cast<std::uint32_t>'));
+    expect(source, isNot(contains('if (argb < 0)')));
+  });
 
   test('native window resize events are exposed as a typed stream', () async {
     final events = <({int width, int height})>[];

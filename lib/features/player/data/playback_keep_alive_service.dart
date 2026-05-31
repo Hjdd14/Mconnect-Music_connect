@@ -5,7 +5,7 @@ import '../../../core/diagnostics/diagnostics_service.dart';
 import '../../../core/platform/platform_utils.dart';
 
 abstract class PlaybackKeepAliveController {
-  Future<void> setPlaying(bool playing);
+  Future<void> setPlaying(bool playing, {bool force = false});
 
   Future<void> dispose();
 }
@@ -14,7 +14,7 @@ class NoopPlaybackKeepAliveController implements PlaybackKeepAliveController {
   const NoopPlaybackKeepAliveController();
 
   @override
-  Future<void> setPlaying(bool playing) async {}
+  Future<void> setPlaying(bool playing, {bool force = false}) async {}
 
   @override
   Future<void> dispose() async {}
@@ -34,16 +34,30 @@ class MethodChannelPlaybackKeepAliveController
   bool? _lastPlaying;
 
   @override
-  Future<void> setPlaying(bool playing) async {
-    await _setPlaying(playing);
+  Future<void> setPlaying(bool playing, {bool force = false}) async {
+    await _setPlaying(playing, force: force);
   }
 
   Future<void> _setPlaying(bool playing, {bool force = false}) async {
     if (!PlatformUtils.isAndroid) return;
     if (!force && _lastPlaying == playing) return;
     try {
-      await _channel.invokeMethod<void>('setPlaying', playing);
+      final state = await _channel.invokeMapMethod<String, Object?>(
+        'setPlaying',
+        playing,
+      );
       _lastPlaying = playing;
+      if (force) {
+        DiagnosticsService.instance.record(
+          'playback_keep_alive',
+          'set_playing_reasserted',
+          data: {
+            'playing': playing,
+            'wake_lock_held': state?['wakeLockHeld'],
+            'wifi_lock_held': state?['wifiLockHeld'],
+          },
+        );
+      }
     } catch (error, stack) {
       debugPrint('PlaybackKeepAlive setPlaying failed: $error');
       DiagnosticsService.instance.recordError(

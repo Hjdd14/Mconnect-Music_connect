@@ -112,6 +112,35 @@ void main() {
     );
   });
 
+  testWidgets('floating lyrics rows expose a clear custom color entry', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const ProviderScope(child: MaterialApp(home: SettingsPage())),
+    );
+
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('floating-lyrics-text-color-tile')),
+      220,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    expect(find.text('自定义颜色'), findsWidgets);
+    final colorTile = tester.widget<ListTile>(
+      find.descendant(
+        of: find.byKey(const Key('floating-lyrics-text-color-tile')),
+        matching: find.byType(ListTile),
+      ),
+    );
+    colorTile.onTap!();
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('floating-color-picker-dialog')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('settings page exposes low-risk audio enhancement controls', (
     tester,
   ) async {

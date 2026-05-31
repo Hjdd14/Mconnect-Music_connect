@@ -3,7 +3,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:just_audio/just_audio.dart';
+import 'package:just_audio/just_audio.dart' show AudioPlayer, ProcessingState;
 import '../../../../core/diagnostics/diagnostics_service.dart';
 import '../../../../core/platform/platform_utils.dart';
 import '../../../audio_effects/presentation/providers/audio_effects_provider.dart';
@@ -12,127 +12,27 @@ import '../../../../models/platform_type.dart';
 import '../../../../models/song.dart';
 import '../../../../platform/base/platform_registry.dart';
 import '../../../../platform/base/music_platform.dart';
+import '../../data/player_audio_controller.dart';
 import '../../data/player_playback_memory_store.dart';
 import '../../data/playback_keep_alive_service.dart';
 import '../../data/playback_notification_service.dart' as playback_notification;
 
+export '../../data/player_audio_controller.dart';
+
 enum RepeatMode { off, all, one }
 
-class AudioPlaybackState {
-  final bool playing;
-  final ProcessingState processingState;
-
-  const AudioPlaybackState({
-    required this.playing,
-    required this.processingState,
-  });
-}
-
-abstract class PlayerAudioController {
-  bool get playing;
-  Duration get position;
-  Stream<Duration> get positionStream;
-  Stream<Duration?> get durationStream;
-  Stream<AudioPlaybackState> get playerStateStream;
-
-  Future<void> stop();
-  Future<void> setUrl(String url);
-  Future<void> play();
-  Future<void> pause();
-  Future<void> seek(Duration position);
-  Future<void> setVolume(double volume);
-  Future<void> applyEqualizer({
-    required bool enabled,
-    required List<double> bandGains,
-  });
-  Future<void> dispose();
-}
-
-class JustAudioController implements PlayerAudioController {
-  final AudioPlayer _player;
-  final AndroidEqualizer? _equalizer;
-
-  JustAudioController([AudioPlayer? player, AndroidEqualizer? equalizer])
-    : this._(player, equalizer ?? createAndroidEqualizerForPlatform());
-
-  JustAudioController._(AudioPlayer? player, AndroidEqualizer? equalizer)
-    : _equalizer = equalizer,
-      _player =
-          player ??
-          AudioPlayer(
-            audioPipeline: equalizer == null
-                ? null
-                : AudioPipeline(androidAudioEffects: [equalizer]),
-          );
-
-  AudioPlayer get player => _player;
-
-  @override
-  bool get playing => _player.playing;
-
-  @override
-  Duration get position => _player.position;
-
-  @override
-  Stream<Duration> get positionStream => _player.positionStream;
-
-  @override
-  Stream<Duration?> get durationStream => _player.durationStream;
-
-  @override
-  Stream<AudioPlaybackState> get playerStateStream =>
-      _player.playerStateStream.map(
-        (state) => AudioPlaybackState(
-          playing: state.playing,
-          processingState: state.processingState,
-        ),
-      );
-
-  @override
-  Future<void> stop() => _player.stop();
-
-  @override
-  Future<void> setUrl(String url) => _player.setUrl(url).then((_) {});
-
-  @override
-  Future<void> play() => _player.play();
-
-  @override
-  Future<void> pause() => _player.pause();
-
-  @override
-  Future<void> seek(Duration position) => _player.seek(position);
-
-  @override
-  Future<void> setVolume(double volume) => _player.setVolume(volume);
-
-  @override
-  Future<void> applyEqualizer({
-    required bool enabled,
-    required List<double> bandGains,
-  }) async {
-    final equalizer = _equalizer;
-    if (equalizer == null) return;
-    await equalizer.setEnabled(enabled);
-    if (!enabled) return;
-    final parameters = await equalizer.parameters;
-    final count = min(parameters.bands.length, bandGains.length);
-    for (var i = 0; i < count; i++) {
-      final gain = bandGains[i].clamp(
-        parameters.minDecibels,
-        parameters.maxDecibels,
-      );
-      await parameters.bands[i].setGain(gain.toDouble());
-    }
-  }
-
-  @override
-  Future<void> dispose() => _player.dispose();
-}
-
 @visibleForTesting
-AndroidEqualizer? createAndroidEqualizerForPlatform() {
-  return PlatformUtils.isAndroid ? AndroidEqualizer() : null;
+PlayerAudioController defaultPlayerAudioControllerFactory() {
+  return PlatformUtils.isAndroid
+      ? playback_notification.AudioServicePlayerController.instance
+      : JustAudioController();
+}
+
+playback_notification.PlaybackNotificationController
+defaultPlaybackNotificationController() {
+  return PlatformUtils.isAndroid
+      ? playback_notification.AudioServicePlayerController.instance
+      : const playback_notification.NoopPlaybackNotificationController();
 }
 
 class PlayerState {
@@ -266,17 +166,14 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   }) : _audioController = audioController,
        _platformResolver = platformResolver ?? PlatformRegistry.get,
        _audioControllerFactory =
-           audioControllerFactory ?? (() => JustAudioController()),
+           audioControllerFactory ?? defaultPlayerAudioControllerFactory,
        _audioOperationTimeout = audioOperationTimeout,
        _audioDisposeTimeout = audioDisposeTimeout,
        _qualitySwitchTimeout = qualitySwitchTimeout ?? audioOperationTimeout,
        _playbackMemoryStore = playbackMemoryStore,
        _playbackMemorySaveInterval = playbackMemorySaveInterval,
        _notificationController =
-           notificationController ??
-           playback_notification
-               .AudioServicePlaybackNotificationController
-               .instance,
+           notificationController ?? defaultPlaybackNotificationController(),
        _keepAliveController =
            keepAliveController ??
            MethodChannelPlaybackKeepAliveController.instance,
@@ -317,7 +214,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   void _setState(PlayerState nextState) {
     state = nextState;
     _syncNotificationState();
-    _syncPlaybackKeepAlive(nextState.isPlaying);
+    unawaited(_syncPlaybackKeepAlive(nextState.isPlaying));
   }
 
   void _syncNotificationState() {
@@ -331,10 +228,30 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     );
   }
 
-  void _syncPlaybackKeepAlive(bool isPlaying) {
-    if (_lastKeepAlivePlaying == isPlaying) return;
+  Future<void> _syncPlaybackKeepAlive(
+    bool isPlaying, {
+    bool force = false,
+  }) async {
+    if (!force && _lastKeepAlivePlaying == isPlaying) return;
     _lastKeepAlivePlaying = isPlaying;
-    unawaited(_keepAliveController.setPlaying(isPlaying));
+    await _keepAliveController.setPlaying(isPlaying, force: force);
+  }
+
+  Future<void> reassertBackgroundPlayback() async {
+    _syncNotificationState();
+    DiagnosticsService.instance.record(
+      'background_playback',
+      'reassert',
+      data: {
+        'is_playing': state.isPlaying,
+        'position_ms': state.position.inMilliseconds,
+        'duration_ms': state.duration.inMilliseconds,
+        'song_id': state.currentSong?.id,
+        'platform': state.currentSong?.platform.name,
+      },
+    );
+    if (!state.isPlaying) return;
+    await _syncPlaybackKeepAlive(true, force: true);
   }
 
   void _setupListeners(PlayerAudioController controller) {

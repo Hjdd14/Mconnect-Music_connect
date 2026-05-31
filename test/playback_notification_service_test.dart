@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:just_audio/just_audio.dart' as just_audio;
 import 'package:mconnect/features/player/data/playback_notification_service.dart';
+import 'package:mconnect/features/player/presentation/providers/player_provider.dart';
 import 'package:mconnect/models/artist.dart';
 import 'package:mconnect/models/platform_type.dart';
 import 'package:mconnect/models/song.dart';
@@ -106,6 +110,59 @@ void main() {
     ]);
     expect(handler.playbackState.value.queueIndex, 1);
   });
+
+  test(
+    'handler publishes playback state from the bound audio controller',
+    () async {
+      final handler = MconnectAudioHandler();
+      final audio = _FakeHandlerAudioController();
+      final songs = [_song('1'), _song('2')];
+
+      (handler as dynamic).bindAudioController(audio);
+      handler.updatePlayback(
+        currentSong: songs[1],
+        playlist: songs,
+        currentIndex: 1,
+        isPlaying: false,
+        position: Duration.zero,
+        duration: const Duration(minutes: 4),
+      );
+
+      audio.emitState(
+        playing: true,
+        processingState: just_audio.ProcessingState.buffering,
+      );
+      audio.emitPosition(const Duration(seconds: 42));
+      audio.emitDuration(const Duration(minutes: 4));
+      await pumpEventQueue();
+
+      expect(handler.playbackState.value.playing, isTrue);
+      expect(
+        handler.playbackState.value.processingState,
+        AudioProcessingState.buffering,
+      );
+      expect(
+        handler.playbackState.value.updatePosition,
+        const Duration(seconds: 42),
+      );
+      expect(handler.playbackState.value.queueIndex, 1);
+
+      handler.updatePlayback(
+        currentSong: songs[1],
+        playlist: songs,
+        currentIndex: 1,
+        isPlaying: false,
+        position: Duration.zero,
+        duration: const Duration(minutes: 4),
+      );
+
+      expect(handler.playbackState.value.playing, isTrue);
+      expect(
+        handler.playbackState.value.processingState,
+        AudioProcessingState.buffering,
+      );
+    },
+  );
 }
 
 Song _song(String id, {String? name}) => Song(
@@ -114,3 +171,87 @@ Song _song(String id, {String? name}) => Song(
   name: name ?? 'song $id',
   artists: const [Artist(id: 'artist', name: 'artist')],
 );
+
+class _FakeHandlerAudioController implements PlayerAudioController {
+  final _positionController = StreamController<Duration>.broadcast();
+  final _durationController = StreamController<Duration?>.broadcast();
+  final _playerStateController =
+      StreamController<AudioPlaybackState>.broadcast();
+  bool _playing = false;
+  Duration _position = Duration.zero;
+
+  @override
+  bool get playing => _playing;
+
+  @override
+  Duration get position => _position;
+
+  @override
+  Stream<Duration> get positionStream => _positionController.stream;
+
+  @override
+  Stream<Duration?> get durationStream => _durationController.stream;
+
+  @override
+  Stream<AudioPlaybackState> get playerStateStream =>
+      _playerStateController.stream;
+
+  void emitState({
+    required bool playing,
+    required just_audio.ProcessingState processingState,
+  }) {
+    _playing = playing;
+    _playerStateController.add(
+      AudioPlaybackState(playing: playing, processingState: processingState),
+    );
+  }
+
+  void emitPosition(Duration position) {
+    _position = position;
+    _positionController.add(position);
+  }
+
+  void emitDuration(Duration duration) {
+    _durationController.add(duration);
+  }
+
+  @override
+  Future<void> stop() async {}
+
+  @override
+  Future<void> setUrl(String url) async {}
+
+  @override
+  Future<void> play() async {
+    emitState(playing: true, processingState: just_audio.ProcessingState.ready);
+  }
+
+  @override
+  Future<void> pause() async {
+    emitState(
+      playing: false,
+      processingState: just_audio.ProcessingState.ready,
+    );
+  }
+
+  @override
+  Future<void> seek(Duration position) async {
+    emitPosition(position);
+  }
+
+  @override
+  Future<void> setVolume(double volume) async {}
+
+  @override
+  Future<void> applyEqualizer({
+    required bool enabled,
+    required List<double> bandGains,
+  }) async {}
+
+  @override
+  Future<void> dispose() async {
+    await _positionController.close();
+    await _durationController.close();
+    await _playerStateController.close();
+  }
+}
