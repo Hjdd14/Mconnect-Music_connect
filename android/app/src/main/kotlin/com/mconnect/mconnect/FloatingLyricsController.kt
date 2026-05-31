@@ -8,6 +8,7 @@ import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -125,13 +126,13 @@ class FloatingLyricsController(private val activity: Activity) {
             gravity = Gravity.CENTER
             typeface = Typeface.DEFAULT_BOLD
             includeFontPadding = false
-            maxLines = 2
+            configureMarquee()
         }
         translationText = TextView(activity).apply {
             gravity = Gravity.CENTER
             includeFontPadding = false
-            maxLines = 1
             alpha = 0.82f
+            configureMarquee()
         }
         column.addView(
             lyricText,
@@ -233,6 +234,7 @@ class FloatingLyricsController(private val activity: Activity) {
         lyricText?.apply {
             this.text = text
             textSize = fontSize
+            isSelected = text.isNotBlank()
             setTextColor(if (text.isBlank()) Color.TRANSPARENT else textColor)
             setShadowLayer(
                 7f,
@@ -244,6 +246,7 @@ class FloatingLyricsController(private val activity: Activity) {
         translationText?.apply {
             this.text = translation
             visibility = if (translation.isBlank()) View.GONE else View.VISIBLE
+            isSelected = translation.isNotBlank()
             textSize = (fontSize * 0.62f).coerceAtLeast(11f)
             setTextColor(textColor)
             setShadowLayer(
@@ -269,6 +272,52 @@ class FloatingLyricsController(private val activity: Activity) {
         layoutParams = null
         lyricText = null
         translationText = null
+<<<<<<< Updated upstream
+=======
+        resizeHandle = null
+        lockButton = null
+    }
+
+    private fun controlButton(label: String): TextView {
+        return TextView(activity).apply {
+            text = label
+            textSize = 10f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.argb(115, 0, 0, 0))
+            setPadding(dp(7), dp(3), dp(7), dp(3))
+            isClickable = true
+        }
+    }
+
+    private fun TextView.configureMarquee() {
+        maxLines = 1
+        setSingleLine(true)
+        ellipsize = TextUtils.TruncateAt.MARQUEE
+        marqueeRepeatLimit = -1
+        setHorizontallyScrolling(true)
+        isSelected = true
+    }
+
+    private fun applyLockState() {
+        lockButton?.text = if (isLocked) "MOVE" else "LOCK"
+        resizeHandle?.visibility = if (isLocked) View.GONE else View.VISIBLE
+    }
+
+    private fun notifyClosedByUser() {
+        try {
+            channel.invokeMethod("closedByUser", null)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun notifyLockChanged() {
+        try {
+            channel.invokeMethod("lockChanged", isLocked)
+        } catch (_: Exception) {
+        }
+>>>>>>> Stashed changes
     }
 
     private fun number(value: Any?, fallback: Double): Double {

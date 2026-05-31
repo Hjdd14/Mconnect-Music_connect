@@ -232,6 +232,11 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   PlayerPlaybackMemory? _pendingPlaybackMemory;
   bool _fadeEnabled = false;
   Duration _fadeDuration = const Duration(milliseconds: 800);
+<<<<<<< Updated upstream
+=======
+  bool _lastKeepAlivePlaying = false;
+  int _fadeGeneration = 0;
+>>>>>>> Stashed changes
 
   PlayerNotifier({
     PlayerAudioController? audioController,
@@ -272,6 +277,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     _subscriptions.add(
       controller.positionStream.listen((pos) {
         if (!mounted) return;
+        if (!identical(controller, _audioController)) return;
         final sec = pos.inSeconds;
         if (sec != _lastPositionSecond) {
           _lastPositionSecond = sec;
@@ -283,7 +289,12 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     _subscriptions.add(
       controller.durationStream.listen((dur) {
         if (!mounted) return;
+<<<<<<< Updated upstream
         state = state.copyWith(duration: dur ?? Duration.zero);
+=======
+        if (!identical(controller, _audioController)) return;
+        _setState(state.copyWith(duration: dur ?? Duration.zero));
+>>>>>>> Stashed changes
         _schedulePlaybackMemorySave();
       }),
     );
@@ -291,6 +302,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       controller.playerStateStream.listen(
         (playerState) {
           if (!mounted) return;
+          if (!identical(controller, _audioController)) return;
           final clearTransition =
               state.isTransitioning &&
               (playerState.playing ||
@@ -301,6 +313,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
           );
           _schedulePlaybackMemorySave();
           if (playerState.processingState == ProcessingState.completed) {
+            if (!_shouldHandleCompletedEvent()) return;
             if (state.repeatMode == RepeatMode.one) {
               _safeSeek(Duration.zero);
               _safePlay();
@@ -414,9 +427,13 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
   void setFadeOptions({required bool enabled, required Duration duration}) {
     _fadeEnabled = enabled;
+    _fadeGeneration++;
     _fadeDuration = duration <= Duration.zero
         ? Duration.zero
         : Duration(milliseconds: duration.inMilliseconds.clamp(200, 3000));
+    if (!enabled) {
+      unawaited(_safeSetVolume(1));
+    }
   }
 
   Future<void> applyEqualizerSettings(AudioEffectsSettings settings) async {
@@ -448,8 +465,17 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     }
   }
 
-  Future<void> _runFade({required double from, required double to}) async {
+  Future<void> _runFade({
+    required double from,
+    required double to,
+    required int generation,
+  }) async {
     if (!_fadeEnabled) return;
+    if (generation != _fadeGeneration) return;
+    if (from == to) {
+      await _safeSetVolume(to);
+      return;
+    }
     if (_fadeDuration == Duration.zero) {
       await _safeSetVolume(to);
       return;
@@ -461,9 +487,60 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     );
     for (var i = 1; i <= steps; i++) {
       await Future<void>.delayed(stepDelay);
+      if (generation != _fadeGeneration) return;
       final value = from + ((to - from) * i / steps);
       await _safeSetVolume(value);
     }
+  }
+
+  int _cancelActiveFades() => ++_fadeGeneration;
+
+  bool _shouldHandleCompletedEvent() {
+    if (state.isTransitioning || state.currentSong == null) {
+      DiagnosticsService.instance.record(
+        'player',
+        'ignored_completed_event',
+        data: {
+          'reason': state.isTransitioning ? 'transitioning' : 'no_song',
+          'song_id': state.currentSong?.id,
+          'position_ms': state.position.inMilliseconds,
+          'duration_ms': state.duration.inMilliseconds,
+        },
+      );
+      return false;
+    }
+
+    final effectiveDuration = state.duration == Duration.zero
+        ? state.currentSong!.duration
+        : state.duration;
+    const tolerance = Duration(seconds: 3);
+    if (effectiveDuration > tolerance &&
+        state.position + tolerance < effectiveDuration) {
+      DiagnosticsService.instance.record(
+        'player',
+        'ignored_completed_event',
+        data: {
+          'reason': 'before_end',
+          'song_id': state.currentSong?.id,
+          'position_ms': state.position.inMilliseconds,
+          'duration_ms': effectiveDuration.inMilliseconds,
+        },
+      );
+      return false;
+    }
+
+    return true;
+  }
+
+  void _schedulePlaybackVolumeRecovery(int generation) {
+    if (!_fadeEnabled) return;
+    final delay = _fadeDuration + const Duration(milliseconds: 150);
+    Timer(delay, () {
+      if (!mounted || generation != _fadeGeneration || !state.isPlaying) {
+        return;
+      }
+      unawaited(_safeSetVolume(1));
+    });
   }
 
   /// Safely stop the player (ignores errors).
@@ -638,6 +715,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       );
       try {
         _restoredSourceNeedsLoad = false;
+        final fadeGeneration = _cancelActiveFades();
         // Update UI immediately
         final newIndex = state.playlist.indexWhere(
           (s) => s.id == song.id && s.platform == song.platform,
@@ -696,10 +774,11 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         if (requestId != _playRequestId) return;
 
         if (_fadeEnabled) {
-          await _runFade(from: 0, to: 0);
+          await _runFade(from: 0, to: 0, generation: fadeGeneration);
         }
         _safePlay(requestId: requestId);
-        unawaited(_runFade(from: 0, to: 1));
+        unawaited(_runFade(from: 0, to: 1, generation: fadeGeneration));
+        _schedulePlaybackVolumeRecovery(fadeGeneration);
         debugPrint('playSong: play() invoked');
 
         if (requestId == _playRequestId) {
@@ -753,7 +832,12 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
           ? null
           : _platformResolver(song.platform);
       try {
+<<<<<<< Updated upstream
         state = state.copyWith(isTransitioning: true, error: () => null);
+=======
+        final fadeGeneration = _cancelActiveFades();
+        _setState(state.copyWith(isTransitioning: true, error: () => null));
+>>>>>>> Stashed changes
         final url = song.platform == PlatformType.local
             ? Uri.file(song.id).toString()
             : await DiagnosticsService.instance.measure(
@@ -782,11 +866,23 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
         _restoredSourceNeedsLoad = false;
         _safePlay(requestId: requestId);
+<<<<<<< Updated upstream
         state = state.copyWith(
           isPlaying: true,
           isTransitioning: false,
           position: resumePosition,
           error: () => null,
+=======
+        unawaited(_runFade(from: 0, to: 1, generation: fadeGeneration));
+        _schedulePlaybackVolumeRecovery(fadeGeneration);
+        _setState(
+          state.copyWith(
+            isPlaying: true,
+            isTransitioning: false,
+            position: resumePosition,
+            error: () => null,
+          ),
+>>>>>>> Stashed changes
         );
         _schedulePlaybackMemorySave();
         _cancelTransitionWatchdog();
@@ -817,17 +913,20 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       try {
         final audioController = _ensureAudioController();
         if (audioController.playing) {
-          await _runFade(from: 1, to: 0);
+          final fadeGeneration = _cancelActiveFades();
+          await _runFade(from: 1, to: 0, generation: fadeGeneration);
           await audioController.pause().timeout(_audioOperationTimeout);
           if (_fadeEnabled) {
             await _safeSetVolume(1);
           }
         } else {
+          final fadeGeneration = _cancelActiveFades();
           if (_fadeEnabled) {
-            await _runFade(from: 0, to: 0);
+            await _runFade(from: 0, to: 0, generation: fadeGeneration);
           }
           _safePlay();
-          unawaited(_runFade(from: 0, to: 1));
+          unawaited(_runFade(from: 0, to: 1, generation: fadeGeneration));
+          _schedulePlaybackVolumeRecovery(fadeGeneration);
         }
       } catch (e) {
         debugPrint('togglePlay: audio operation failed, recreating player: $e');
@@ -860,6 +959,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         final controller = _ensureAudioController();
         final wasPlaying = controller.playing;
         final currentPosition = controller.position;
+        final fadeGeneration = _cancelActiveFades();
 
         final url = song.platform == PlatformType.local
             ? Uri.file(song.id).toString()
@@ -896,6 +996,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
         if (wasPlaying) {
           _safePlay();
+          unawaited(_runFade(from: 0, to: 1, generation: fadeGeneration));
+          _schedulePlaybackVolumeRecovery(fadeGeneration);
         }
       } on TimeoutException {
         if (requestId == _qualityRequestId) {
@@ -1026,7 +1128,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       try {
         final audioController = _ensureAudioController();
         if (!audioController.playing) return;
-        await _runFade(from: 1, to: 0);
+        final fadeGeneration = _cancelActiveFades();
+        await _runFade(from: 1, to: 0, generation: fadeGeneration);
         await audioController.pause().timeout(_audioOperationTimeout);
         if (_fadeEnabled) {
           await _safeSetVolume(1);

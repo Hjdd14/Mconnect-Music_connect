@@ -11,6 +11,44 @@ class FloatingLyricsService {
   static final instance = FloatingLyricsService._();
 
   final MethodChannel _channel;
+<<<<<<< Updated upstream
+=======
+  final _closedByUserController = StreamController<void>.broadcast();
+  final _lockChangedController = StreamController<bool>.broadcast();
+  final _windowResizedController =
+      StreamController<({int width, int height})>.broadcast();
+
+  Stream<void> get closedByUserStream => _closedByUserController.stream;
+
+  Stream<bool> get lockChangedStream => _lockChangedController.stream;
+
+  Stream<({int width, int height})> get windowResizedStream =>
+      _windowResizedController.stream;
+
+  Future<void> _handleNativeCall(MethodCall call) async {
+    switch (call.method) {
+      case 'closedByUser':
+        _closedByUserController.add(null);
+        break;
+      case 'lockChanged':
+        final locked = call.arguments;
+        if (locked is bool) {
+          _lockChangedController.add(locked);
+        }
+        break;
+      case 'windowResized':
+        final args = call.arguments;
+        if (args is Map) {
+          final w = (args['width'] as num?)?.toInt();
+          final h = (args['height'] as num?)?.toInt();
+          if (w != null && h != null && w > 0 && h > 0) {
+            _windowResizedController.add((width: w, height: h));
+          }
+        }
+        break;
+    }
+  }
+>>>>>>> Stashed changes
 
   Future<T?> _invokeOptional<T>(String method, [Object? arguments]) async {
     try {

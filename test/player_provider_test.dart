@@ -137,6 +137,69 @@ void main() {
     expect(audio.pauseCalls, 1);
   });
 
+  test(
+    'ignores duplicate completed events while the next song is loading',
+    () async {
+      final audio = _FakeAudioController();
+      final songTwoUrl = Completer<String>();
+      final platform = _ControlledUrlPlatform(
+        urls: {'transition-2': songTwoUrl.future},
+      );
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        platformResolver: (_) => platform,
+        audioControllerFactory: () => _FakeAudioController(),
+      );
+      addTearDown(notifier.dispose);
+
+      final playlist = [
+        _song('transition-1'),
+        _song('transition-2'),
+        _song('transition-3'),
+      ];
+      await notifier.playPlaylist(playlist);
+      final nextCall = notifier.skipToNext();
+      await pumpEventQueue();
+      expect(notifier.state.currentSong?.id, 'transition-2');
+      expect(notifier.state.isTransitioning, isTrue);
+
+      audio.emitCompleted();
+      songTwoUrl.complete('https://example.test/transition-2-low.mp3');
+      await nextCall;
+      await pumpEventQueue();
+
+      expect(notifier.state.currentSong?.id, 'transition-2');
+      expect(audio.lastUrl, contains('transition-2'));
+    },
+  );
+
+  test(
+    'cancels stale fades so an old pause cannot silence later playback',
+    () async {
+      final audio = _FakeAudioController();
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        platformResolver: (_) => _FakeMusicPlatform(),
+        audioControllerFactory: () => _FakeAudioController(),
+      );
+      addTearDown(notifier.dispose);
+
+      notifier.setFadeOptions(
+        enabled: true,
+        duration: const Duration(milliseconds: 60),
+      );
+      await notifier.playSong(_song('fade-race-1'));
+      final pauseCall = notifier.pause();
+      await Future<void>.delayed(const Duration(milliseconds: 15));
+      await notifier.playSong(_song('fade-race-2'));
+      await pauseCall;
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+
+      expect(audio.lastUrl, contains('fade-race-2'));
+      expect(audio.volumeChanges.last, 1);
+    },
+  );
+
   test('equalizer settings are applied through the audio controller', () async {
     final audio = _FakeAudioController();
     final notifier = PlayerNotifier(
@@ -522,6 +585,16 @@ class _FakeAudioController implements PlayerAudioController {
     volumeChanges.add(volume);
   }
 
+  void emitCompleted() {
+    _playing = false;
+    _playerStateController.add(
+      const AudioPlaybackState(
+        playing: false,
+        processingState: just_audio.ProcessingState.completed,
+      ),
+    );
+  }
+
   @override
   Future<void> applyEqualizer({
     required bool enabled,
@@ -701,5 +774,21 @@ class _QualityHangPlatform extends _FakeMusicPlatform {
       return qualityCompleter.future;
     }
     return Future.value(normalUrl);
+  }
+}
+
+class _ControlledUrlPlatform extends _FakeMusicPlatform {
+  final Map<String, Future<String>> urls;
+
+  _ControlledUrlPlatform({required this.urls});
+
+  @override
+  Future<String> getSongUrl(
+    String songId, {
+    AudioLevel quality = AudioLevel.low,
+  }) {
+    final url = urls[songId];
+    if (url != null) return url;
+    return super.getSongUrl(songId, quality: quality);
   }
 }

@@ -113,6 +113,14 @@ class FloatingLyricsSyncController {
         (previous, next) => unawaited(sync()),
       ),
     );
+    _nativeSubscriptions.add(
+      _service.windowResizedStream.listen((size) async {
+        await _ref.read(floatingLyricsProvider.notifier).setWindowSize(
+          width: size.width.toDouble(),
+          height: size.height.toDouble(),
+        );
+      }),
+    );
   }
 
   static FloatingLyricsPayload payloadForPosition(

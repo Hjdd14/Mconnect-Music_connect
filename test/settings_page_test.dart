@@ -42,6 +42,20 @@ void main() {
     expect(find.byIcon(Icons.more_vert), findsWidgets);
   });
 
+  testWidgets('settings page shows the current app version', (tester) async {
+    await tester.pumpWidget(
+      const ProviderScope(child: MaterialApp(home: SettingsPage())),
+    );
+
+    await tester.scrollUntilVisible(
+      find.text('版本'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    expect(find.text('1.2.0'), findsOneWidget);
+  });
+
   testWidgets(
     'settings page exposes theme color and floating lyrics controls',
     (tester) async {

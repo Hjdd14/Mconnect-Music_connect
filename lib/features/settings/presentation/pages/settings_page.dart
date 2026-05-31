@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:mconnect/core/constants/app_constants.dart';
 import 'package:mconnect/core/diagnostics/diagnostics_service.dart';
 import 'package:mconnect/core/theme/app_theme.dart';
 import 'package:mconnect/core/theme/theme_provider.dart';
@@ -112,7 +113,13 @@ class SettingsPage extends ConsumerWidget {
           SwitchListTile(
             secondary: const Icon(Icons.picture_in_picture_alt_outlined),
             title: const Text('桌面悬浮歌词'),
+<<<<<<< Updated upstream
             subtitle: const Text('显示在其他应用上方，需要系统悬浮窗权限'),
+=======
+            subtitle: Text(
+              isWindows ? '在桌面顶部显示歌词，支持拖拽、缩放和锁定' : '显示在其他应用上方，需要系统悬浮窗权限',
+            ),
+>>>>>>> Stashed changes
             value: floatingLyrics.enabled,
             onChanged: (value) async {
               if (value) {
@@ -315,7 +322,7 @@ class SettingsPage extends ConsumerWidget {
           const ListTile(
             leading: Icon(Icons.info_outline),
             title: Text('版本'),
-            subtitle: Text('1.1.0'),
+            subtitle: Text(AppConstants.appVersion),
           ),
         ],
       ),

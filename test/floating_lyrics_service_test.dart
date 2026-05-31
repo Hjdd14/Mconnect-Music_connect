@@ -79,4 +79,49 @@ void main() {
       expect(calls, isEmpty);
     },
   );
+<<<<<<< Updated upstream
+=======
+
+  test(
+    'Windows asks the native floating lyrics channel for availability',
+    () async {
+      PlatformUtils.setDebugOverride(AppPlatform.windows);
+      addTearDown(() => PlatformUtils.setDebugOverride(null));
+
+      final allowed = await FloatingLyricsService.instance.canDrawOverlays();
+
+      expect(allowed, isTrue);
+      expect(calls.single.method, 'canDrawOverlays');
+    },
+  );
+
+  test('native window resize events are exposed as a typed stream', () async {
+    final events = <({int width, int height})>[];
+    final sub = FloatingLyricsService.instance.windowResizedStream.listen(
+      events.add,
+    );
+    addTearDown(sub.cancel);
+
+    await _sendNativeFloatingLyricsCall('windowResized', {
+      'width': 456,
+      'height': 118,
+    });
+    await pumpEventQueue();
+
+    expect(events, [(width: 456, height: 118)]);
+  });
+}
+
+Future<void> _sendNativeFloatingLyricsCall(
+  String method, [
+  Object? arguments,
+]) {
+  const codec = StandardMethodCodec();
+  return TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .handlePlatformMessage(
+        'com.mconnect.mconnect/floating_lyrics',
+        codec.encodeMethodCall(MethodCall(method, arguments)),
+        (_) {},
+      );
+>>>>>>> Stashed changes
 }

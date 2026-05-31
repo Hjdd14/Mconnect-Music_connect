@@ -43,6 +43,28 @@ void main() {
     expect(restored.state.backgroundColor, Colors.transparent);
   });
 
+  test('native resize event updates and persists window size', () async {
+    final container = ProviderContainer();
+    container.read(floatingLyricsSyncProvider);
+
+    await _sendNativeFloatingLyricsCall('windowResized', {
+      'width': 468,
+      'height': 128,
+    });
+    await pumpEventQueue();
+
+    expect(container.read(floatingLyricsProvider).width, 468);
+    expect(container.read(floatingLyricsProvider).height, 128);
+    container.dispose();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    final restored = FloatingLyricsNotifier();
+    addTearDown(restored.dispose);
+    await restored.ready;
+    expect(restored.state.width, 468);
+    expect(restored.state.height, 128);
+  });
+
   test('payloadForPosition returns the active timed lyric line', () {
     const document = LyricsDocument(
       lines: [
