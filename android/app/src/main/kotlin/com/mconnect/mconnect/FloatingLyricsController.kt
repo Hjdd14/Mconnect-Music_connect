@@ -272,8 +272,6 @@ class FloatingLyricsController(private val activity: Activity) {
         layoutParams = null
         lyricText = null
         translationText = null
-<<<<<<< Updated upstream
-=======
         resizeHandle = null
         lockButton = null
     }
@@ -317,7 +315,6 @@ class FloatingLyricsController(private val activity: Activity) {
             channel.invokeMethod("lockChanged", isLocked)
         } catch (_: Exception) {
         }
->>>>>>> Stashed changes
     }
 
     private fun number(value: Any?, fallback: Double): Double {

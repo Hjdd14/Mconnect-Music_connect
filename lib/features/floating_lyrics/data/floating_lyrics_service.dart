@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 
 import 'floating_lyrics_models.dart';
@@ -11,8 +13,6 @@ class FloatingLyricsService {
   static final instance = FloatingLyricsService._();
 
   final MethodChannel _channel;
-<<<<<<< Updated upstream
-=======
   final _closedByUserController = StreamController<void>.broadcast();
   final _lockChangedController = StreamController<bool>.broadcast();
   final _windowResizedController =
@@ -48,7 +48,6 @@ class FloatingLyricsService {
         break;
     }
   }
->>>>>>> Stashed changes
 
   Future<T?> _invokeOptional<T>(String method, [Object? arguments]) async {
     try {

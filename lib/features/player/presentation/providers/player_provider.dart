@@ -232,11 +232,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   PlayerPlaybackMemory? _pendingPlaybackMemory;
   bool _fadeEnabled = false;
   Duration _fadeDuration = const Duration(milliseconds: 800);
-<<<<<<< Updated upstream
-=======
   bool _lastKeepAlivePlaying = false;
   int _fadeGeneration = 0;
->>>>>>> Stashed changes
 
   PlayerNotifier({
     PlayerAudioController? audioController,
@@ -273,6 +270,10 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     return controller;
   }
 
+  void _setState(PlayerState nextState) {
+    state = nextState;
+  }
+
   void _setupListeners(PlayerAudioController controller) {
     _subscriptions.add(
       controller.positionStream.listen((pos) {
@@ -289,12 +290,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     _subscriptions.add(
       controller.durationStream.listen((dur) {
         if (!mounted) return;
-<<<<<<< Updated upstream
-        state = state.copyWith(duration: dur ?? Duration.zero);
-=======
         if (!identical(controller, _audioController)) return;
         _setState(state.copyWith(duration: dur ?? Duration.zero));
->>>>>>> Stashed changes
         _schedulePlaybackMemorySave();
       }),
     );
@@ -832,12 +829,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
           ? null
           : _platformResolver(song.platform);
       try {
-<<<<<<< Updated upstream
-        state = state.copyWith(isTransitioning: true, error: () => null);
-=======
         final fadeGeneration = _cancelActiveFades();
         _setState(state.copyWith(isTransitioning: true, error: () => null));
->>>>>>> Stashed changes
         final url = song.platform == PlatformType.local
             ? Uri.file(song.id).toString()
             : await DiagnosticsService.instance.measure(
@@ -866,13 +859,6 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
         _restoredSourceNeedsLoad = false;
         _safePlay(requestId: requestId);
-<<<<<<< Updated upstream
-        state = state.copyWith(
-          isPlaying: true,
-          isTransitioning: false,
-          position: resumePosition,
-          error: () => null,
-=======
         unawaited(_runFade(from: 0, to: 1, generation: fadeGeneration));
         _schedulePlaybackVolumeRecovery(fadeGeneration);
         _setState(
@@ -882,7 +868,6 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
             position: resumePosition,
             error: () => null,
           ),
->>>>>>> Stashed changes
         );
         _schedulePlaybackMemorySave();
         _cancelTransitionWatchdog();

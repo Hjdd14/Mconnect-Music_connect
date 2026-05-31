@@ -14,11 +14,15 @@ const _floatingLyricsBoxName = 'settings';
 const _floatingLyricsKey = 'floating_lyrics_settings';
 
 final floatingLyricsProvider =
-    StateNotifierProvider<FloatingLyricsNotifier, FloatingLyricsSettings>((ref) {
+    StateNotifierProvider<FloatingLyricsNotifier, FloatingLyricsSettings>((
+      ref,
+    ) {
       return FloatingLyricsNotifier();
     });
 
-final floatingLyricsSyncProvider = Provider<FloatingLyricsSyncController>((ref) {
+final floatingLyricsSyncProvider = Provider<FloatingLyricsSyncController>((
+  ref,
+) {
   final controller = FloatingLyricsSyncController(ref);
   ref.onDispose(controller.dispose);
   return controller;
@@ -69,7 +73,10 @@ class FloatingLyricsNotifier extends StateNotifier<FloatingLyricsSettings> {
 
   Future<void> setWindowSize({required double width, required double height}) {
     return _save(
-      state.copyWith(width: width.clamp(180, 720), height: height.clamp(56, 220)),
+      state.copyWith(
+        width: width.clamp(180, 720),
+        height: height.clamp(56, 220),
+      ),
     );
   }
 
@@ -89,12 +96,11 @@ class FloatingLyricsSyncController {
   final Ref _ref;
   final FloatingLyricsService _service;
   final List<ProviderSubscription> _subscriptions = [];
+  final List<StreamSubscription> _nativeSubscriptions = [];
   FloatingLyricsPayload? _lastPayload;
 
-  FloatingLyricsSyncController(
-    this._ref, {
-    FloatingLyricsService? service,
-  }) : _service = service ?? FloatingLyricsService.instance {
+  FloatingLyricsSyncController(this._ref, {FloatingLyricsService? service})
+    : _service = service ?? FloatingLyricsService.instance {
     _subscriptions.add(
       _ref.listen<FloatingLyricsSettings>(
         floatingLyricsProvider,
@@ -108,17 +114,16 @@ class FloatingLyricsSyncController {
       ),
     );
     _subscriptions.add(
-      _ref.listen(
-        lyricsProvider,
-        (previous, next) => unawaited(sync()),
-      ),
+      _ref.listen(lyricsProvider, (previous, next) => unawaited(sync())),
     );
     _nativeSubscriptions.add(
       _service.windowResizedStream.listen((size) async {
-        await _ref.read(floatingLyricsProvider.notifier).setWindowSize(
-          width: size.width.toDouble(),
-          height: size.height.toDouble(),
-        );
+        await _ref
+            .read(floatingLyricsProvider.notifier)
+            .setWindowSize(
+              width: size.width.toDouble(),
+              height: size.height.toDouble(),
+            );
       }),
     );
   }
@@ -169,6 +174,9 @@ class FloatingLyricsSyncController {
   void dispose() {
     for (final sub in _subscriptions) {
       sub.close();
+    }
+    for (final sub in _nativeSubscriptions) {
+      unawaited(sub.cancel());
     }
   }
 }

@@ -79,8 +79,6 @@ void main() {
       expect(calls, isEmpty);
     },
   );
-<<<<<<< Updated upstream
-=======
 
   test(
     'Windows asks the native floating lyrics channel for availability',
@@ -112,10 +110,7 @@ void main() {
   });
 }
 
-Future<void> _sendNativeFloatingLyricsCall(
-  String method, [
-  Object? arguments,
-]) {
+Future<void> _sendNativeFloatingLyricsCall(String method, [Object? arguments]) {
   const codec = StandardMethodCodec();
   return TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .handlePlatformMessage(
@@ -123,5 +118,4 @@ Future<void> _sendNativeFloatingLyricsCall(
         codec.encodeMethodCall(MethodCall(method, arguments)),
         (_) {},
       );
->>>>>>> Stashed changes
 }
