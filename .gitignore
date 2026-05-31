@@ -31,6 +31,8 @@ Thumbs.db
 # Build, test and coverage outputs
 /build/
 /coverage/
+windows/flutter/ephemeral/
+*.pdb
 *.apk
 *.aab
 *.apks
