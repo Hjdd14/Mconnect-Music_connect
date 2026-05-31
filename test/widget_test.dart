@@ -655,7 +655,7 @@ class _IdleAudioController implements PlayerAudioController {
   Future<void> stop() async {}
 
   @override
-  Future<void> setUrl(String url) async {}
+  Future<void> setUrl(String url, {Song? song}) async {}
 
   @override
   Future<void> play() async {

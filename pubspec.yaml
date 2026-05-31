@@ -23,8 +23,11 @@ dependencies:
   crypto: ^3.0.0
 
   # Audio Playback
+  audio_service: ^0.18.18
+  audio_session: ^0.1.25
   just_audio: ^0.9.42
-  audio_service: ^0.18.17
+  just_audio_background: ^0.0.1-beta.17
+  just_audio_windows: ^0.2.3
 
   # Local Storage
   drift: ^2.22.0
@@ -40,7 +43,6 @@ dependencies:
   flutter_svg: ^2.0.10+1
 
   # QR Code
-  mobile_scanner: ^5.2.0
   qr_flutter: ^4.1.0
 
   # Crypto

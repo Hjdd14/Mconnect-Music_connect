@@ -1,8 +1,10 @@
 import 'dart:async';
 
+import 'package:audio_service/audio_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mconnect/features/audio_effects/presentation/providers/audio_effects_provider.dart';
 import 'package:just_audio/just_audio.dart' as just_audio;
+import 'package:mconnect/features/player/data/playback_notification_service.dart';
 import 'package:mconnect/features/player/presentation/providers/player_provider.dart';
 import 'package:mconnect/features/player/data/player_playback_memory_store.dart';
 import 'package:mconnect/models/artist.dart';
@@ -11,10 +13,54 @@ import 'package:mconnect/models/platform_type.dart';
 import 'package:mconnect/models/playlist.dart';
 import 'package:mconnect/models/song.dart';
 import 'package:mconnect/models/user.dart';
+import 'package:mconnect/core/diagnostics/diagnostics_service.dart';
+import 'package:mconnect/core/platform/platform_utils.dart';
 import 'package:mconnect/core/storage/session_storage.dart';
 import 'package:mconnect/platform/base/music_platform.dart';
 
 void main() {
+  test('Windows does not create an Android equalizer', () {
+    PlatformUtils.setDebugOverride(AppPlatform.windows);
+    addTearDown(() => PlatformUtils.setDebugOverride(null));
+
+    expect(createAndroidEqualizerForPlatform(), isNull);
+  });
+
+  test('non-Windows desktop does not create an Android equalizer', () {
+    PlatformUtils.setDebugOverride(AppPlatform.linux);
+    addTearDown(() => PlatformUtils.setDebugOverride(null));
+
+    expect(createAndroidEqualizerForPlatform(), isNull);
+  });
+
+  test(
+    'Android playback source includes MediaItem metadata for background service',
+    () {
+      final song = Song(
+        id: '42',
+        platform: PlatformType.kugou,
+        name: 'background song',
+        artists: const [Artist(id: 'artist-1', name: 'artist name')],
+        coverUrl: 'https://example.test/cover.jpg',
+        duration: const Duration(minutes: 3, seconds: 5),
+      );
+
+      final source = createPlaybackAudioSource(
+        'https://example.test/background.mp3',
+        song,
+      );
+
+      final tag = source.tag;
+      expect(tag, isA<MediaItem>());
+      final mediaItem = tag as MediaItem;
+      expect(mediaItem.id, 'kugou:42');
+      expect(mediaItem.title, 'background song');
+      expect(mediaItem.artist, 'artist name');
+      expect(mediaItem.duration, const Duration(minutes: 3, seconds: 5));
+      expect(mediaItem.artUri, Uri.parse('https://example.test/cover.jpg'));
+    },
+  );
+
   test(
     'default construction does not eagerly create the audio controller',
     () async {
@@ -424,6 +470,52 @@ void main() {
       expect(notifier.state.isPlaying, isTrue);
     },
   );
+
+  test(
+    'publishes playlist state to the playback notification controller',
+    () async {
+      final notifications = _FakePlaybackNotificationController();
+      final notifier = PlayerNotifier(
+        audioController: _FakeAudioController(),
+        audioControllerFactory: () => _FakeAudioController(),
+        platformResolver: (_) => _FakeMusicPlatform(),
+        notificationController: notifications,
+      );
+      addTearDown(notifier.dispose);
+
+      final songs = [_song('notify-1'), _song('notify-2')];
+
+      await notifier.playPlaylist(songs);
+      await pumpEventQueue();
+
+      expect(notifications.actions, isNotNull);
+      final update = notifications.updates.last;
+      expect(update.currentSong?.id, 'notify-1');
+      expect(update.playlist.map((song) => song.id), ['notify-1', 'notify-2']);
+      expect(update.currentIndex, 0);
+      expect(update.isPlaying, isTrue);
+    },
+  );
+
+  test('notification next and previous callbacks control the player', () async {
+    final notifications = _FakePlaybackNotificationController();
+    final notifier = PlayerNotifier(
+      audioController: _FakeAudioController(),
+      audioControllerFactory: () => _FakeAudioController(),
+      platformResolver: (_) => _FakeMusicPlatform(),
+      notificationController: notifications,
+    );
+    addTearDown(notifier.dispose);
+
+    final songs = [_song('media-1'), _song('media-2')];
+
+    await notifier.playPlaylist(songs);
+    await notifications.actions!.skipToNext();
+    expect(notifier.state.currentSong?.id, 'media-2');
+
+    await notifications.actions!.skipToPrevious();
+    expect(notifier.state.currentSong?.id, 'media-1');
+  });
 }
 
 Song _song(String id, {PlatformType platform = PlatformType.netease}) => Song(
@@ -479,7 +571,7 @@ class _FakeAudioController implements PlayerAudioController {
   }
 
   @override
-  Future<void> setUrl(String url) async {
+  Future<void> setUrl(String url, {Song? song}) async {
     lastUrl = url;
     _playerStateController.add(
       const AudioPlaybackState(
@@ -559,6 +651,64 @@ class _MemoryPlaybackStore implements PlayerPlaybackMemoryStore {
   Future<void> clear() async {
     saved = null;
     restored = null;
+  }
+}
+
+class _NotificationUpdate {
+  final Song? currentSong;
+  final List<Song> playlist;
+  final int currentIndex;
+  final bool isPlaying;
+  final Duration position;
+  final Duration duration;
+
+  const _NotificationUpdate({
+    required this.currentSong,
+    required this.playlist,
+    required this.currentIndex,
+    required this.isPlaying,
+    required this.position,
+    required this.duration,
+  });
+}
+
+class _FakePlaybackNotificationController
+    implements PlaybackNotificationController {
+  PlaybackNotificationActions? actions;
+  final List<_NotificationUpdate> updates = [];
+
+  @override
+  Future<void> initialize({DiagnosticsService? diagnostics}) async {}
+
+  @override
+  void attach(PlaybackNotificationActions actions) {
+    this.actions = actions;
+  }
+
+  @override
+  void detach() {
+    actions = null;
+  }
+
+  @override
+  void update({
+    required Song? currentSong,
+    required List<Song> playlist,
+    required int currentIndex,
+    required bool isPlaying,
+    required Duration position,
+    required Duration duration,
+  }) {
+    updates.add(
+      _NotificationUpdate(
+        currentSong: currentSong,
+        playlist: playlist,
+        currentIndex: currentIndex,
+        isPlaying: isPlaying,
+        position: position,
+        duration: duration,
+      ),
+    );
   }
 }
 

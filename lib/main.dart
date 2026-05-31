@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'app.dart';
 import 'core/diagnostics/diagnostics_service.dart';
+import 'features/player/data/background_audio_initializer.dart';
 import 'platform/base/platform_registry.dart';
 import 'platform/netease/netease_platform.dart';
 import 'platform/qq/qq_platform.dart';
@@ -16,6 +17,7 @@ void main() async {
   final diagnostics = DiagnosticsService.instance;
   await diagnostics.initialize();
   diagnostics.startUiHeartbeat();
+  await BackgroundAudioInitializer.initialize(diagnostics: diagnostics);
 
   // Global error handling
   FlutterError.onError = (details) {

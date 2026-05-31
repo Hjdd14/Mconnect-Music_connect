@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:mconnect/core/diagnostics/diagnostics_service.dart';
+import 'package:mconnect/core/platform/platform_utils.dart';
 import 'package:mconnect/features/settings/presentation/pages/settings_page.dart';
 
 void main() {
@@ -15,9 +16,11 @@ void main() {
     Hive.init(tempDir.path);
     await Hive.openBox('settings');
     await DiagnosticsService.instance.initializeForTest(tempDir);
+    PlatformUtils.setDebugOverride(AppPlatform.android);
   });
 
   tearDown(() async {
+    PlatformUtils.setDebugOverride(null);
     await DiagnosticsService.instance.flush();
     await DiagnosticsService.instance.resetForTest();
     await Hive.close();
@@ -62,6 +65,19 @@ void main() {
     },
   );
 
+  test('floating lyrics color presets include dark options', () {
+    expect(SettingsPage.lyricTextPresets, contains(const Color(0xFF111827)));
+    expect(SettingsPage.lyricTextPresets, contains(const Color(0xFF0F172A)));
+    expect(
+      SettingsPage.lyricHighlightPresets,
+      contains(const Color(0xFF1E3A8A)),
+    );
+    expect(
+      SettingsPage.lyricHighlightPresets,
+      contains(const Color(0xFF7F1D1D)),
+    );
+  });
+
   testWidgets('settings page exposes low-risk audio enhancement controls', (
     tester,
   ) async {
@@ -84,11 +100,49 @@ void main() {
       expect(find.text(label), findsOneWidget);
     }
   });
+
+  testWidgets('settings disables Android-only controls on Windows', (
+    tester,
+  ) async {
+    PlatformUtils.setDebugOverride(AppPlatform.windows);
+
+    await tester.pumpWidget(
+      const ProviderScope(child: MaterialApp(home: SettingsPage())),
+    );
+    await tester.pumpAndSettle();
+
+    await _dragUntilIconVisible(tester, Icons.picture_in_picture_alt_outlined);
+    final floatingLyricsTile = tester.widget<SwitchListTile>(
+      find.ancestor(
+        of: find.byIcon(Icons.picture_in_picture_alt_outlined),
+        matching: find.byType(SwitchListTile),
+      ),
+    );
+
+    await _dragUntilIconVisible(tester, Icons.equalizer);
+    final equalizerTile = tester.widget<SwitchListTile>(
+      find.ancestor(
+        of: find.byIcon(Icons.equalizer),
+        matching: find.byType(SwitchListTile),
+      ),
+    );
+
+    expect(floatingLyricsTile.onChanged, isNull);
+    expect(equalizerTile.onChanged, isNull);
+  });
 }
 
 Future<void> _dragUntilTextVisible(WidgetTester tester, String label) async {
   for (var i = 0; i < 10; i++) {
     if (find.text(label).evaluate().isNotEmpty) return;
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -260));
+    await tester.pumpAndSettle();
+  }
+}
+
+Future<void> _dragUntilIconVisible(WidgetTester tester, IconData icon) async {
+  for (var i = 0; i < 10; i++) {
+    if (find.byIcon(icon).evaluate().isNotEmpty) return;
     await tester.drag(find.byType(Scrollable).first, const Offset(0, -260));
     await tester.pumpAndSettle();
   }

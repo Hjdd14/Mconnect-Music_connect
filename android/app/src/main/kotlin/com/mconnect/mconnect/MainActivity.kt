@@ -6,12 +6,12 @@ import android.net.Uri
 import android.os.StrictMode
 import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
-import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import com.ryanheise.audioservice.AudioServiceActivity
 import java.io.File
 
-class MainActivity : FlutterActivity() {
+class MainActivity : AudioServiceActivity() {
     private val fileOpenerChannel = "com.mconnect.mconnect/file_opener"
     private val floatingLyricsChannel = "com.mconnect.mconnect/floating_lyrics"
     private var floatingLyricsController: FloatingLyricsController? = null
@@ -27,10 +27,14 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
-        floatingLyricsController = FloatingLyricsController(this)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, floatingLyricsChannel)
-            .setMethodCallHandler { call, result ->
-                val controller = floatingLyricsController ?: FloatingLyricsController(this).also {
+        val floatingLyricsMethodChannel =
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, floatingLyricsChannel)
+        floatingLyricsController = FloatingLyricsController(this, floatingLyricsMethodChannel)
+        floatingLyricsMethodChannel.setMethodCallHandler { call, result ->
+                val controller = floatingLyricsController ?: FloatingLyricsController(
+                    this,
+                    floatingLyricsMethodChannel,
+                ).also {
                     floatingLyricsController = it
                 }
                 when (call.method) {
