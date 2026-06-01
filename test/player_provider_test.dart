@@ -7,6 +7,7 @@ import 'package:mconnect/core/platform/platform_utils.dart';
 import 'package:mconnect/features/audio_effects/presentation/providers/audio_effects_provider.dart';
 import 'package:just_audio/just_audio.dart' as just_audio;
 import 'package:mconnect/features/player/presentation/providers/player_provider.dart';
+import 'package:mconnect/features/player/data/media_kit_windows_audio_controller.dart';
 import 'package:mconnect/features/player/data/playback_keep_alive_service.dart';
 import 'package:mconnect/features/player/data/playback_notification_service.dart';
 import 'package:mconnect/features/player/data/player_playback_memory_store.dart';
@@ -20,6 +21,8 @@ import 'package:mconnect/core/storage/session_storage.dart';
 import 'package:mconnect/platform/base/music_platform.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('Windows does not create an Android equalizer', () {
     PlatformUtils.setDebugOverride(AppPlatform.windows);
     addTearDown(() => PlatformUtils.setDebugOverride(null));
@@ -60,6 +63,23 @@ void main() {
     expect(source, contains('defaultPlayerAudioControllerFactory'));
     expect(source, contains('AudioServicePlayerController.instance'));
     expect(source, contains('PlatformUtils.isAndroid'));
+  });
+
+  test('Windows default audio controller uses media_kit backend', () {
+    PlatformUtils.setDebugOverride(AppPlatform.windows);
+    addTearDown(() => PlatformUtils.setDebugOverride(null));
+
+    expect(
+      defaultPlayerAudioControllerFactory(),
+      isA<MediaKitWindowsAudioController>(),
+    );
+  });
+
+  test('Linux desktop keeps the existing just_audio controller', () {
+    PlatformUtils.setDebugOverride(AppPlatform.linux);
+    addTearDown(() => PlatformUtils.setDebugOverride(null));
+
+    expect(defaultPlayerAudioControllerFactory(), isA<JustAudioController>());
   });
 
   test(
@@ -256,6 +276,24 @@ void main() {
     ]);
   });
 
+  test(
+    'local content uri playback is passed through without file wrapping',
+    () async {
+      final audio = _FakeAudioController();
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        platformResolver: (_) => _FakeMusicPlatform(),
+        audioControllerFactory: () => _FakeAudioController(),
+      );
+      addTearDown(notifier.dispose);
+      const contentUri = 'content://com.android.providers.media/audio/42';
+
+      await notifier.playSong(_song(contentUri, platform: PlatformType.local));
+
+      expect(audio.lastUrl, contentUri);
+    },
+  );
+
   test('playSong clears the loading state when audio reports ready', () async {
     final audio = _FakeAudioController();
     final notifier = PlayerNotifier(
@@ -270,6 +308,29 @@ void main() {
     expect(notifier.state.isTransitioning, isFalse);
     expect(notifier.state.isPlaying, isTrue);
   });
+
+  test(
+    'player stream errors clear playback state and expose the error',
+    () async {
+      final audio = _FakeAudioController();
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        platformResolver: (_) => _FakeMusicPlatform(),
+        audioControllerFactory: () => _FakeAudioController(),
+      );
+      addTearDown(notifier.dispose);
+
+      await notifier.playSong(
+        _song('D:\\Music\\broken.mp3', platform: PlatformType.local),
+      );
+      audio.emitError(StateError('libmpv missing'));
+      await pumpEventQueue();
+
+      expect(notifier.state.isPlaying, isFalse);
+      expect(notifier.state.isTransitioning, isFalse);
+      expect(notifier.state.error, contains('libmpv missing'));
+    },
+  );
 
   test(
     'syncs Android background playback state while playing changes',
@@ -687,6 +748,11 @@ class _FakeAudioController implements PlayerAudioController {
         processingState: just_audio.ProcessingState.completed,
       ),
     );
+  }
+
+  void emitError(Object error) {
+    _playing = false;
+    _playerStateController.addError(error);
   }
 
   @override

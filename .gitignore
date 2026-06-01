@@ -80,6 +80,8 @@ Downloads/
 music/
 Music/
 local_music/
+!lib/features/local_music/
+!lib/features/local_music/**
 LocalMusic/
 playlists/
 exports/

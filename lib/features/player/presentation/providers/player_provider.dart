@@ -12,6 +12,7 @@ import '../../../../models/platform_type.dart';
 import '../../../../models/song.dart';
 import '../../../../platform/base/platform_registry.dart';
 import '../../../../platform/base/music_platform.dart';
+import '../../data/media_kit_windows_audio_controller.dart';
 import '../../data/player_audio_controller.dart';
 import '../../data/player_playback_memory_store.dart';
 import '../../data/playback_keep_alive_service.dart';
@@ -23,9 +24,13 @@ enum RepeatMode { off, all, one }
 
 @visibleForTesting
 PlayerAudioController defaultPlayerAudioControllerFactory() {
-  return PlatformUtils.isAndroid
-      ? playback_notification.AudioServicePlayerController.instance
-      : JustAudioController();
+  if (PlatformUtils.isAndroid) {
+    return playback_notification.AudioServicePlayerController.instance;
+  }
+  if (PlatformUtils.isWindows) {
+    return MediaKitWindowsAudioController();
+  }
+  return JustAudioController();
 }
 
 playback_notification.PlaybackNotificationController
@@ -33,6 +38,17 @@ defaultPlaybackNotificationController() {
   return PlatformUtils.isAndroid
       ? playback_notification.AudioServicePlayerController.instance
       : const playback_notification.NoopPlaybackNotificationController();
+}
+
+@visibleForTesting
+String localSongPlaybackUrlForTest(String id) => _localSongPlaybackUrl(id);
+
+String _localSongPlaybackUrl(String id) {
+  final uri = Uri.tryParse(id);
+  if (uri != null && (uri.scheme == 'content' || uri.scheme == 'file')) {
+    return id;
+  }
+  return Uri.file(id).toString();
 }
 
 class PlayerState {
@@ -303,6 +319,15 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         },
         onError: (e) {
           debugPrint('PlayerState stream error: $e');
+          if (!mounted) return;
+          if (!identical(controller, _audioController)) return;
+          _setState(
+            state.copyWith(
+              isPlaying: false,
+              isTransitioning: false,
+              error: () => 'Playback failed: $e',
+            ),
+          );
         },
       ),
     );
@@ -737,7 +762,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
           _setState(state.copyWith(currentQuality: playbackQuality));
         }
         final url = song.platform == PlatformType.local
-            ? Uri.file(song.id).toString()
+            ? _localSongPlaybackUrl(song.id)
             : await DiagnosticsService.instance.measure(
                 'platform.getSongUrl',
                 () => platform!
@@ -789,7 +814,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
           state.copyWith(
             isPlaying: false,
             isTransitioning: false,
-            error: () => '播放失败: ${e.toString()}',
+            error: () => 'Playback failed: ${e.toString()}',
           ),
         );
         DiagnosticsService.instance.recordError(
@@ -826,7 +851,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         final fadeGeneration = _cancelActiveFades();
         _setState(state.copyWith(isTransitioning: true, error: () => null));
         final url = song.platform == PlatformType.local
-            ? Uri.file(song.id).toString()
+            ? _localSongPlaybackUrl(song.id)
             : await DiagnosticsService.instance.measure(
                 'platform.getSongUrl.restore',
                 () => platform!
@@ -872,7 +897,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
           state.copyWith(
             isPlaying: false,
             isTransitioning: false,
-            error: () => '鎾斁澶辫触: ${e.toString()}',
+            error: () => 'Playback failed: ${e.toString()}',
           ),
         );
         DiagnosticsService.instance.recordError(
@@ -944,7 +969,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         final fadeGeneration = _cancelActiveFades();
 
         final url = song.platform == PlatformType.local
-            ? Uri.file(song.id).toString()
+            ? _localSongPlaybackUrl(song.id)
             : await DiagnosticsService.instance.measure(
                 'platform.getSongUrl.quality',
                 () => platform!

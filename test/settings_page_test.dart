@@ -53,7 +53,7 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
 
-    expect(find.text('1.2.0'), findsOneWidget);
+    expect(find.text('1.2.1'), findsOneWidget);
   });
 
   testWidgets(

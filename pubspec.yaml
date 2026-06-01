@@ -1,7 +1,7 @@
 name: mconnect
 description: "Multi-platform music aggregator"
 publish_to: 'none'
-version: 1.2.0+1
+version: 1.2.1+2
 
 environment:
   sdk: ^3.10.3
@@ -27,6 +27,8 @@ dependencies:
   audio_service: ^0.18.17
   audio_session: ^0.1.25
   just_audio_windows: ^0.2.3
+  media_kit: ^1.2.6
+  media_kit_libs_windows_audio: ^1.0.9
 
   # Local Storage
   drift: ^2.22.0
