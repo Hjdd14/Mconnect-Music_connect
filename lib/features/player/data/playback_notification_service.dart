@@ -13,12 +13,15 @@ import 'player_audio_controller.dart';
 typedef PlaybackCommand = Future<void> Function();
 typedef PlaybackSeekCommand = Future<void> Function(Duration position);
 
+const playbackNotificationLikeAction = 'like_current_song';
+
 class PlaybackNotificationActions {
   final PlaybackCommand play;
   final PlaybackCommand pause;
   final PlaybackCommand skipToNext;
   final PlaybackCommand skipToPrevious;
   final PlaybackSeekCommand seek;
+  final PlaybackCommand toggleLikeCurrentSong;
 
   const PlaybackNotificationActions({
     required this.play,
@@ -26,6 +29,7 @@ class PlaybackNotificationActions {
     required this.skipToNext,
     required this.skipToPrevious,
     required this.seek,
+    required this.toggleLikeCurrentSong,
   });
 }
 
@@ -40,6 +44,7 @@ abstract class PlaybackNotificationController {
     required Song? currentSong,
     required List<Song> playlist,
     required int currentIndex,
+    required bool isCurrentSongLiked,
     required bool isPlaying,
     required Duration position,
     required Duration duration,
@@ -64,6 +69,7 @@ class NoopPlaybackNotificationController
     required Song? currentSong,
     required List<Song> playlist,
     required int currentIndex,
+    required bool isCurrentSongLiked,
     required bool isPlaying,
     required Duration position,
     required Duration duration,
@@ -133,6 +139,7 @@ class AudioServicePlayerController
     required Song? currentSong,
     required List<Song> playlist,
     required int currentIndex,
+    required bool isCurrentSongLiked,
     required bool isPlaying,
     required Duration position,
     required Duration duration,
@@ -141,6 +148,7 @@ class AudioServicePlayerController
       currentSong: currentSong,
       playlist: playlist,
       currentIndex: currentIndex,
+      isCurrentSongLiked: isCurrentSongLiked,
       isPlaying: isPlaying,
       position: position,
       duration: duration,
@@ -217,6 +225,7 @@ class MconnectAudioHandler extends BaseAudioHandler with SeekHandler {
   final List<StreamSubscription> _audioSubscriptions = [];
   bool _hasCurrentSong = false;
   bool _playing = false;
+  bool _isCurrentSongLiked = false;
   just_audio.ProcessingState _processingState = just_audio.ProcessingState.idle;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
@@ -239,6 +248,7 @@ class MconnectAudioHandler extends BaseAudioHandler with SeekHandler {
     _audioController = controller;
     if (controller == null) {
       _playing = false;
+      _isCurrentSongLiked = false;
       _processingState = just_audio.ProcessingState.idle;
       _position = Duration.zero;
       _broadcastPlaybackState();
@@ -273,6 +283,7 @@ class MconnectAudioHandler extends BaseAudioHandler with SeekHandler {
     required Song? currentSong,
     required List<Song> playlist,
     required int currentIndex,
+    required bool isCurrentSongLiked,
     required bool isPlaying,
     required Duration position,
     required Duration duration,
@@ -293,6 +304,7 @@ class MconnectAudioHandler extends BaseAudioHandler with SeekHandler {
       );
     }
     _queueIndex = effectiveIndex;
+    _isCurrentSongLiked = song != null && isCurrentSongLiked;
     _duration = duration;
     if (_audioController == null) {
       _playing = isPlaying;
@@ -312,6 +324,7 @@ class MconnectAudioHandler extends BaseAudioHandler with SeekHandler {
       buildPlaybackNotificationState(
         hasCurrentSong: _hasCurrentSong,
         isPlaying: _playing,
+        isCurrentSongLiked: _isCurrentSongLiked,
         position: _position,
         duration: _duration,
         queueIndex: _queueIndex,
@@ -349,6 +362,18 @@ class MconnectAudioHandler extends BaseAudioHandler with SeekHandler {
   }
 
   @override
+  Future<dynamic> customAction(
+    String name, [
+    Map<String, dynamic>? extras,
+  ]) async {
+    if (name == playbackNotificationLikeAction) {
+      await _actions?.toggleLikeCurrentSong();
+      return null;
+    }
+    return super.customAction(name, extras);
+  }
+
+  @override
   Future<void> stop() async {
     await _actions?.pause();
     playbackState.add(
@@ -368,6 +393,7 @@ List<MediaItem> buildPlaybackNotificationQueue(List<Song> playlist) {
 @visibleForTesting
 PlaybackState buildPlaybackNotificationState({
   required bool hasCurrentSong,
+  required bool isCurrentSongLiked,
   required bool isPlaying,
   required Duration position,
   required Duration duration,
@@ -380,6 +406,7 @@ PlaybackState buildPlaybackNotificationState({
           MediaControl.skipToPrevious,
           primaryControl,
           MediaControl.skipToNext,
+          _favoriteControl(isCurrentSongLiked),
         ]
       : <MediaControl>[primaryControl];
 
@@ -401,6 +428,16 @@ PlaybackState buildPlaybackNotificationState({
     updatePosition: position,
     bufferedPosition: duration,
     queueIndex: hasCurrentSong && queueIndex >= 0 ? queueIndex : null,
+  );
+}
+
+MediaControl _favoriteControl(bool isCurrentSongLiked) {
+  return MediaControl.custom(
+    androidIcon: isCurrentSongLiked
+        ? 'drawable/audio_service_favorite_filled'
+        : 'drawable/audio_service_favorite_outline',
+    label: isCurrentSongLiked ? '已喜欢' : '喜欢',
+    name: playbackNotificationLikeAction,
   );
 }
 

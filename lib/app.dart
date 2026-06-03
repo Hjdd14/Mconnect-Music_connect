@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/router/app_router.dart';
+import 'core/theme/app_background.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_provider.dart';
 import 'features/auth/presentation/providers/auth_provider.dart';
@@ -64,6 +65,8 @@ class _MconnectAppState extends ConsumerState<MconnectApp>
       theme: AppTheme.light(seedColor: themeSettings.seedColor),
       darkTheme: AppTheme.dark(seedColor: themeSettings.seedColor),
       themeMode: themeSettings.mode,
+      builder: (context, child) =>
+          AppBackgroundShell(child: child ?? const SizedBox.shrink()),
       routerConfig: appRouter,
     );
   }

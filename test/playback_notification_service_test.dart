@@ -13,6 +13,7 @@ void main() {
   test('builds compact Android controls with previous, play/pause, next', () {
     final playing = buildPlaybackNotificationState(
       hasCurrentSong: true,
+      isCurrentSongLiked: false,
       isPlaying: true,
       position: const Duration(seconds: 12),
       duration: const Duration(minutes: 3),
@@ -23,6 +24,17 @@ void main() {
       MediaControl.skipToPrevious,
       MediaControl.pause,
       MediaControl.skipToNext,
+      isA<MediaControl>()
+          .having(
+            (control) => control.customAction?.name,
+            'name',
+            'like_current_song',
+          )
+          .having(
+            (control) => control.androidIcon,
+            'icon',
+            'drawable/audio_service_favorite_outline',
+          ),
     ]);
     expect(playing.androidCompactActionIndices, [0, 1, 2]);
     expect(playing.systemActions, contains(MediaAction.seek));
@@ -31,6 +43,7 @@ void main() {
 
     final paused = buildPlaybackNotificationState(
       hasCurrentSong: true,
+      isCurrentSongLiked: false,
       isPlaying: false,
       position: const Duration(seconds: 12),
       duration: const Duration(minutes: 3),
@@ -39,6 +52,40 @@ void main() {
 
     expect(paused.controls[1], MediaControl.play);
     expect(paused.playing, isFalse);
+  });
+
+  test('builds filled favorite control when current song is liked', () {
+    final liked = buildPlaybackNotificationState(
+      hasCurrentSong: true,
+      isCurrentSongLiked: true,
+      isPlaying: false,
+      position: const Duration(seconds: 12),
+      duration: const Duration(minutes: 3),
+      queueIndex: 0,
+    );
+
+    expect(liked.controls.last.customAction?.name, 'like_current_song');
+    expect(
+      liked.controls.last.androidIcon,
+      'drawable/audio_service_favorite_filled',
+    );
+    expect(liked.androidCompactActionIndices, [0, 1, 2]);
+
+    final noSong = buildPlaybackNotificationState(
+      hasCurrentSong: false,
+      isCurrentSongLiked: false,
+      isPlaying: false,
+      position: Duration.zero,
+      duration: Duration.zero,
+      queueIndex: -1,
+    );
+
+    expect(
+      noSong.controls.any(
+        (control) => control.customAction?.name == 'like_current_song',
+      ),
+      isFalse,
+    );
   });
 
   test('maps playlist songs to media items for system queue', () {
@@ -59,6 +106,7 @@ void main() {
     var pauseCalls = 0;
     var nextCalls = 0;
     var previousCalls = 0;
+    var likeCalls = 0;
     Duration? seekPosition;
     final handler = MconnectAudioHandler();
 
@@ -69,6 +117,7 @@ void main() {
         skipToNext: () async => nextCalls++,
         skipToPrevious: () async => previousCalls++,
         seek: (position) async => seekPosition = position,
+        toggleLikeCurrentSong: () async => likeCalls++,
       ),
     );
 
@@ -77,12 +126,14 @@ void main() {
     await handler.skipToNext();
     await handler.skipToPrevious();
     await handler.seek(const Duration(seconds: 25));
+    await handler.customAction('like_current_song');
 
     expect(playCalls, 1);
     expect(pauseCalls, 1);
     expect(nextCalls, 1);
     expect(previousCalls, 1);
     expect(seekPosition, const Duration(seconds: 25));
+    expect(likeCalls, 1);
   });
 
   test('handler publishes queue, media item and playback state', () {
@@ -93,6 +144,7 @@ void main() {
       currentSong: songs[1],
       playlist: songs,
       currentIndex: 1,
+      isCurrentSongLiked: false,
       isPlaying: true,
       position: const Duration(seconds: 8),
       duration: const Duration(minutes: 4),
@@ -107,6 +159,17 @@ void main() {
       MediaControl.skipToPrevious,
       MediaControl.pause,
       MediaControl.skipToNext,
+      isA<MediaControl>()
+          .having(
+            (control) => control.customAction?.name,
+            'name',
+            'like_current_song',
+          )
+          .having(
+            (control) => control.androidIcon,
+            'icon',
+            'drawable/audio_service_favorite_outline',
+          ),
     ]);
     expect(handler.playbackState.value.queueIndex, 1);
   });
@@ -123,6 +186,7 @@ void main() {
         currentSong: songs[1],
         playlist: songs,
         currentIndex: 1,
+        isCurrentSongLiked: true,
         isPlaying: false,
         position: Duration.zero,
         duration: const Duration(minutes: 4),
@@ -151,6 +215,7 @@ void main() {
         currentSong: songs[1],
         playlist: songs,
         currentIndex: 1,
+        isCurrentSongLiked: true,
         isPlaying: false,
         position: Duration.zero,
         duration: const Duration(minutes: 4),

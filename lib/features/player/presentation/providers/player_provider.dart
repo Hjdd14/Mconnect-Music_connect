@@ -12,6 +12,7 @@ import '../../../../models/platform_type.dart';
 import '../../../../models/song.dart';
 import '../../../../platform/base/platform_registry.dart';
 import '../../../../platform/base/music_platform.dart';
+import '../../../library/presentation/providers/likes_provider.dart';
 import '../../data/media_kit_windows_audio_controller.dart';
 import '../../data/player_audio_controller.dart';
 import '../../data/player_playback_memory_store.dart';
@@ -21,6 +22,9 @@ import '../../data/playback_notification_service.dart' as playback_notification;
 export '../../data/player_audio_controller.dart';
 
 enum RepeatMode { off, all, one }
+
+typedef SongLikeResolver = bool Function(Song song);
+typedef SongLikeToggle = Future<void> Function(Song song);
 
 @visibleForTesting
 PlayerAudioController defaultPlayerAudioControllerFactory() {
@@ -151,6 +155,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   final playback_notification.PlaybackNotificationController
   _notificationController;
   final PlaybackKeepAliveController _keepAliveController;
+  final SongLikeResolver _isSongLiked;
+  final SongLikeToggle? _toggleSongLike;
   final List<StreamSubscription> _subscriptions = [];
   final _mutex = _AudioMutex();
   bool _isSwitchingQuality = false;
@@ -179,6 +185,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     playback_notification.PlaybackNotificationController?
     notificationController,
     PlaybackKeepAliveController? keepAliveController,
+    SongLikeResolver? isSongLiked,
+    SongLikeToggle? toggleSongLike,
   }) : _audioController = audioController,
        _platformResolver = platformResolver ?? PlatformRegistry.get,
        _audioControllerFactory =
@@ -193,6 +201,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
        _keepAliveController =
            keepAliveController ??
            MethodChannelPlaybackKeepAliveController.instance,
+       _isSongLiked = isSongLiked ?? ((_) => false),
+       _toggleSongLike = toggleSongLike,
        super(const PlayerState()) {
     _notificationController.attach(
       playback_notification.PlaybackNotificationActions(
@@ -201,6 +211,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         skipToNext: skipToNext,
         skipToPrevious: skipToPrevious,
         seek: seek,
+        toggleLikeCurrentSong: _toggleLikeCurrentSongFromNotification,
       ),
     );
     if (audioController != null) {
@@ -216,6 +227,14 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       return;
     }
     await togglePlay();
+  }
+
+  Future<void> _toggleLikeCurrentSongFromNotification() async {
+    final song = state.currentSong;
+    final toggle = _toggleSongLike;
+    if (song == null || toggle == null) return;
+    await toggle(song);
+    _syncNotificationState();
   }
 
   PlayerAudioController _ensureAudioController() {
@@ -238,10 +257,16 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       currentSong: state.currentSong,
       playlist: state.playlist,
       currentIndex: state.currentIndex,
+      isCurrentSongLiked:
+          state.currentSong != null && _isSongLiked(state.currentSong!),
       isPlaying: state.isPlaying,
       position: state.position,
       duration: state.duration,
     );
+  }
+
+  void refreshNotificationState() {
+    _syncNotificationState();
   }
 
   Future<void> _syncPlaybackKeepAlive(
@@ -1183,5 +1208,18 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 final playerProvider = StateNotifierProvider<PlayerNotifier, PlayerState>((
   ref,
 ) {
-  return PlayerNotifier(playbackMemoryStore: HivePlayerPlaybackMemoryStore());
+  final notifier = PlayerNotifier(
+    playbackMemoryStore: HivePlayerPlaybackMemoryStore(),
+    isSongLiked: (song) => ref
+        .read(likesProvider)
+        .songs
+        .any((liked) => liked.id == song.id && liked.platform == song.platform),
+    toggleSongLike: (song) =>
+        ref.read(likesProvider.notifier).toggleLike(song).then((_) {}),
+  );
+  ref.listen<List<Song>>(
+    likesProvider.select((state) => state.songs),
+    (_, __) => notifier.refreshNotificationState(),
+  );
+  return notifier;
 });

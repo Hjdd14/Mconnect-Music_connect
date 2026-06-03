@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../theme/app_background.dart';
 import '../../features/auth/presentation/pages/login_page.dart';
 import '../../features/discovery/presentation/pages/rankings_page.dart';
 import '../../features/discovery/presentation/pages/recommendations_page.dart';
@@ -25,8 +26,8 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/player',
       pageBuilder: (context, state) => CustomTransitionPage(
-        child: const PlayerScreen(),
-        transitionsBuilder: (_, animation, __, child) {
+        child: const PlayerGlassRouteSurface(child: PlayerScreen()),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
           final tween = Tween(
             begin: const Offset(0, 1),
             end: Offset.zero,
@@ -40,80 +41,106 @@ final appRouter = GoRouter(
       ),
     ),
     ShellRoute(
-      builder: (context, state, child) => AppRouteShell(child: child),
+      pageBuilder: (context, state, child) => _transparentAppPage(
+        state,
+        AppRouteShell(path: state.uri.path, child: child),
+      ),
       routes: [
-        GoRoute(path: '/', builder: (context, state) => const HomeScreen()),
+        GoRoute(
+          path: '/',
+          pageBuilder: (context, state) =>
+              _transparentAppPage(state, const HomeScreen()),
+        ),
         GoRoute(
           path: '/recommendations',
-          builder: (context, state) => const RecommendationsPage(),
+          pageBuilder: (context, state) =>
+              _transparentAppPage(state, const RecommendationsPage()),
         ),
         GoRoute(
           path: '/rankings',
-          builder: (context, state) => const RankingsPage(),
+          pageBuilder: (context, state) =>
+              _transparentAppPage(state, const RankingsPage()),
         ),
-        GoRoute(path: '/likes', builder: (context, state) => const LikesPage()),
+        GoRoute(
+          path: '/likes',
+          pageBuilder: (context, state) =>
+              _transparentAppPage(state, const LikesPage()),
+        ),
         GoRoute(
           path: '/history',
-          builder: (context, state) => const HistoryPage(),
+          pageBuilder: (context, state) =>
+              _transparentAppPage(state, const HistoryPage()),
         ),
         GoRoute(
           path: '/import-playlist',
-          builder: (context, state) => const ImportPlaylistPage(),
+          pageBuilder: (context, state) =>
+              _transparentAppPage(state, const ImportPlaylistPage()),
         ),
         GoRoute(
           path: '/platform-playlists',
-          builder: (context, state) => const PlatformPlaylistsPage(),
+          pageBuilder: (context, state) =>
+              _transparentAppPage(state, const PlatformPlaylistsPage()),
         ),
         GoRoute(
           path: '/local-music',
-          builder: (context, state) => const LocalMusicPage(),
+          pageBuilder: (context, state) =>
+              _transparentAppPage(state, const LocalMusicPage()),
         ),
         GoRoute(
           path: '/offline-cache',
-          builder: (context, state) => const OfflineCachePage(),
+          pageBuilder: (context, state) =>
+              _transparentAppPage(state, const OfflineCachePage()),
         ),
         GoRoute(
           path: '/listening-stats',
-          builder: (context, state) => const ListeningStatsPage(),
+          pageBuilder: (context, state) =>
+              _transparentAppPage(state, const ListeningStatsPage()),
         ),
         GoRoute(
           path: '/smart-playlists',
-          builder: (context, state) => const SmartPlaylistsPage(),
+          pageBuilder: (context, state) =>
+              _transparentAppPage(state, const SmartPlaylistsPage()),
         ),
         GoRoute(
           path: '/smart-playlists/editor',
-          builder: (context, state) =>
-              SmartPlaylistEditorPage(ruleId: state.uri.queryParameters['id']),
+          pageBuilder: (context, state) => _transparentAppPage(
+            state,
+            SmartPlaylistEditorPage(ruleId: state.uri.queryParameters['id']),
+          ),
         ),
         GoRoute(
           path: '/playlist/:platform/:id',
-          builder: (context, state) {
+          pageBuilder: (context, state) {
             final platformStr = state.pathParameters['platform']!;
             final platform = PlatformType.values.firstWhere(
               (p) => p.name == platformStr,
               orElse: () => PlatformType.netease,
             );
-            return PlaylistDetailPage(
-              platform: platform,
-              playlistId: state.pathParameters['id']!,
-              playlistName: state.uri.queryParameters['name'] ?? '歌单',
-              coverUrl: state.uri.queryParameters['cover'],
+            return _transparentAppPage(
+              state,
+              PlaylistDetailPage(
+                platform: platform,
+                playlistId: state.pathParameters['id']!,
+                playlistName: state.uri.queryParameters['name'] ?? '歌单',
+                coverUrl: state.uri.queryParameters['cover'],
+              ),
             );
           },
         ),
         GoRoute(
           path: '/settings',
-          builder: (context, state) => const SettingsPage(),
+          pageBuilder: (context, state) =>
+              _transparentAppPage(state, const SettingsPage()),
         ),
         GoRoute(
           path: '/login/:platform',
-          builder: (context, state) {
+          pageBuilder: (context, state) {
             final platformStr = state.pathParameters['platform']!;
             final platform = PlatformType.values.firstWhere(
               (p) => p.name == platformStr,
               orElse: () => PlatformType.netease,
             );
-            return LoginPage(platform: platform);
+            return _transparentAppPage(state, LoginPage(platform: platform));
           },
         ),
       ],
@@ -121,15 +148,48 @@ final appRouter = GoRouter(
   ],
 );
 
+CustomTransitionPage<void> _transparentAppPage(
+  GoRouterState state,
+  Widget child,
+) {
+  return CustomTransitionPage<void>(
+    key: state.pageKey,
+    name: state.name ?? state.path,
+    arguments: <String, String>{
+      ...state.pathParameters,
+      ...state.uri.queryParameters,
+    },
+    restorationId: state.pageKey.value,
+    transitionDuration: const Duration(milliseconds: 280),
+    reverseTransitionDuration: const Duration(milliseconds: 220),
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      final curved = animation.drive(CurveTween(curve: Curves.easeOutCubic));
+      final scale = Tween<double>(begin: 0.975, end: 1).animate(curved);
+
+      return AppBackgroundShell(
+        child: SizedBox.expand(
+          key: const Key('app-route-background-surface'),
+          child: FadeTransition(
+            opacity: curved,
+            child: ScaleTransition(scale: scale, child: child),
+          ),
+        ),
+      );
+    },
+    child: child,
+  );
+}
+
 class AppRouteShell extends StatelessWidget {
   final Widget child;
+  final String? path;
 
-  const AppRouteShell({super.key, required this.child});
+  const AppRouteShell({super.key, required this.child, this.path});
 
   @override
   Widget build(BuildContext context) {
-    final path = GoRouterState.of(context).uri.path;
-    final showMiniPlayer = path != '/';
+    final currentPath = path ?? GoRouterState.of(context).uri.path;
+    final showMiniPlayer = currentPath != '/';
 
     if (!showMiniPlayer) {
       return child;

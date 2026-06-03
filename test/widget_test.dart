@@ -6,7 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:just_audio/just_audio.dart' as just_audio;
 import 'package:mconnect/core/router/app_router.dart';
+import 'package:mconnect/core/theme/app_background_provider.dart';
 import 'package:mconnect/features/home/presentation/screens/home_screen.dart';
+import 'package:mconnect/features/library/presentation/pages/likes_page.dart';
 import 'package:mconnect/features/library/presentation/screens/library_screen.dart';
 import 'package:mconnect/features/player/presentation/screens/player_screen.dart';
 import 'package:mconnect/features/player/presentation/providers/player_provider.dart';
@@ -265,6 +267,105 @@ void main() {
 
     expect(find.byType(PlayerScreen), findsOneWidget);
     expect(find.byType(MiniPlayerBar), findsNothing);
+  });
+
+  testWidgets('player route has a glass surface during its transition', (
+    tester,
+  ) async {
+    appRouter.go('/?tab=2');
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          playerProvider.overrideWith((ref) => _SeededPlayerNotifier()),
+          appBackgroundSettingsProvider.overrideWith(
+            (ref) => _WidgetTestBackgroundNotifier(),
+          ),
+        ],
+        child: MaterialApp.router(routerConfig: appRouter),
+      ),
+    );
+
+    await tester.pump();
+    expect(find.byType(MiniPlayerBar), findsOneWidget);
+
+    await tester.tap(find.byType(MiniPlayerBar));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PlayerScreen), findsOneWidget);
+    expect(find.byKey(const Key('player-glass-route-surface')), findsOneWidget);
+    final routeSurface = tester.widget<ColoredBox>(
+      find.byKey(const Key('player-glass-route-base')),
+    );
+    expect(
+      routeSurface.color,
+      Theme.of(tester.element(find.byType(PlayerScreen))).colorScheme.surface,
+    );
+  });
+
+  testWidgets(
+    'app router uses background-backed custom transitions for transparent pages',
+    (tester) async {
+      appRouter.go('/');
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            playerProvider.overrideWith((ref) => _SeededPlayerNotifier()),
+          ],
+          child: MaterialApp.router(routerConfig: appRouter),
+        ),
+      );
+
+      await tester.pump();
+      appRouter.push('/likes');
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 90));
+
+      expect(find.byType(LikesPage), findsOneWidget);
+      expect(
+        find.byKey(const Key('app-route-background-surface')),
+        findsWidgets,
+      );
+
+      final materialPages = tester
+          .widgetList<Navigator>(find.byType(Navigator))
+          .expand((navigator) => navigator.pages)
+          .whereType<MaterialPage<Object?>>();
+
+      expect(materialPages, isEmpty);
+    },
+  );
+
+  testWidgets('app router gives normal pages a readable transition pace', (
+    tester,
+  ) async {
+    appRouter.go('/');
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          playerProvider.overrideWith((ref) => _SeededPlayerNotifier()),
+        ],
+        child: MaterialApp.router(routerConfig: appRouter),
+      ),
+    );
+
+    await tester.pump();
+    appRouter.push('/likes');
+    await tester.pump();
+
+    final likesPage = tester
+        .widgetList<Navigator>(find.byType(Navigator))
+        .expand((navigator) => navigator.pages)
+        .whereType<CustomTransitionPage<void>>()
+        .singleWhere((page) => page.name == '/likes');
+
+    expect(likesPage.transitionDuration, const Duration(milliseconds: 280));
+    expect(
+      likesPage.reverseTransitionDuration,
+      const Duration(milliseconds: 220),
+    );
   });
 
   testWidgets('route shell gives mini player normal material text style', (
@@ -627,6 +728,12 @@ class _EmptyTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => const SizedBox.shrink();
+}
+
+class _WidgetTestBackgroundNotifier extends AppBackgroundSettingsNotifier {
+  _WidgetTestBackgroundNotifier() {
+    state = const AppBackgroundSettings();
+  }
 }
 
 class _IdleAudioController implements PlayerAudioController {

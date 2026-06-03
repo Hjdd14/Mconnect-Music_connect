@@ -38,7 +38,9 @@ class MiniPlayerBar extends ConsumerWidget {
       child: Container(
         height: 64,
         decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          color: Theme.of(
+            context,
+          ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.92),
           boxShadow: [
             BoxShadow(
               color: Theme.of(context).shadowColor.withValues(alpha: 0.08),

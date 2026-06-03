@@ -53,7 +53,7 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
 
-    expect(find.text('1.2.1'), findsOneWidget);
+    expect(find.text('v1.2.2'), findsOneWidget);
   });
 
   testWidgets(
@@ -64,13 +64,15 @@ void main() {
       );
 
       expect(find.text('主题色'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('app-background-tile')),
+        220,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.byKey(const Key('app-background-tile')), findsOneWidget);
 
       for (final label in const ['桌面悬浮歌词', '歌词颜色', '高亮颜色', '字号']) {
-        await tester.scrollUntilVisible(
-          find.text(label),
-          220,
-          scrollable: find.byType(Scrollable).first,
-        );
+        await _dragUntilTextVisible(tester, label);
         expect(find.text(label), findsOneWidget);
       }
     },
@@ -162,6 +164,42 @@ void main() {
       await _dragUntilTextVisible(tester, label);
       expect(find.text(label), findsOneWidget);
     }
+  });
+
+  test('background editor uses a landscape crop shape on wide windows', () {
+    final crop = backgroundCropViewportSize(const Size(1200, 800));
+
+    expect(crop.width / crop.height, greaterThan(1));
+  });
+
+  test('background editor uses a portrait crop shape on tall windows', () {
+    final crop = backgroundCropViewportSize(const Size(390, 844));
+
+    expect(crop.width / crop.height, lessThan(1));
+  });
+
+  test('background destination paths are unique', () {
+    final first = createBackgroundDestinationPath(
+      backgroundsDirPath: 'D:\\App\\backgrounds',
+      originalName: 'wallpaper.jpg',
+      now: DateTime.fromMicrosecondsSinceEpoch(100),
+    );
+    final second = createBackgroundDestinationPath(
+      backgroundsDirPath: 'D:\\App\\backgrounds',
+      originalName: 'wallpaper.jpg',
+      now: DateTime.fromMicrosecondsSinceEpoch(101),
+    );
+
+    expect(first, isNot(second));
+    expect(first, contains('custom_background_100.jpg'));
+    expect(second, contains('custom_background_101.jpg'));
+  });
+
+  test('small background images are accepted for black padded placement', () {
+    expect(
+      canUseDecodedBackgroundImage(imageWidth: 32, imageHeight: 24),
+      isTrue,
+    );
   });
 }
 

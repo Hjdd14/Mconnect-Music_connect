@@ -14,8 +14,11 @@ class AppTheme {
       colorScheme: colorScheme,
       useMaterial3: true,
       brightness: Brightness.light,
+      scaffoldBackgroundColor: Colors.transparent,
       appBarTheme: AppBarTheme(
         centerTitle: true,
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
         titleTextStyle: TextStyle(
           fontSize: 18,
           fontWeight: FontWeight.w600,
@@ -23,6 +26,7 @@ class AppTheme {
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: colorScheme.surface.withValues(alpha: 0.92),
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
       ),
       sliderTheme: const SliderThemeData(
@@ -36,7 +40,10 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 12,
+        ),
       ),
     );
   }
@@ -50,8 +57,11 @@ class AppTheme {
       colorScheme: colorScheme,
       useMaterial3: true,
       brightness: Brightness.dark,
+      scaffoldBackgroundColor: Colors.transparent,
       appBarTheme: AppBarTheme(
         centerTitle: true,
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
         titleTextStyle: TextStyle(
           fontSize: 18,
           fontWeight: FontWeight.w600,
@@ -59,6 +69,7 @@ class AppTheme {
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: colorScheme.surface.withValues(alpha: 0.9),
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
       ),
       sliderTheme: const SliderThemeData(
@@ -72,7 +83,10 @@ class AppTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 12,
+        ),
       ),
     );
   }

@@ -1,11 +1,16 @@
 import 'dart:io';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mconnect/core/constants/app_constants.dart';
 import 'package:mconnect/core/diagnostics/diagnostics_service.dart';
+import 'package:mconnect/core/theme/app_background.dart';
+import 'package:mconnect/core/theme/app_background_provider.dart';
 import 'package:mconnect/core/theme/app_theme.dart';
 import 'package:mconnect/core/theme/theme_provider.dart';
 import 'package:mconnect/features/auth/presentation/providers/auth_provider.dart';
@@ -14,6 +19,33 @@ import 'package:mconnect/features/audio_effects/presentation/providers/sleep_tim
 import 'package:mconnect/features/floating_lyrics/data/floating_lyrics_service.dart';
 import 'package:mconnect/features/floating_lyrics/presentation/providers/floating_lyrics_provider.dart';
 import 'package:mconnect/models/platform_type.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+
+String createBackgroundDestinationPath({
+  required String backgroundsDirPath,
+  required String originalName,
+  DateTime? now,
+}) {
+  final rawExtension = p.extension(originalName).toLowerCase();
+  final extension = rawExtension.isEmpty ? '.png' : rawExtension;
+  final timestamp = (now ?? DateTime.now()).microsecondsSinceEpoch.toString();
+  return p.join(backgroundsDirPath, 'custom_background_$timestamp$extension');
+}
+
+Size backgroundCropViewportSize(Size screenSize) {
+  if (screenSize.width <= 0 || screenSize.height <= 0) {
+    return const Size(9, 16);
+  }
+  return screenSize;
+}
+
+bool canUseDecodedBackgroundImage({
+  required double imageWidth,
+  required double imageHeight,
+}) {
+  return imageWidth > 0 && imageHeight > 0;
+}
 
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
@@ -40,6 +72,10 @@ class SettingsPage extends ConsumerWidget {
     final sleepTimer = ref.watch(sleepTimerProvider);
     final sleepTimerNotifier = ref.read(sleepTimerProvider.notifier);
     final authState = ref.watch(authProvider);
+    final appBackground = ref.watch(appBackgroundSettingsProvider);
+    final appBackgroundNotifier = ref.read(
+      appBackgroundSettingsProvider.notifier,
+    );
     final isWindows = Platform.isWindows;
 
     return Scaffold(
@@ -96,6 +132,19 @@ class SettingsPage extends ConsumerWidget {
             presets: _themePresets,
             fallbackColor: AppTheme.defaultSeedColor,
             onSelected: themeNotifier.setSeedColor,
+          ),
+          _AppBackgroundTile(
+            settings: appBackground,
+            onPick: () => _pickBackground(context, appBackgroundNotifier),
+            onEdit: () =>
+                _editBackground(context, appBackground, appBackgroundNotifier),
+            onClear: () async {
+              await appBackgroundNotifier.clear();
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(const SnackBar(content: Text('已移除自定义背景')));
+            },
           ),
           const Divider(),
           const _SectionHeader('悬浮歌词'),
@@ -323,6 +372,347 @@ class SettingsPage extends ConsumerWidget {
       return '${duration.inHours}:$minutes:$seconds';
     }
     return '$minutes:$seconds';
+  }
+
+  Future<void> _pickBackground(
+    BuildContext context,
+    AppBackgroundSettingsNotifier notifier,
+  ) async {
+    try {
+      final cropViewportSize = backgroundCropViewportSize(
+        MediaQuery.sizeOf(context),
+      );
+      final picked = await FilePicker.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+        withData: true,
+      );
+      if (picked == null || picked.files.isEmpty) return;
+
+      final file = picked.files.single;
+      final sourcePath = file.path;
+      final bytes =
+          file.bytes ??
+          (sourcePath == null
+              ? throw StateError('无法读取所选图片')
+              : await File(sourcePath).readAsBytes());
+      final previousPath = notifier.current.imagePath;
+      final imageSize = await _decodeImageSize(bytes);
+      if (!canUseDecodedBackgroundImage(
+        imageWidth: imageSize.width.toDouble(),
+        imageHeight: imageSize.height.toDouble(),
+      )) {
+        throw StateError('无法读取图片尺寸');
+      }
+      final documentsDir = await getApplicationDocumentsDirectory();
+      final backgroundsDir = Directory(
+        p.join(documentsDir.path, 'backgrounds'),
+      );
+      if (!await backgroundsDir.exists()) {
+        await backgroundsDir.create(recursive: true);
+      }
+
+      final destination = File(
+        createBackgroundDestinationPath(
+          backgroundsDirPath: backgroundsDir.path,
+          originalName: file.name,
+        ),
+      );
+      await destination.writeAsBytes(bytes, flush: true);
+      PaintingBinding.instance.imageCache.evict(FileImage(destination));
+
+      final settings = AppBackgroundSettings(
+        imagePath: destination.path,
+        imageWidth: imageSize.width.toDouble(),
+        imageHeight: imageSize.height.toDouble(),
+        cropViewportWidth: cropViewportSize.width,
+        cropViewportHeight: cropViewportSize.height,
+      );
+
+      if (!context.mounted) return;
+      final edited = await showDialog<AppBackgroundSettings>(
+        context: context,
+        builder: (context) => BackgroundEditorDialog(settings: settings),
+      );
+      if (edited == null) return;
+
+      if (previousPath != null && previousPath.isNotEmpty) {
+        PaintingBinding.instance.imageCache.evict(
+          FileImage(File(previousPath)),
+        );
+      }
+      PaintingBinding.instance.imageCache.evict(FileImage(destination));
+      await notifier.save(edited);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已应用自定义背景')));
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('背景图片处理失败：$error')));
+    }
+  }
+
+  Future<void> _editBackground(
+    BuildContext context,
+    AppBackgroundSettings settings,
+    AppBackgroundSettingsNotifier notifier,
+  ) async {
+    final imagePath = settings.imagePath;
+    if (imagePath == null ||
+        imagePath.isEmpty ||
+        !File(imagePath).existsSync()) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('背景图片文件不存在，请重新选择')));
+      return;
+    }
+
+    final edited = await showDialog<AppBackgroundSettings>(
+      context: context,
+      builder: (context) => BackgroundEditorDialog(settings: settings),
+    );
+    if (edited == null) return;
+
+    PaintingBinding.instance.imageCache.evict(FileImage(File(imagePath)));
+    await notifier.save(edited);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('已更新自定义背景')));
+  }
+
+  Future<({int width, int height})> _decodeImageSize(Uint8List bytes) async {
+    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+    final descriptor = await ui.ImageDescriptor.encoded(buffer);
+    final size = (width: descriptor.width, height: descriptor.height);
+    descriptor.dispose();
+    buffer.dispose();
+    return size;
+  }
+}
+
+class _AppBackgroundTile extends StatelessWidget {
+  final AppBackgroundSettings settings;
+  final VoidCallback onPick;
+  final VoidCallback onEdit;
+  final VoidCallback onClear;
+
+  const _AppBackgroundTile({
+    required this.settings,
+    required this.onPick,
+    required this.onEdit,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = settings.enabled;
+    return ListTile(
+      key: const Key('app-background-tile'),
+      leading: const Icon(Icons.wallpaper_outlined),
+      title: const Text('自定义背景'),
+      subtitle: Text(enabled ? '已启用，点击重新调整背景位置' : '选择图片作为全应用背景'),
+      trailing: enabled
+          ? IconButton(
+              tooltip: '移除背景',
+              icon: const Icon(Icons.close),
+              onPressed: onClear,
+            )
+          : const Icon(Icons.chevron_right),
+      onTap: enabled ? onEdit : onPick,
+    );
+  }
+}
+
+class BackgroundEditorDialog extends StatefulWidget {
+  final AppBackgroundSettings settings;
+  final Widget Function(File file)? imageBuilder;
+
+  const BackgroundEditorDialog({
+    super.key,
+    required this.settings,
+    this.imageBuilder,
+  });
+
+  @override
+  State<BackgroundEditorDialog> createState() => _BackgroundEditorDialogState();
+}
+
+class _BackgroundEditorDialogState extends State<BackgroundEditorDialog> {
+  late final TransformationController _controller;
+  Size? _lastPreviewSize;
+  bool _initializedForPreview = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TransformationController(Matrix4.identity());
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final imagePath = widget.settings.imagePath!;
+    final screenSize = MediaQuery.sizeOf(context);
+    final cropViewportSize = backgroundCropViewportSize(screenSize);
+    final cropAspectRatio = cropViewportSize.width / cropViewportSize.height;
+    final isLandscape = cropAspectRatio >= 1;
+    final maxPreviewWidth = isLandscape ? 560.0 : 420.0;
+    final maxPreviewHeight = isLandscape ? 360.0 : 560.0;
+
+    return AlertDialog(
+      key: const Key('app-background-editor-dialog'),
+      title: const Text('调整背景'),
+      content: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: maxPreviewWidth,
+          maxHeight: maxPreviewHeight + 64,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: maxPreviewWidth,
+                maxHeight: maxPreviewHeight,
+              ),
+              child: AspectRatio(
+                aspectRatio: cropAspectRatio,
+                child: DecoratedBox(
+                  key: const Key('app-background-editor-preview'),
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: cs.outlineVariant),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final previewSize = Size(
+                          constraints.maxWidth,
+                          constraints.maxHeight,
+                        );
+                        final previewSettings = widget.settings.copyWith(
+                          scale: 1,
+                          offsetX: 0,
+                          offsetY: 0,
+                          cropViewportWidth: previewSize.width,
+                          cropViewportHeight: previewSize.height,
+                        );
+                        final geometry = appBackgroundImageGeometry(
+                          settings: previewSettings,
+                          viewportSize: previewSize,
+                        );
+                        final horizontalBoundary = math.max(
+                          previewSize.width,
+                          geometry.canvasSize.width,
+                        );
+                        final verticalBoundary = math.max(
+                          previewSize.height,
+                          geometry.canvasSize.height,
+                        );
+                        _lastPreviewSize = previewSize;
+                        if (!_initializedForPreview) {
+                          _initializedForPreview = true;
+                          final referenceWidth =
+                              widget.settings.cropViewportWidth > 0
+                              ? widget.settings.cropViewportWidth
+                              : previewSize.width;
+                          final referenceHeight =
+                              widget.settings.cropViewportHeight > 0
+                              ? widget.settings.cropViewportHeight
+                              : previewSize.height;
+                          final offsetX = referenceWidth > 0
+                              ? widget.settings.offsetX *
+                                    previewSize.width /
+                                    referenceWidth
+                              : widget.settings.offsetX;
+                          final offsetY = referenceHeight > 0
+                              ? widget.settings.offsetY *
+                                    previewSize.height /
+                                    referenceHeight
+                              : widget.settings.offsetY;
+                          _controller.value = Matrix4.identity()
+                            ..translateByDouble(offsetX, offsetY, 0, 1)
+                            ..scaleByDouble(
+                              widget.settings.scale,
+                              widget.settings.scale,
+                              1,
+                              1,
+                            );
+                        }
+                        return InteractiveViewer(
+                          boundaryMargin: EdgeInsets.symmetric(
+                            horizontal: horizontalBoundary,
+                            vertical: verticalBoundary,
+                          ),
+                          minScale: 1,
+                          maxScale: 4,
+                          transformationController: _controller,
+                          child: SizedBox(
+                            width: previewSize.width,
+                            height: previewSize.height,
+                            child: AppBackgroundImageCanvas(
+                              settings: previewSettings,
+                              viewportSize: previewSize,
+                              file: File(imagePath),
+                              imageBuilder: widget.imageBuilder,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              '拖动图片调整位置，双指缩放到合适大小',
+              style: TextStyle(color: cs.onSurfaceVariant),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => _controller.value = Matrix4.identity(),
+          child: const Text('重置'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final matrix = _controller.value;
+            final scale = matrix.getMaxScaleOnAxis().clamp(1, 4).toDouble();
+            final previewSize = _lastPreviewSize ?? cropViewportSize;
+            Navigator.pop(
+              context,
+              widget.settings.copyWith(
+                scale: scale,
+                offsetX: matrix.storage[12],
+                offsetY: matrix.storage[13],
+                cropViewportWidth: previewSize.width,
+                cropViewportHeight: previewSize.height,
+              ),
+            );
+          },
+          child: const Text('保存'),
+        ),
+      ],
+    );
   }
 }
 

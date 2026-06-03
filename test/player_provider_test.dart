@@ -794,10 +794,12 @@ class _FakePlaybackKeepAliveController implements PlaybackKeepAliveController {
 
 class _PlaybackNotificationUpdate {
   final Song? currentSong;
+  final bool isCurrentSongLiked;
   final bool isPlaying;
 
   const _PlaybackNotificationUpdate({
     required this.currentSong,
+    required this.isCurrentSongLiked,
     required this.isPlaying,
   });
 }
@@ -826,6 +828,7 @@ class _FakePlaybackNotificationController
     required Song? currentSong,
     required List<Song> playlist,
     required int currentIndex,
+    required bool isCurrentSongLiked,
     required bool isPlaying,
     required Duration position,
     required Duration duration,
@@ -833,6 +836,7 @@ class _FakePlaybackNotificationController
     updates.add(
       _PlaybackNotificationUpdate(
         currentSong: currentSong,
+        isCurrentSongLiked: isCurrentSongLiked,
         isPlaying: isPlaying,
       ),
     );
