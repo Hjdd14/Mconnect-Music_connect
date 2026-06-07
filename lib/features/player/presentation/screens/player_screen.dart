@@ -309,7 +309,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                 secondChild: SizedBox(
                                   height: artworkSize,
                                   width: artworkSize,
-                                  child: const LyricsDisplay(),
+                                  child: LyricsDisplay(isVisible: _showLyrics),
                                 ),
                                 crossFadeState: _showLyrics
                                     ? CrossFadeState.showSecond

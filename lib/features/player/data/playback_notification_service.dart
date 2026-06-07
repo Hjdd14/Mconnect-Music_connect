@@ -306,7 +306,7 @@ class MconnectAudioHandler extends BaseAudioHandler with SeekHandler {
     _queueIndex = effectiveIndex;
     _isCurrentSongLiked = song != null && isCurrentSongLiked;
     _duration = duration;
-    if (_audioController == null) {
+    if (_audioController == null || isPlaying) {
       _playing = isPlaying;
       _position = position;
       _processingState = _hasCurrentSong
@@ -315,7 +315,9 @@ class MconnectAudioHandler extends BaseAudioHandler with SeekHandler {
     }
 
     queue.add(buildPlaybackNotificationQueue(effectivePlaylist));
-    mediaItem.add(song == null ? null : createPlaybackMediaItem(song));
+    mediaItem.add(
+      song == null ? null : createPlaybackMediaItem(song, duration: _duration),
+    );
     _broadcastPlaybackState();
   }
 
@@ -417,10 +419,7 @@ PlaybackState buildPlaybackNotificationState({
       MediaAction.skipToPrevious,
       MediaAction.skipToNext,
     },
-    androidCompactActionIndices: List<int>.generate(
-      controls.length,
-      (index) => index,
-    ),
+    androidCompactActionIndices: hasCurrentSong ? const [0, 1, 2] : const [0],
     processingState: hasCurrentSong
         ? (processingState ?? AudioProcessingState.ready)
         : AudioProcessingState.idle,
@@ -455,21 +454,31 @@ AudioProcessingState _mapProcessingState(
   };
 }
 
-MediaItem createPlaybackMediaItem(Song song, {String? sourceUrl}) {
+MediaItem createPlaybackMediaItem(
+  Song song, {
+  String? sourceUrl,
+  Duration? duration,
+}) {
   final artist = song.artistNames.trim();
   final artUri = _parseOptionalUri(song.coverUrl ?? song.album?.coverUrl);
+  final effectiveDuration = duration != null && duration > Duration.zero
+      ? duration
+      : song.duration;
+  final extras = <String, dynamic>{
+    'platform': song.platform.name,
+    'songId': song.id,
+  };
+  if (sourceUrl != null) {
+    extras['sourceUrl'] = sourceUrl;
+  }
   return MediaItem(
     id: '${song.platform.name}:${song.id}',
     title: song.name,
     album: song.album?.name,
     artist: artist.isEmpty ? null : artist,
-    duration: song.duration == Duration.zero ? null : song.duration,
+    duration: effectiveDuration == Duration.zero ? null : effectiveDuration,
     artUri: artUri,
-    extras: {
-      'platform': song.platform.name,
-      'songId': song.id,
-      if (sourceUrl != null) 'sourceUrl': sourceUrl,
-    },
+    extras: extras,
   );
 }
 

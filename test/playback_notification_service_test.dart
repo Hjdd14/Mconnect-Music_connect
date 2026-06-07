@@ -86,6 +86,7 @@ void main() {
       ),
       isFalse,
     );
+    expect(noSong.androidCompactActionIndices, [0]);
   });
 
   test('maps playlist songs to media items for system queue', () {
@@ -228,14 +229,71 @@ void main() {
       );
     },
   );
+
+  test(
+    'handler update can restore canonical app playback while audio is bound',
+    () async {
+      final handler = MconnectAudioHandler();
+      final audio = _FakeHandlerAudioController();
+      final song = _song('canonical', duration: Duration.zero);
+
+      (handler as dynamic).bindAudioController(audio);
+      handler.updatePlayback(
+        currentSong: song,
+        playlist: [song],
+        currentIndex: 0,
+        isCurrentSongLiked: false,
+        isPlaying: true,
+        position: const Duration(seconds: 12),
+        duration: const Duration(minutes: 3),
+      );
+
+      audio.emitState(
+        playing: false,
+        processingState: just_audio.ProcessingState.loading,
+      );
+      audio.emitDuration(Duration.zero);
+      await pumpEventQueue();
+
+      expect(handler.playbackState.value.playing, isFalse);
+      expect(handler.mediaItem.value?.duration, const Duration(minutes: 3));
+
+      handler.updatePlayback(
+        currentSong: song,
+        playlist: [song],
+        currentIndex: 0,
+        isCurrentSongLiked: false,
+        isPlaying: true,
+        position: const Duration(seconds: 12),
+        duration: const Duration(minutes: 3),
+      );
+
+      expect(handler.playbackState.value.playing, isTrue);
+      expect(
+        handler.playbackState.value.updatePosition,
+        const Duration(seconds: 12),
+      );
+      expect(
+        handler.playbackState.value.bufferedPosition,
+        const Duration(minutes: 3),
+      );
+      expect(
+        handler.playbackState.value.processingState,
+        AudioProcessingState.ready,
+      );
+      expect(handler.mediaItem.value?.duration, const Duration(minutes: 3));
+    },
+  );
 }
 
-Song _song(String id, {String? name}) => Song(
-  id: id,
-  platform: PlatformType.netease,
-  name: name ?? 'song $id',
-  artists: const [Artist(id: 'artist', name: 'artist')],
-);
+Song _song(String id, {String? name, Duration duration = Duration.zero}) =>
+    Song(
+      id: id,
+      platform: PlatformType.netease,
+      name: name ?? 'song $id',
+      duration: duration,
+      artists: const [Artist(id: 'artist', name: 'artist')],
+    );
 
 class _FakeHandlerAudioController implements PlayerAudioController {
   final _positionController = StreamController<Duration>.broadcast();
