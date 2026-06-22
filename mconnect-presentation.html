@@ -1,0 +1,1830 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mconnect - 多平台音乐聚合器</title>
+
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <style>
+        /* ===========================================
+           CSS CUSTOM PROPERTIES (THEME)
+           Music Wave Style - 音乐波形主题
+           =========================================== */
+        :root {
+            /* Colors */
+            --bg-primary: #0f0f1a;
+            --bg-secondary: #1a1a2e;
+            --bg-card: #16213e;
+            --bg-card-hover: #1a2742;
+            --text-primary: #ffffff;
+            --text-secondary: #a0a0b0;
+            --text-muted: #6a6a7a;
+            --accent-coral: #ff6b6b;
+            --accent-blue: #4ecdc4;
+            --accent-purple: #9b59b6;
+            --accent-gold: #f39c12;
+            --accent-green: #2ecc71;
+            --gradient-1: linear-gradient(135deg, #ff6b6b, #f39c12);
+            --gradient-2: linear-gradient(135deg, #4ecdc4, #9b59b6);
+            --gradient-3: linear-gradient(135deg, #ff6b6b, #9b59b6);
+
+            /* Typography */
+            --font-display: 'Plus Jakarta Sans', sans-serif;
+            --font-body: 'Plus Jakarta Sans', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+
+            /* Sizes - authored at 1920×1080 */
+            --title-size: 68px;
+            --subtitle-size: 26px;
+            --body-size: 18px;
+            --small-size: 14px;
+            --tiny-size: 12px;
+
+            /* Spacing */
+            --slide-padding: 80px;
+            --content-gap: 24px;
+            --card-padding: 32px;
+
+            /* Animation */
+            --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+            --duration-normal: 0.6s;
+            --duration-fast: 0.3s;
+        }
+
+        /* ===========================================
+           BASE STYLES
+           =========================================== */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        /* ===========================================
+           FIXED 16:9 STAGE: MANDATORY BASE STYLES
+           =========================================== */
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: var(--bg-primary);
+        }
+
+        .deck-viewport {
+            position: fixed;
+            inset: 0;
+            overflow: hidden;
+            background: var(--bg-primary);
+        }
+
+        .deck-stage {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 1920px;
+            height: 1080px;
+            overflow: hidden;
+            transform-origin: 0 0;
+            background: var(--bg-primary);
+        }
+
+        .slide {
+            position: absolute;
+            inset: 0;
+            width: 1920px;
+            height: 1080px;
+            overflow: hidden;
+            display: block;
+            visibility: hidden;
+            opacity: 0;
+            pointer-events: none;
+            background: var(--bg-primary);
+        }
+
+        .slide.active,
+        .slide.visible {
+            visibility: visible;
+            opacity: 1;
+            pointer-events: auto;
+            z-index: 1;
+        }
+
+        /* ===========================================
+           ANIMATIONS
+           =========================================== */
+        @keyframes wave {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-20px); }
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 0.8; }
+            50% { transform: scale(1.05); opacity: 1; }
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0) rotate(0deg); }
+            33% { transform: translateY(-10px) rotate(2deg); }
+            66% { transform: translateY(5px) rotate(-1deg); }
+        }
+
+        @keyframes glow {
+            0%, 100% { box-shadow: 0 0 20px rgba(255, 107, 107, 0.3); }
+            50% { box-shadow: 0 0 40px rgba(255, 107, 107, 0.5); }
+        }
+
+        @keyframes slide-in-left {
+            from { transform: translateX(-50px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        @keyframes slide-in-right {
+            from { transform: translateX(50px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        @keyframes scale-in {
+            from { transform: scale(0.8); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+
+        /* Reveal animations */
+        .reveal {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: opacity var(--duration-normal) var(--ease-out-expo),
+                        transform var(--duration-normal) var(--ease-out-expo);
+        }
+
+        .reveal-left {
+            opacity: 0;
+            transform: translateX(-50px);
+            transition: opacity var(--duration-normal) var(--ease-out-expo),
+                        transform var(--duration-normal) var(--ease-out-expo);
+        }
+
+        .reveal-right {
+            opacity: 0;
+            transform: translateX(50px);
+            transition: opacity var(--duration-normal) var(--ease-out-expo),
+                        transform var(--duration-normal) var(--ease-out-expo);
+        }
+
+        .reveal-scale {
+            opacity: 0;
+            transform: scale(0.8);
+            transition: opacity var(--duration-normal) var(--ease-out-expo),
+                        transform var(--duration-normal) var(--ease-out-expo);
+        }
+
+        .slide.visible .reveal,
+        .slide.visible .reveal-left,
+        .slide.visible .reveal-right,
+        .slide.visible .reveal-scale {
+            opacity: 1;
+            transform: translateY(0) translateX(0) scale(1);
+        }
+
+        /* Stagger delays */
+        .slide.visible .reveal:nth-child(1),
+        .slide.visible .reveal-left:nth-child(1),
+        .slide.visible .reveal-right:nth-child(1) { transition-delay: 0.1s; }
+        .slide.visible .reveal:nth-child(2),
+        .slide.visible .reveal-left:nth-child(2),
+        .slide.visible .reveal-right:nth-child(2) { transition-delay: 0.2s; }
+        .slide.visible .reveal:nth-child(3),
+        .slide.visible .reveal-left:nth-child(3),
+        .slide.visible .reveal-right:nth-child(3) { transition-delay: 0.3s; }
+        .slide.visible .reveal:nth-child(4),
+        .slide.visible .reveal-left:nth-child(4),
+        .slide.visible .reveal-right:nth-child(4) { transition-delay: 0.4s; }
+        .slide.visible .reveal:nth-child(5),
+        .slide.visible .reveal-left:nth-child(5),
+        .slide.visible .reveal-right:nth-child(5) { transition-delay: 0.5s; }
+        .slide.visible .reveal:nth-child(6) { transition-delay: 0.6s; }
+        .slide.visible .reveal:nth-child(7) { transition-delay: 0.7s; }
+
+        /* ===========================================
+           COMMON COMPONENTS
+           =========================================== */
+        /* Page indicator */
+        .page-indicator {
+            position: absolute;
+            bottom: 40px;
+            right: 80px;
+            font-family: var(--font-mono);
+            font-size: var(--tiny-size);
+            color: var(--text-muted);
+            letter-spacing: 2px;
+            z-index: 10;
+        }
+
+        /* Section tag */
+        .section-tag {
+            font-family: var(--font-mono);
+            font-size: var(--tiny-size);
+            font-weight: 600;
+            color: var(--accent-coral);
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            margin-bottom: 16px;
+        }
+
+        /* Main title */
+        .slide-title {
+            font-family: var(--font-display);
+            font-size: var(--title-size);
+            font-weight: 800;
+            color: var(--text-primary);
+            line-height: 1.1;
+            margin-bottom: 16px;
+        }
+
+        .slide-title .gradient-text {
+            background: var(--gradient-1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        /* Subtitle */
+        .slide-subtitle {
+            font-family: var(--font-body);
+            font-size: var(--subtitle-size);
+            font-weight: 400;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            max-width: 800px;
+        }
+
+        /* Cards */
+        .card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: var(--card-padding);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: all var(--duration-fast) ease;
+        }
+
+        .card:hover {
+            background: var(--bg-card-hover);
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Badges */
+        .badge {
+            font-family: var(--font-body);
+            font-size: var(--small-size);
+            font-weight: 500;
+            padding: 8px 16px;
+            border-radius: 50px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .badge-coral {
+            background: rgba(255, 107, 107, 0.15);
+            border: 1px solid var(--accent-coral);
+            color: var(--accent-coral);
+        }
+
+        .badge-blue {
+            background: rgba(78, 205, 196, 0.15);
+            border: 1px solid var(--accent-blue);
+            color: var(--accent-blue);
+        }
+
+        .badge-purple {
+            background: rgba(155, 89, 182, 0.15);
+            border: 1px solid var(--accent-purple);
+            color: var(--accent-purple);
+        }
+
+        .badge-gold {
+            background: rgba(243, 156, 18, 0.15);
+            border: 1px solid var(--accent-gold);
+            color: var(--accent-gold);
+        }
+
+        .badge-green {
+            background: rgba(46, 204, 113, 0.15);
+            border: 1px solid var(--accent-green);
+            color: var(--accent-green);
+        }
+
+        /* Stats */
+        .stat-number {
+            font-family: var(--font-display);
+            font-size: 48px;
+            font-weight: 800;
+            background: var(--gradient-1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            line-height: 1;
+        }
+
+        .stat-label {
+            font-family: var(--font-body);
+            font-size: var(--small-size);
+            color: var(--text-secondary);
+            margin-top: 8px;
+        }
+
+        /* Lists */
+        .feature-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .feature-list li {
+            font-family: var(--font-body);
+            font-size: var(--body-size);
+            color: var(--text-primary);
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            line-height: 1.6;
+        }
+
+        .feature-list li::before {
+            content: '▸';
+            color: var(--accent-coral);
+            font-weight: bold;
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+
+        /* Code block */
+        .code-block {
+            font-family: var(--font-mono);
+            font-size: var(--small-size);
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 16px 20px;
+            color: var(--accent-blue);
+            border-left: 3px solid var(--accent-coral);
+        }
+
+        /* Logo */
+        .logo {
+            width: 80px;
+            height: 80px;
+            background: var(--gradient-1);
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 36px;
+            box-shadow: 0 8px 32px rgba(255, 107, 107, 0.3);
+        }
+
+        .logo-small {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            font-size: 24px;
+        }
+
+        /* Platform icons */
+        .platform-icon {
+            width: 64px;
+            height: 64px;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            margin-bottom: 16px;
+        }
+
+        .platform-netease { background: linear-gradient(135deg, #c20c0c, #e63c3c); }
+        .platform-qq { background: linear-gradient(135deg, #31c27c, #4cd964); }
+        .platform-kugou { background: linear-gradient(135deg, #2ca2f6, #5cb3ff); }
+
+        /* ===========================================
+           SLIDE 1: TITLE
+           =========================================== */
+        .slide.slide-title-page {
+            display: flex;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .title-content {
+            flex: 0 0 50%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 100px 80px 100px 120px;
+            position: relative;
+            z-index: 5;
+        }
+
+        .title-visual {
+            flex: 0 0 50%;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        .bg-gradient {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+            z-index: 1;
+        }
+
+        .wave-container {
+            position: absolute;
+            inset: 0;
+            z-index: 2;
+            overflow: hidden;
+        }
+
+        .wave-bar {
+            position: absolute;
+            bottom: 0;
+            width: 4px;
+            background: var(--gradient-1);
+            border-radius: 2px 2px 0 0;
+            opacity: 0.6;
+            animation: wave 2s ease-in-out infinite;
+        }
+
+        .music-notes {
+            position: absolute;
+            inset: 0;
+            z-index: 3;
+            pointer-events: none;
+        }
+
+        .note {
+            position: absolute;
+            font-size: 40px;
+            opacity: 0.15;
+            animation: float 6s ease-in-out infinite;
+        }
+
+        .note:nth-child(1) { top: 15%; left: 20%; animation-delay: 0s; }
+        .note:nth-child(2) { top: 60%; left: 40%; animation-delay: 1s; }
+        .note:nth-child(3) { top: 30%; left: 70%; animation-delay: 2s; }
+        .note:nth-child(4) { top: 75%; left: 15%; animation-delay: 3s; }
+        .note:nth-child(5) { top: 45%; left: 85%; animation-delay: 4s; }
+
+        .player-card {
+            width: 380px;
+            background: var(--bg-card);
+            border-radius: 24px;
+            padding: 32px;
+            position: relative;
+            z-index: 5;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .player-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .player-title {
+            font-family: var(--font-body);
+            font-size: var(--small-size);
+            font-weight: 600;
+            color: var(--text-secondary);
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        .player-icon {
+            font-size: 20px;
+            color: var(--accent-coral);
+        }
+
+        .album-art {
+            width: 100%;
+            height: 280px;
+            background: linear-gradient(135deg, var(--accent-coral), var(--accent-purple));
+            border-radius: 16px;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 80px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .album-art::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, transparent 50%, rgba(255, 255, 255, 0.1) 100%);
+        }
+
+        .song-info {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .song-name {
+            font-family: var(--font-display);
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+
+        .song-artist {
+            font-family: var(--font-body);
+            font-size: var(--small-size);
+            color: var(--text-secondary);
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            margin-bottom: 24px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            width: 35%;
+            height: 100%;
+            background: var(--gradient-1);
+            border-radius: 2px;
+        }
+
+        .player-controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 24px;
+        }
+
+        .control-btn {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            border: none;
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+            font-size: 18px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all var(--duration-fast) ease;
+        }
+
+        .control-btn.play {
+            width: 64px;
+            height: 64px;
+            background: var(--gradient-1);
+            font-size: 24px;
+            box-shadow: 0 8px 24px rgba(255, 107, 107, 0.4);
+        }
+
+        .control-btn:hover {
+            transform: scale(1.1);
+        }
+
+        .title-features {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 32px;
+        }
+
+        .title-tech {
+            display: flex;
+            gap: 16px;
+        }
+
+        .tech-item {
+            font-family: var(--font-mono);
+            font-size: var(--tiny-size);
+            font-weight: 500;
+            color: var(--text-secondary);
+            padding: 6px 14px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+            letter-spacing: 1px;
+        }
+
+        .title-github {
+            position: absolute;
+            bottom: 40px;
+            left: 120px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-muted);
+            letter-spacing: 2px;
+            z-index: 5;
+            opacity: 0.5;
+        }
+
+        /* ===========================================
+           SLIDE 2: OVERVIEW
+           =========================================== */
+        .slide-overview {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: var(--slide-padding) 120px;
+            position: relative;
+        }
+
+        .overview-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 24px;
+            margin-top: 48px;
+        }
+
+        .overview-card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 32px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: all var(--duration-fast) ease;
+        }
+
+        .overview-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
+        }
+
+        .overview-icon {
+            font-size: 48px;
+            margin-bottom: 20px;
+            display: block;
+        }
+
+        .overview-title {
+            font-family: var(--font-display);
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+        }
+
+        .overview-desc {
+            font-family: var(--font-body);
+            font-size: var(--small-size);
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        /* ===========================================
+           SLIDE 3: CORE FEATURES
+           =========================================== */
+        .slide-features {
+            display: flex;
+            gap: 80px;
+            padding: var(--slide-padding) 120px;
+            align-items: center;
+        }
+
+        .features-left {
+            flex: 1;
+        }
+
+        .features-right {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .feature-card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 28px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: all var(--duration-fast) ease;
+        }
+
+        .feature-card:hover {
+            background: var(--bg-card-hover);
+            transform: translateX(8px);
+        }
+
+        .feature-card-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 12px;
+        }
+
+        .feature-card-icon {
+            font-size: 32px;
+        }
+
+        .feature-card-title {
+            font-family: var(--font-display);
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .feature-card-desc {
+            font-family: var(--font-body);
+            font-size: var(--small-size);
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        /* ===========================================
+           SLIDE 4: TECH STACK
+           =========================================== */
+        .slide-tech {
+            display: flex;
+            gap: 80px;
+            padding: var(--slide-padding) 120px;
+            align-items: center;
+        }
+
+        .tech-left {
+            flex: 1;
+        }
+
+        .tech-right {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .tech-stack-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+            margin-top: 40px;
+        }
+
+        .tech-stack-item {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: all var(--duration-fast) ease;
+        }
+
+        .tech-stack-item:hover {
+            background: var(--bg-card-hover);
+            transform: scale(1.02);
+        }
+
+        .tech-stack-name {
+            font-family: var(--font-display);
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .tech-stack-desc {
+            font-family: var(--font-body);
+            font-size: var(--small-size);
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        .architecture-diagram {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 32px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .arch-title {
+            font-family: var(--font-mono);
+            font-size: var(--small-size);
+            color: var(--accent-coral);
+            letter-spacing: 2px;
+            margin-bottom: 20px;
+        }
+
+        .arch-layers {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .arch-layer {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+        }
+
+        .arch-layer-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            flex-shrink: 0;
+        }
+
+        .arch-layer-icon.ui { background: rgba(255, 107, 107, 0.2); }
+        .arch-layer-icon.state { background: rgba(78, 205, 196, 0.2); }
+        .arch-layer-icon.data { background: rgba(155, 89, 182, 0.2); }
+        .arch-layer-icon.platform { background: rgba(243, 156, 18, 0.2); }
+
+        .arch-layer-text {
+            font-family: var(--font-body);
+            font-size: var(--small-size);
+            color: var(--text-primary);
+        }
+
+        .arch-layer-desc {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        /* ===========================================
+           SLIDE 5: PLATFORMS
+           =========================================== */
+        .slide-platforms {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: var(--slide-padding) 120px;
+        }
+
+        .platforms-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 32px;
+            margin-top: 48px;
+        }
+
+        .platform-card {
+            background: var(--bg-card);
+            border-radius: 20px;
+            padding: 40px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: all var(--duration-fast) ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .platform-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        .platform-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+        }
+
+        .platform-card.netease::before { background: linear-gradient(90deg, #c20c0c, #e63c3c); }
+        .platform-card.qq::before { background: linear-gradient(90deg, #31c27c, #4cd964); }
+        .platform-card.kugou::before { background: linear-gradient(90deg, #2ca2f6, #5cb3ff); }
+
+        .platform-icon-large {
+            width: 80px;
+            height: 80px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 36px;
+            margin: 0 auto 24px;
+        }
+
+        .platform-name {
+            font-family: var(--font-display);
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 16px;
+        }
+
+        .platform-features {
+            list-style: none;
+            text-align: left;
+        }
+
+        .platform-features li {
+            font-family: var(--font-body);
+            font-size: var(--small-size);
+            color: var(--text-secondary);
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .platform-features li:last-child {
+            border-bottom: none;
+        }
+
+        .platform-features li::before {
+            content: '✓';
+            color: var(--accent-green);
+            font-weight: bold;
+        }
+
+        /* ===========================================
+           SLIDE 6: SPECIAL FEATURES
+           =========================================== */
+        .slide-special {
+            display: flex;
+            gap: 80px;
+            padding: var(--slide-padding) 120px;
+            align-items: center;
+        }
+
+        .special-left {
+            flex: 1;
+        }
+
+        .special-right {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .special-card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 28px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: all var(--duration-fast) ease;
+        }
+
+        .special-card:hover {
+            background: var(--bg-card-hover);
+            transform: scale(1.02);
+        }
+
+        .special-card-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .special-card-icon {
+            width: 56px;
+            height: 56px;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            flex-shrink: 0;
+        }
+
+        .special-card-icon.lyrics { background: linear-gradient(135deg, var(--accent-coral), var(--accent-purple)); }
+        .special-card-icon.equalizer { background: linear-gradient(135deg, var(--accent-blue), var(--accent-green)); }
+        .special-card-icon.playlist { background: linear-gradient(135deg, var(--accent-gold), var(--accent-coral)); }
+        .special-card-icon.stats { background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue)); }
+
+        .special-card-title {
+            font-family: var(--font-display);
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .special-card-subtitle {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--accent-coral);
+            letter-spacing: 1px;
+            margin-top: 4px;
+        }
+
+        .special-card-desc {
+            font-family: var(--font-body);
+            font-size: var(--small-size);
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        /* ===========================================
+           SLIDE 7: OPEN SOURCE
+           =========================================== */
+        .slide-opensource {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: var(--slide-padding) 120px;
+            position: relative;
+        }
+
+        .github-card {
+            background: var(--bg-card);
+            border-radius: 24px;
+            padding: 48px;
+            max-width: 800px;
+            width: 100%;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            margin-top: 48px;
+        }
+
+        .github-icon {
+            font-size: 64px;
+            margin-bottom: 24px;
+        }
+
+        .github-title {
+            font-family: var(--font-display);
+            font-size: 32px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 16px;
+        }
+
+        .github-url {
+            font-family: var(--font-mono);
+            font-size: var(--body-size);
+            color: var(--accent-blue);
+            background: rgba(78, 205, 196, 0.1);
+            padding: 12px 24px;
+            border-radius: 8px;
+            display: inline-block;
+            margin-bottom: 32px;
+            border: 1px solid rgba(78, 205, 196, 0.2);
+        }
+
+        .github-stats {
+            display: flex;
+            justify-content: center;
+            gap: 48px;
+            margin-bottom: 32px;
+        }
+
+        .github-stat {
+            text-align: center;
+        }
+
+        .github-stat-value {
+            font-family: var(--font-display);
+            font-size: 36px;
+            font-weight: 800;
+            color: var(--text-primary);
+        }
+
+        .github-stat-label {
+            font-family: var(--font-body);
+            font-size: var(--small-size);
+            color: var(--text-secondary);
+            margin-top: 8px;
+        }
+
+        .github-actions {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+        }
+
+        .github-btn {
+            font-family: var(--font-body);
+            font-size: var(--body-size);
+            font-weight: 600;
+            padding: 14px 32px;
+            border-radius: 12px;
+            border: none;
+            cursor: pointer;
+            transition: all var(--duration-fast) ease;
+        }
+
+        .github-btn.primary {
+            background: var(--gradient-1);
+            color: var(--text-primary);
+            box-shadow: 0 8px 24px rgba(255, 107, 107, 0.3);
+        }
+
+        .github-btn.secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .github-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .footer-text {
+            position: absolute;
+            bottom: 40px;
+            font-family: var(--font-body);
+            font-size: var(--small-size);
+            color: var(--text-muted);
+        }
+
+        /* Reduced motion */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                transition-duration: 0.2s !important;
+            }
+        }
+
+        /* Print styles */
+        @media print {
+            html, body {
+                width: 1920px;
+                height: auto;
+                overflow: visible;
+                background: #fff;
+            }
+            .deck-viewport {
+                position: static;
+                overflow: visible;
+                background: #fff;
+            }
+            .deck-stage {
+                position: static;
+                width: auto;
+                height: auto;
+                transform: none !important;
+                background: none;
+            }
+            .slide {
+                position: relative;
+                display: block !important;
+                visibility: visible !important;
+                opacity: 1 !important;
+                pointer-events: auto !important;
+                width: 1920px;
+                height: 1080px;
+                break-after: page;
+                page-break-after: always;
+            }
+            .slide:last-child {
+                break-after: auto;
+                page-break-after: auto;
+            }
+            .deck-controls, .edit-hotzone, .edit-toggle {
+                display: none !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="deck-viewport">
+        <main class="deck-stage" id="deckStage">
+
+            <!-- ===========================================
+                 SLIDE 1: TITLE
+                 =========================================== -->
+            <section class="slide active">
+                <!-- 左侧内容 -->
+                <div style="position: absolute; left: 0; top: 0; width: 50%; height: 100%; display: flex; flex-direction: column; justify-content: center; padding: 100px 80px 100px 120px; z-index: 5;">
+                    <div class="logo reveal">
+                        <span>🎵</span>
+                    </div>
+
+                    <h1 class="slide-title reveal" style="margin-top: 24px;">
+                        <span class="gradient-text">Mconnect</span>
+                    </h1>
+
+                    <p class="slide-subtitle reveal">多平台音乐聚合播放器</p>
+
+                    <div class="title-features reveal">
+                        <span class="badge badge-coral">🔍 跨平台搜索</span>
+                        <span class="badge badge-blue">▶️ 聚合播放</span>
+                        <span class="badge badge-purple">🎤 悬浮歌词</span>
+                        <span class="badge badge-gold">📥 离线下载</span>
+                    </div>
+
+                    <div class="title-tech reveal">
+                        <span class="tech-item">FLUTTER</span>
+                        <span class="tech-item">DART</span>
+                        <span class="tech-item">RIVERPOD</span>
+                        <span class="tech-item">DRIFT</span>
+                    </div>
+                </div>
+
+                <!-- 右侧视觉 -->
+                <div style="position: absolute; right: 0; top: 0; width: 50%; height: 100%; display: flex; align-items: center; justify-content: center; z-index: 5;">
+                    <div class="bg-gradient"></div>
+                    <div class="wave-container" id="waveContainer"></div>
+                    <div class="music-notes">
+                        <span class="note">♪</span>
+                        <span class="note">♫</span>
+                        <span class="note">♬</span>
+                        <span class="note">♩</span>
+                        <span class="note">♭</span>
+                    </div>
+
+                    <!-- 播放器卡片 -->
+                    <div class="player-card reveal-scale">
+                        <div class="player-header">
+                            <span class="player-title">Now Playing</span>
+                            <span class="player-icon">♫</span>
+                        </div>
+                        <div class="album-art">🎵</div>
+                        <div class="song-info">
+                            <div class="song-name">晴天</div>
+                            <div class="song-artist">周杰伦</div>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill"></div>
+                        </div>
+                        <div class="player-controls">
+                            <button class="control-btn">⏮</button>
+                            <button class="control-btn play">▶</button>
+                            <button class="control-btn">⏭</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="title-github reveal" style="position: absolute; bottom: 40px; left: 120px; z-index: 10;">
+                    OPEN SOURCE // GITHUB.COM/HJDD14/MCONNECT
+                </div>
+                <div class="page-indicator">01 / 07</div>
+            </section>
+
+            <!-- ===========================================
+                 SLIDE 2: OVERVIEW
+                 =========================================== -->
+            <section class="slide slide-overview">
+                <div class="section-tag reveal">PROJECT OVERVIEW</div>
+                <h2 class="slide-title reveal">为什么选择 <span class="gradient-text">Mconnect</span>？</h2>
+                <p class="slide-subtitle reveal">一站式解决多平台音乐管理的痛点，聚合三大平台资源，提供统一的音乐体验</p>
+
+                <div class="overview-grid">
+                    <div class="overview-card reveal">
+                        <span class="overview-icon">🔍</span>
+                        <h3 class="overview-title">统一搜索</h3>
+                        <p class="overview-desc">一次搜索，同时检索网易云、QQ音乐、酷狗三大平台，快速找到想听的歌曲</p>
+                    </div>
+
+                    <div class="overview-card reveal">
+                        <span class="overview-icon">🎵</span>
+                        <h3 class="overview-title">聚合播放</h3>
+                        <p class="overview-desc">无需切换应用，统一播放器支持所有平台，自动选择最佳音源</p>
+                    </div>
+
+                    <div class="overview-card reveal">
+                        <span class="overview-icon">📋</span>
+                        <h3 class="overview-title">歌单同步</h3>
+                        <p class="overview-desc">跨平台歌单导入导出，本地歌单管理，支持Mconnect链接分享</p>
+                    </div>
+
+                    <div class="overview-card reveal">
+                        <span class="overview-icon">💾</span>
+                        <h3 class="overview-title">离线缓存</h3>
+                        <p class="overview-desc">智能缓存中心，自动清理策略，离线也能享受音乐</p>
+                    </div>
+                </div>
+
+                <div class="page-indicator">02 / 07</div>
+            </section>
+
+            <!-- ===========================================
+                 SLIDE 3: CORE FEATURES
+                 =========================================== -->
+            <section class="slide slide-features">
+                <div class="features-left">
+                    <div class="section-tag reveal">CORE FEATURES</div>
+                    <h2 class="slide-title reveal">核心功能</h2>
+                    <p class="slide-subtitle reveal">覆盖音乐播放的完整生命周期，从发现到收藏，从播放到管理</p>
+
+                    <div style="margin-top: 40px;">
+                        <ul class="feature-list reveal">
+                            <li>三平台搜索/播放/歌词/登录/推荐/排行/歌单/收藏/下载</li>
+                            <li>全屏/迷你播放器/播放队列/音质切换/歌词同步/双语歌词</li>
+                            <li>QRC/KRC逐字歌词支持</li>
+                            <li>我喜欢/听歌历史/歌单导入(分页完整)/下载管理/本地音乐</li>
+                            <li>平台歌单: 创建/收藏/搜索/详情/编辑</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="features-right">
+                    <div class="feature-card reveal-right">
+                        <div class="feature-card-header">
+                            <span class="feature-card-icon">🔍</span>
+                            <h3 class="feature-card-title">智能搜索</h3>
+                        </div>
+                        <p class="feature-card-desc">同时检索三大平台，自动去重排序，支持歌手、专辑、歌单多维度搜索</p>
+                    </div>
+
+                    <div class="feature-card reveal-right">
+                        <div class="feature-card-header">
+                            <span class="feature-card-icon">▶️</span>
+                            <h3 class="feature-card-title">无缝播放</h3>
+                        </div>
+                        <p class="feature-card-desc">统一播放队列，自动音质选择，播放记忆与断点恢复，手势操作优化</p>
+                    </div>
+
+                    <div class="feature-card reveal-right">
+                        <div class="feature-card-header">
+                            <span class="feature-card-icon">📥</span>
+                            <h3 class="feature-card-title">批量下载</h3>
+                        </div>
+                        <p class="feature-card-desc">支持多平台下载，进度实时显示，下载队列管理，自动重试机制</p>
+                    </div>
+                </div>
+
+                <div class="page-indicator">03 / 07</div>
+            </section>
+
+            <!-- ===========================================
+                 SLIDE 4: TECH STACK
+                 =========================================== -->
+            <section class="slide slide-tech">
+                <div class="tech-left">
+                    <div class="section-tag reveal">TECHNICAL ARCHITECTURE</div>
+                    <h2 class="slide-title reveal">技术架构</h2>
+                    <p class="slide-subtitle reveal">采用现代化技术栈，确保高性能、可扩展性和良好的开发体验</p>
+
+                    <div class="tech-stack-grid">
+                        <div class="tech-stack-item reveal">
+                            <div class="tech-stack-name">Flutter 3.38</div>
+                            <div class="tech-stack-desc">跨平台UI框架，一套代码支持Android、iOS、Windows、macOS、Linux</div>
+                        </div>
+
+                        <div class="tech-stack-item reveal">
+                            <div class="tech-stack-name">Dart 3.10</div>
+                            <div class="tech-stack-desc">高效编程语言，AOT编译，优秀的类型系统和空安全</div>
+                        </div>
+
+                        <div class="tech-stack-item reveal">
+                            <div class="tech-stack-name">Riverpod</div>
+                            <div class="tech-stack-desc">现代状态管理，编译时安全，依赖注入，自动销毁</div>
+                        </div>
+
+                        <div class="tech-stack-item reveal">
+                            <div class="tech-stack-name">Drift (SQLite)</div>
+                            <div class="tech-stack-desc">响应式数据库，类型安全查询，WAL模式，批量操作优化</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tech-right">
+                    <div class="architecture-diagram reveal-right">
+                        <div class="arch-title">// ARCHITECTURE LAYERS</div>
+                        <div class="arch-layers">
+                            <div class="arch-layer">
+                                <div class="arch-layer-icon ui">🎨</div>
+                                <div>
+                                    <div class="arch-layer-text">UI Layer</div>
+                                    <div class="arch-layer-desc">Flutter Widgets / Material 3</div>
+                                </div>
+                            </div>
+
+                            <div class="arch-layer">
+                                <div class="arch-layer-icon state">⚡</div>
+                                <div>
+                                    <div class="arch-layer-text">State Management</div>
+                                    <div class="arch-layer-desc">Riverpod Providers / StateNotifier</div>
+                                </div>
+                            </div>
+
+                            <div class="arch-layer">
+                                <div class="arch-layer-icon data">💾</div>
+                                <div>
+                                    <div class="arch-layer-text">Data Layer</div>
+                                    <div class="arch-layer-desc">Drift Database / Hive Storage</div>
+                                </div>
+                            </div>
+
+                            <div class="arch-layer">
+                                <div class="arch-layer-icon platform">🔌</div>
+                                <div>
+                                    <div class="arch-layer-text">Platform Abstraction</div>
+                                    <div class="arch-layer-desc">MusicPlatform Interface / PlatformRegistry</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="code-block reveal-right">
+                        <code>// Platform abstraction<br>
+abstract class MusicPlatform {<br>
+&nbsp;&nbsp;Future&lt;List&lt;Song&gt;&gt; search(String query);<br>
+&nbsp;&nbsp;Future&lt;String&gt; getSongUrl(String id);<br>
+&nbsp;&nbsp;Future&lt;Lyrics&gt; getLyrics(String id);<br>
+}</code>
+                    </div>
+                </div>
+
+                <div class="page-indicator">04 / 07</div>
+            </section>
+
+            <!-- ===========================================
+                 SLIDE 5: PLATFORMS
+                 =========================================== -->
+            <section class="slide slide-platforms">
+                <div class="section-tag reveal">SUPPORTED PLATFORMS</div>
+                <h2 class="slide-title reveal">三大平台聚合</h2>
+                <p class="slide-subtitle reveal">深度整合网易云音乐、QQ音乐、酷狗音乐，保留各平台特色功能</p>
+
+                <div class="platforms-grid">
+                    <div class="platform-card netease reveal">
+                        <div class="platform-icon-large platform-netease">☁️</div>
+                        <h3 class="platform-name">网易云音乐</h3>
+                        <ul class="platform-features">
+                            <li>完整Cookie会话管理</li>
+                            <li>精准歌词同步</li>
+                            <li>个性化推荐算法</li>
+                            <li>评论区热评展示</li>
+                        </ul>
+                    </div>
+
+                    <div class="platform-card qq reveal">
+                        <div class="platform-icon-large platform-qq">🎵</div>
+                        <h3 class="platform-name">QQ音乐</h3>
+                        <ul class="platform-features">
+                            <li>JSON字符串解析优化</li>
+                            <li>comm字段版本控制</li>
+                            <li>高品质音源支持</li>
+                            <li>MV视频播放</li>
+                        </ul>
+                    </div>
+
+                    <div class="platform-card kugou reveal">
+                        <div class="platform-icon-large platform-kugou">🎤</div>
+                        <h3 class="platform-name">酷狗音乐</h3>
+                        <ul class="platform-features">
+                            <li>Concept/Lite VIP路由</li>
+                            <li>Hash-based歌词搜索</li>
+                            <li>KRC逐字歌词</li>
+                            <li>vip_token扩展字段</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="page-indicator">05 / 07</div>
+            </section>
+
+            <!-- ===========================================
+                 SLIDE 6: SPECIAL FEATURES
+                 =========================================== -->
+            <section class="slide slide-special">
+                <div class="special-left">
+                    <div class="section-tag reveal">UNIQUE FEATURES</div>
+                    <h2 class="slide-title reveal">特色功能</h2>
+                    <p class="slide-subtitle reveal">超越基础播放，提供沉浸式音乐体验和智能化管理</p>
+
+                    <div style="margin-top: 40px;">
+                        <ul class="feature-list reveal">
+                            <li>Android SYSTEM_ALERT_WINDOW 悬浮歌词</li>
+                            <li>Windows Win32 原生置顶透明窗口</li>
+                            <li>Android just_audio equalizer 均衡器</li>
+                            <li>Hive 本地统计/总播放次数/累计时长</li>
+                            <li>智能歌单规则编辑器</li>
+                            <li>睡眠定时器/淡入淡出</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="special-right">
+                    <div class="special-card reveal-right">
+                        <div class="special-card-header">
+                            <div class="special-card-icon lyrics">🎤</div>
+                            <div>
+                                <h3 class="special-card-title">悬浮歌词</h3>
+                                <div class="special-card-subtitle">FLOATING LYRICS</div>
+                            </div>
+                        </div>
+                        <p class="special-card-desc">Android透明覆盖层，Windows Win32原生置顶窗口，实时同步歌词显示，支持双语对照</p>
+                    </div>
+
+                    <div class="special-card reveal-right">
+                        <div class="special-card-header">
+                            <div class="special-card-icon equalizer">🎛️</div>
+                            <div>
+                                <h3 class="special-card-title">音频均衡器</h3>
+                                <div class="special-card-subtitle">EQUALIZER</div>
+                            </div>
+                        </div>
+                        <p class="special-card-desc">Android原生均衡器支持，多频段调节，预设音效切换，个性化音频体验</p>
+                    </div>
+
+                    <div class="special-card reveal-right">
+                        <div class="special-card-header">
+                            <div class="special-card-icon playlist">📊</div>
+                            <div>
+                                <h3 class="special-card-title">智能歌单</h3>
+                                <div class="special-card-subtitle">SMART PLAYLISTS</div>
+                            </div>
+                        </div>
+                        <p class="special-card-desc">规则编辑器创建虚拟歌单，基于播放历史、喜好、标签自动聚合歌曲</p>
+                    </div>
+
+                    <div class="special-card reveal-right">
+                        <div class="special-card-header">
+                            <div class="special-card-icon stats">📈</div>
+                            <div>
+                                <h3 class="special-card-title">听歌统计</h3>
+                                <div class="special-card-subtitle">LISTENING STATS</div>
+                            </div>
+                        </div>
+                        <p class="special-card-desc">本地Hive统计，总播放次数、累计时长、最爱歌曲排行，数据可视化展示</p>
+                    </div>
+                </div>
+
+                <div class="page-indicator">06 / 07</div>
+            </section>
+
+            <!-- ===========================================
+                 SLIDE 7: OPEN SOURCE
+                 =========================================== -->
+            <section class="slide slide-opensource">
+                <div class="section-tag reveal">OPEN SOURCE</div>
+                <h2 class="slide-title reveal">开源项目</h2>
+                <p class="slide-subtitle reveal">完全开源，欢迎贡献代码、提交Issue、提出建议</p>
+
+                <div class="github-card reveal-scale">
+                    <div class="github-icon">📦</div>
+                    <h3 class="github-title">Mconnect-Music_connect</h3>
+                    <div class="github-url">github.com/Hjdd14/Mconnect-Music_connect</div>
+
+                    <div class="github-stats">
+                        <div class="github-stat">
+                            <div class="github-stat-value">⭐</div>
+                            <div class="github-stat-label">Star</div>
+                        </div>
+                        <div class="github-stat">
+                            <div class="github-stat-value">🔀</div>
+                            <div class="github-stat-label">Fork</div>
+                        </div>
+                        <div class="github-stat">
+                            <div class="github-stat-value">📝</div>
+                            <div class="github-stat-label">Commits</div>
+                        </div>
+                        <div class="github-stat">
+                            <div class="github-stat-value">👥</div>
+                            <div class="github-stat-label">Contributors</div>
+                        </div>
+                    </div>
+
+                    <div class="github-actions">
+                        <button class="github-btn primary">⭐ Star on GitHub</button>
+                        <button class="github-btn secondary">📥 Download APK</button>
+                    </div>
+                </div>
+
+                <div class="footer-text reveal">
+                    Built with Flutter & Dart // MIT License // 2026
+                </div>
+
+                <div class="page-indicator">07 / 07</div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- Edit Mode UI -->
+    <div class="edit-hotzone"></div>
+    <button class="edit-toggle" id="editToggle" title="Edit mode (E)">✏️</button>
+
+    <script>
+        /* ===========================================
+           SLIDE PRESENTATION CONTROLLER
+           =========================================== */
+        class SlidePresentation {
+            constructor() {
+                this.slides = document.querySelectorAll('.slide');
+                this.currentSlide = 0;
+                this.stage = document.getElementById('deckStage');
+                this.setupStageScale();
+                this.setupKeyboardNav();
+                this.setupTouchNav();
+                this.setupWheelNav();
+                this.createWaveBars();
+                this.showSlide(0);
+            }
+
+            setupStageScale() {
+                const scale = () => {
+                    const factor = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+                    const x = (window.innerWidth - 1920 * factor) / 2;
+                    const y = (window.innerHeight - 1080 * factor) / 2;
+                    this.stage.style.transform = `translate(${x}px, ${y}px) scale(${factor})`;
+                };
+                scale();
+                window.addEventListener('resize', scale);
+            }
+
+            setupKeyboardNav() {
+                document.addEventListener('keydown', (e) => {
+                    if (e.target.getAttribute('contenteditable')) return;
+
+                    switch(e.key) {
+                        case 'ArrowRight':
+                        case 'ArrowDown':
+                        case ' ':
+                        case 'PageDown':
+                            e.preventDefault();
+                            this.nextSlide();
+                            break;
+                        case 'ArrowLeft':
+                        case 'ArrowUp':
+                        case 'PageUp':
+                            e.preventDefault();
+                            this.prevSlide();
+                            break;
+                        case 'Home':
+                            e.preventDefault();
+                            this.showSlide(0);
+                            break;
+                        case 'End':
+                            e.preventDefault();
+                            this.showSlide(this.slides.length - 1);
+                            break;
+                    }
+                });
+            }
+
+            setupTouchNav() {
+                let touchStartX = 0;
+                let touchStartY = 0;
+
+                document.addEventListener('touchstart', (e) => {
+                    touchStartX = e.touches[0].clientX;
+                    touchStartY = e.touches[0].clientY;
+                });
+
+                document.addEventListener('touchend', (e) => {
+                    const touchEndX = e.changedTouches[0].clientX;
+                    const touchEndY = e.changedTouches[0].clientY;
+                    const diffX = touchStartX - touchEndX;
+                    const diffY = touchStartY - touchEndY;
+
+                    if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 50) {
+                        if (diffX > 0) {
+                            this.nextSlide();
+                        } else {
+                            this.prevSlide();
+                        }
+                    }
+                });
+            }
+
+            setupWheelNav() {
+                let wheelTimeout = null;
+                document.addEventListener('wheel', (e) => {
+                    if (wheelTimeout) return;
+                    wheelTimeout = setTimeout(() => { wheelTimeout = null; }, 800);
+
+                    if (e.deltaY > 0) {
+                        this.nextSlide();
+                    } else if (e.deltaY < 0) {
+                        this.prevSlide();
+                    }
+                }, { passive: true });
+            }
+
+            createWaveBars() {
+                const container = document.getElementById('waveContainer');
+                if (!container) return;
+                const barCount = 60;
+
+                for (let i = 0; i < barCount; i++) {
+                    const bar = document.createElement('div');
+                    bar.className = 'wave-bar';
+                    bar.style.left = `${(i / barCount) * 100}%`;
+                    bar.style.height = `${Math.random() * 200 + 50}px`;
+                    bar.style.animationDelay = `${i * 0.05}s`;
+                    bar.style.opacity = `${Math.random() * 0.4 + 0.2}`;
+                    container.appendChild(bar);
+                }
+            }
+
+            nextSlide() {
+                this.showSlide(this.currentSlide + 1);
+            }
+
+            prevSlide() {
+                this.showSlide(this.currentSlide - 1);
+            }
+
+            showSlide(index) {
+                this.currentSlide = Math.max(0, Math.min(index, this.slides.length - 1));
+                this.slides.forEach((slide, i) => {
+                    slide.classList.toggle('active', i === this.currentSlide);
+                    slide.classList.toggle('visible', i === this.currentSlide);
+                });
+            }
+        }
+
+        /* ===========================================
+           INLINE EDITOR
+           =========================================== */
+        class InlineEditor {
+            constructor() {
+                this.isActive = false;
+                this.toggle = document.getElementById('editToggle');
+                this.setup();
+            }
+
+            setup() {
+                // Toggle button click
+                this.toggle.addEventListener('click', () => this.toggleEditMode());
+
+                // Hotzone hover with delay
+                const hotzone = document.querySelector('.edit-hotzone');
+                let hideTimeout = null;
+
+                hotzone.addEventListener('mouseenter', () => {
+                    clearTimeout(hideTimeout);
+                    this.toggle.classList.add('show');
+                });
+
+                hotzone.addEventListener('mouseleave', () => {
+                    hideTimeout = setTimeout(() => {
+                        if (!this.isActive) this.toggle.classList.remove('show');
+                    }, 400);
+                });
+
+                this.toggle.addEventListener('mouseenter', () => {
+                    clearTimeout(hideTimeout);
+                });
+
+                this.toggle.addEventListener('mouseleave', () => {
+                    hideTimeout = setTimeout(() => {
+                        if (!this.isActive) this.toggle.classList.remove('show');
+                    }, 400);
+                });
+
+                // Keyboard shortcut
+                document.addEventListener('keydown', (e) => {
+                    if ((e.key === 'e' || e.key === 'E') && !e.target.getAttribute('contenteditable')) {
+                        this.toggleEditMode();
+                    }
+                });
+            }
+
+            toggleEditMode() {
+                this.isActive = !this.isActive;
+                document.body.classList.toggle('edit-mode', this.isActive);
+                this.toggle.classList.toggle('active', this.isActive);
+
+                // Make text elements editable
+                const editables = document.querySelectorAll('h1, h2, h3, p, span, li, code');
+                editables.forEach(el => {
+                    if (this.isActive) {
+                        el.setAttribute('contenteditable', 'true');
+                    } else {
+                        el.removeAttribute('contenteditable');
+                    }
+                });
+
+                // Save to localStorage
+                if (!this.isActive) {
+                    this.saveContent();
+                }
+            }
+
+            saveContent() {
+                const content = document.querySelector('.deck-stage').innerHTML;
+                localStorage.setItem('mconnect-slides-content', content);
+            }
+
+            loadContent() {
+                const saved = localStorage.getItem('mconnect-slides-content');
+                if (saved) {
+                    document.querySelector('.deck-stage').innerHTML = saved;
+                }
+            }
+        }
+
+        /* ===========================================
+           INITIALIZATION
+           =========================================== */
+        document.addEventListener('DOMContentLoaded', () => {
+            const presentation = new SlidePresentation();
+            const editor = new InlineEditor();
+        });
+    </script>
+</body>
+</html>

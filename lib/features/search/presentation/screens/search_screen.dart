@@ -64,18 +64,31 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     super.dispose();
   }
 
-  void _onSearch() {
+  void _scheduleSearch() {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 300), () {
       ref.read(searchQueryProvider.notifier).state = _controller.text.trim();
-      _focusNode.unfocus();
     });
+  }
+
+  void _submitSearch() {
+    _debounce?.cancel();
+    ref.read(searchQueryProvider.notifier).state = _controller.text.trim();
+    _focusNode.unfocus();
+  }
+
+  void _clearSearch() {
+    _debounce?.cancel();
+    _controller.clear();
+    _hasText.value = false;
+    ref.read(searchQueryProvider.notifier).state = '';
   }
 
   @override
   Widget build(BuildContext context) {
     final selectedPlatform = ref.watch(selectedPlatformProvider);
     final mode = ref.watch(searchModeProvider);
+    final query = ref.watch(searchQueryProvider);
     final results = ref.watch(searchResultsProvider);
     final playlistResults = ref.watch(playlistSearchResultsProvider);
 
@@ -141,12 +154,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                       builder: (_, hasText, __) => hasText
                           ? IconButton(
                               icon: const Icon(Icons.clear),
-                              onPressed: () {
-                                _controller.clear();
-                                _hasText.value = false;
-                                ref.read(searchQueryProvider.notifier).state =
-                                    '';
-                              },
+                              onPressed: _clearSearch,
                             )
                           : const SizedBox.shrink(),
                     ),
@@ -159,8 +167,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                     ),
                   ),
                   textInputAction: TextInputAction.search,
-                  onSubmitted: (_) => _onSearch(),
-                  onChanged: (v) => _hasText.value = v.isNotEmpty,
+                  onSubmitted: (_) => _submitSearch(),
+                  onChanged: (v) {
+                    _hasText.value = v.isNotEmpty;
+                    _scheduleSearch();
+                  },
                 ),
               ],
             ),
@@ -170,13 +181,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 ? results.when(
                     data: (songs) {
                       if (songs.isEmpty) {
-                        return Center(
-                          child: Text(
-                            '搜索歌曲',
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.outline,
-                            ),
-                          ),
+                        return _SearchEmptyState(
+                          hasQuery: query.trim().isNotEmpty,
                         );
                       }
                       return AppScrollbar(
@@ -195,13 +201,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 : playlistResults.when(
                     data: (playlists) {
                       if (playlists.isEmpty) {
-                        return Center(
-                          child: Text(
-                            '搜索歌单',
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.outline,
-                            ),
-                          ),
+                        return _SearchEmptyState(
+                          hasQuery: query.trim().isNotEmpty,
                         );
                       }
                       return AppScrollbar(
@@ -219,6 +220,22 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                   ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SearchEmptyState extends StatelessWidget {
+  final bool hasQuery;
+
+  const _SearchEmptyState({required this.hasQuery});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Text(
+        hasQuery ? '未找到相关内容' : '请输入关键词',
+        style: TextStyle(color: Theme.of(context).colorScheme.outline),
       ),
     );
   }

@@ -133,6 +133,31 @@ final appRouter = GoRouter(
               _transparentAppPage(state, const SettingsPage()),
         ),
         GoRoute(
+          path: '/settings/accounts',
+          pageBuilder: (context, state) =>
+              _transparentAppPage(state, const SettingsAccountsPage()),
+        ),
+        GoRoute(
+          path: '/settings/appearance',
+          pageBuilder: (context, state) =>
+              _transparentAppPage(state, const SettingsAppearancePage()),
+        ),
+        GoRoute(
+          path: '/settings/floating-lyrics',
+          pageBuilder: (context, state) =>
+              _transparentAppPage(state, const SettingsFloatingLyricsPage()),
+        ),
+        GoRoute(
+          path: '/settings/audio',
+          pageBuilder: (context, state) =>
+              _transparentAppPage(state, const SettingsAudioPage()),
+        ),
+        GoRoute(
+          path: '/settings/diagnostics',
+          pageBuilder: (context, state) =>
+              _transparentAppPage(state, const SettingsDiagnosticsPage()),
+        ),
+        GoRoute(
           path: '/login/:platform',
           pageBuilder: (context, state) {
             final platformStr = state.pathParameters['platform']!;

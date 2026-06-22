@@ -47,42 +47,89 @@ bool canUseDecodedBackgroundImage({
   return imageWidth > 0 && imageHeight > 0;
 }
 
-class SettingsPage extends ConsumerWidget {
+class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
 
-  static const _themePresets = [
-    Color(0xFFE91E63),
-    Color(0xFF31C27C),
-    Color(0xFF2F80ED),
-    Color(0xFF7B61FF),
-    Color(0xFFFF8A00),
-    Color(0xFF111827),
-  ];
-
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final themeSettings = ref.watch(themeSettingsProvider);
-    final themeNotifier = ref.read(themeSettingsProvider.notifier);
-    final floatingLyrics = ref.watch(floatingLyricsProvider);
-    final floatingLyricsNotifier = ref.read(floatingLyricsProvider.notifier);
-    final audioEffects = ref.watch(audioEffectsSettingsProvider);
-    final audioEffectsNotifier = ref.read(
-      audioEffectsSettingsProvider.notifier,
-    );
-    final sleepTimer = ref.watch(sleepTimerProvider);
-    final sleepTimerNotifier = ref.read(sleepTimerProvider.notifier);
-    final authState = ref.watch(authProvider);
-    final appBackground = ref.watch(appBackgroundSettingsProvider);
-    final appBackgroundNotifier = ref.read(
-      appBackgroundSettingsProvider.notifier,
-    );
-    final isWindows = Platform.isWindows;
-
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('设置')),
       body: ListView(
+        padding: const EdgeInsets.only(bottom: 24),
         children: [
-          const _SectionHeader('账号管理'),
+          _SettingsEntryTile(
+            icon: Icons.account_circle_outlined,
+            title: '账号管理',
+            subtitle: '网易云音乐、QQ 音乐、酷狗音乐登录状态',
+            onTap: () => context.push('/settings/accounts'),
+          ),
+          _SettingsEntryTile(
+            icon: Icons.palette_outlined,
+            title: '外观',
+            subtitle: '主题模式、主题色与自定义背景',
+            onTap: () => context.push('/settings/appearance'),
+          ),
+          _SettingsEntryTile(
+            icon: Icons.picture_in_picture_alt_outlined,
+            title: '悬浮歌词',
+            subtitle: '桌面歌词开关、颜色、字号与阴影',
+            onTap: () => context.push('/settings/floating-lyrics'),
+          ),
+          _SettingsEntryTile(
+            icon: Icons.graphic_eq,
+            title: '音频增强',
+            subtitle: '淡入淡出、均衡器与睡眠定时',
+            onTap: () => context.push('/settings/audio'),
+          ),
+          _SettingsEntryTile(
+            icon: Icons.info_outline,
+            title: '诊断与关于',
+            subtitle: '日志位置与应用版本',
+            onTap: () => context.push('/settings/diagnostics'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsEntryTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _SettingsEntryTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: Icon(icon),
+      title: Text(title),
+      subtitle: Text(subtitle),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: onTap,
+    );
+  }
+}
+
+class SettingsAccountsPage extends ConsumerWidget {
+  const SettingsAccountsPage({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final authState = ref.watch(authProvider);
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('账号管理')),
+      body: ListView(
+        padding: const EdgeInsets.only(bottom: 24),
+        children: [
           _PlatformLoginTile(
             platform: PlatformType.netease,
             user: authState.userFor(PlatformType.netease),
@@ -104,8 +151,38 @@ class SettingsPage extends ConsumerWidget {
             onLogout: () =>
                 ref.read(authProvider.notifier).logout(PlatformType.kugou),
           ),
-          const Divider(),
-          const _SectionHeader('外观'),
+        ],
+      ),
+    );
+  }
+}
+
+class SettingsAppearancePage extends ConsumerWidget {
+  const SettingsAppearancePage({super.key});
+
+  static const _themePresets = [
+    Color(0xFFE91E63),
+    Color(0xFF31C27C),
+    Color(0xFF2F80ED),
+    Color(0xFF7B61FF),
+    Color(0xFFFF8A00),
+    Color(0xFF111827),
+  ];
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeSettings = ref.watch(themeSettingsProvider);
+    final themeNotifier = ref.read(themeSettingsProvider.notifier);
+    final appBackground = ref.watch(appBackgroundSettingsProvider);
+    final appBackgroundNotifier = ref.read(
+      appBackgroundSettingsProvider.notifier,
+    );
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('外观')),
+      body: ListView(
+        padding: const EdgeInsets.only(bottom: 24),
+        children: [
           _ThemeTile(
             title: '跟随系统',
             icon: Icons.brightness_auto,
@@ -146,8 +223,145 @@ class SettingsPage extends ConsumerWidget {
               ).showSnackBar(const SnackBar(content: Text('已移除自定义背景')));
             },
           ),
-          const Divider(),
-          const _SectionHeader('悬浮歌词'),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _pickBackground(
+    BuildContext context,
+    AppBackgroundSettingsNotifier notifier,
+  ) async {
+    try {
+      final cropViewportSize = backgroundCropViewportSize(
+        MediaQuery.sizeOf(context),
+      );
+      final picked = await FilePicker.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+        withData: true,
+      );
+      if (picked == null || picked.files.isEmpty) return;
+
+      final file = picked.files.single;
+      final sourcePath = file.path;
+      final bytes =
+          file.bytes ??
+          (sourcePath == null
+              ? throw StateError('无法读取所选图片')
+              : await File(sourcePath).readAsBytes());
+      final previousPath = notifier.current.imagePath;
+      final imageSize = await _decodeImageSize(bytes);
+      if (!canUseDecodedBackgroundImage(
+        imageWidth: imageSize.width.toDouble(),
+        imageHeight: imageSize.height.toDouble(),
+      )) {
+        throw StateError('无法读取图片尺寸');
+      }
+      final documentsDir = await getApplicationDocumentsDirectory();
+      final backgroundsDir = Directory(
+        p.join(documentsDir.path, 'backgrounds'),
+      );
+      if (!await backgroundsDir.exists()) {
+        await backgroundsDir.create(recursive: true);
+      }
+
+      final destination = File(
+        createBackgroundDestinationPath(
+          backgroundsDirPath: backgroundsDir.path,
+          originalName: file.name,
+        ),
+      );
+      await destination.writeAsBytes(bytes, flush: true);
+      PaintingBinding.instance.imageCache.evict(FileImage(destination));
+
+      final settings = AppBackgroundSettings(
+        imagePath: destination.path,
+        imageWidth: imageSize.width.toDouble(),
+        imageHeight: imageSize.height.toDouble(),
+        cropViewportWidth: cropViewportSize.width,
+        cropViewportHeight: cropViewportSize.height,
+      );
+
+      if (!context.mounted) return;
+      final edited = await showDialog<AppBackgroundSettings>(
+        context: context,
+        builder: (context) => BackgroundEditorDialog(settings: settings),
+      );
+      if (edited == null) return;
+
+      if (previousPath != null && previousPath.isNotEmpty) {
+        PaintingBinding.instance.imageCache.evict(
+          FileImage(File(previousPath)),
+        );
+      }
+      PaintingBinding.instance.imageCache.evict(FileImage(destination));
+      await notifier.save(edited);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('已应用自定义背景')));
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('背景图片处理失败：$error')));
+    }
+  }
+
+  Future<void> _editBackground(
+    BuildContext context,
+    AppBackgroundSettings settings,
+    AppBackgroundSettingsNotifier notifier,
+  ) async {
+    final imagePath = settings.imagePath;
+    if (imagePath == null ||
+        imagePath.isEmpty ||
+        !File(imagePath).existsSync()) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('背景图片文件不存在，请重新选择')));
+      return;
+    }
+
+    final edited = await showDialog<AppBackgroundSettings>(
+      context: context,
+      builder: (context) => BackgroundEditorDialog(settings: settings),
+    );
+    if (edited == null) return;
+
+    PaintingBinding.instance.imageCache.evict(FileImage(File(imagePath)));
+    await notifier.save(edited);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('已更新自定义背景')));
+  }
+
+  Future<({int width, int height})> _decodeImageSize(Uint8List bytes) async {
+    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+    final descriptor = await ui.ImageDescriptor.encoded(buffer);
+    final size = (width: descriptor.width, height: descriptor.height);
+    descriptor.dispose();
+    buffer.dispose();
+    return size;
+  }
+}
+
+class SettingsFloatingLyricsPage extends ConsumerWidget {
+  const SettingsFloatingLyricsPage({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final floatingLyrics = ref.watch(floatingLyricsProvider);
+    final floatingLyricsNotifier = ref.read(floatingLyricsProvider.notifier);
+    final isWindows = Platform.isWindows;
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('悬浮歌词')),
+      body: ListView(
+        padding: const EdgeInsets.only(bottom: 24),
+        children: [
           SwitchListTile(
             secondary: const Icon(Icons.picture_in_picture_alt_outlined),
             title: const Text('桌面悬浮歌词'),
@@ -218,8 +432,29 @@ class SettingsPage extends ConsumerWidget {
             divisions: 20,
             onChanged: floatingLyricsNotifier.setShadowOpacity,
           ),
-          const Divider(),
-          const _SectionHeader('音频增强'),
+        ],
+      ),
+    );
+  }
+}
+
+class SettingsAudioPage extends ConsumerWidget {
+  const SettingsAudioPage({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final audioEffects = ref.watch(audioEffectsSettingsProvider);
+    final audioEffectsNotifier = ref.read(
+      audioEffectsSettingsProvider.notifier,
+    );
+    final sleepTimer = ref.watch(sleepTimerProvider);
+    final sleepTimerNotifier = ref.read(sleepTimerProvider.notifier);
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('音频增强')),
+      body: ListView(
+        padding: const EdgeInsets.only(bottom: 24),
+        children: [
           SwitchListTile(
             secondary: const Icon(Icons.graphic_eq),
             title: const Text('淡入淡出'),
@@ -350,16 +585,6 @@ class SettingsPage extends ConsumerWidget {
               Duration(minutes: value.round()),
             ),
           ),
-          const Divider(),
-          const _SectionHeader('诊断'),
-          _DiagnosticsTile(diagnostics: DiagnosticsService.instance),
-          const Divider(),
-          const _SectionHeader('关于'),
-          const ListTile(
-            leading: Icon(Icons.info_outline),
-            title: Text('版本'),
-            subtitle: Text(AppConstants.appVersion),
-          ),
         ],
       ),
     );
@@ -373,124 +598,31 @@ class SettingsPage extends ConsumerWidget {
     }
     return '$minutes:$seconds';
   }
+}
 
-  Future<void> _pickBackground(
-    BuildContext context,
-    AppBackgroundSettingsNotifier notifier,
-  ) async {
-    try {
-      final cropViewportSize = backgroundCropViewportSize(
-        MediaQuery.sizeOf(context),
-      );
-      final picked = await FilePicker.pickFiles(
-        type: FileType.image,
-        allowMultiple: false,
-        withData: true,
-      );
-      if (picked == null || picked.files.isEmpty) return;
+class SettingsDiagnosticsPage extends StatelessWidget {
+  const SettingsDiagnosticsPage({super.key});
 
-      final file = picked.files.single;
-      final sourcePath = file.path;
-      final bytes =
-          file.bytes ??
-          (sourcePath == null
-              ? throw StateError('无法读取所选图片')
-              : await File(sourcePath).readAsBytes());
-      final previousPath = notifier.current.imagePath;
-      final imageSize = await _decodeImageSize(bytes);
-      if (!canUseDecodedBackgroundImage(
-        imageWidth: imageSize.width.toDouble(),
-        imageHeight: imageSize.height.toDouble(),
-      )) {
-        throw StateError('无法读取图片尺寸');
-      }
-      final documentsDir = await getApplicationDocumentsDirectory();
-      final backgroundsDir = Directory(
-        p.join(documentsDir.path, 'backgrounds'),
-      );
-      if (!await backgroundsDir.exists()) {
-        await backgroundsDir.create(recursive: true);
-      }
-
-      final destination = File(
-        createBackgroundDestinationPath(
-          backgroundsDirPath: backgroundsDir.path,
-          originalName: file.name,
-        ),
-      );
-      await destination.writeAsBytes(bytes, flush: true);
-      PaintingBinding.instance.imageCache.evict(FileImage(destination));
-
-      final settings = AppBackgroundSettings(
-        imagePath: destination.path,
-        imageWidth: imageSize.width.toDouble(),
-        imageHeight: imageSize.height.toDouble(),
-        cropViewportWidth: cropViewportSize.width,
-        cropViewportHeight: cropViewportSize.height,
-      );
-
-      if (!context.mounted) return;
-      final edited = await showDialog<AppBackgroundSettings>(
-        context: context,
-        builder: (context) => BackgroundEditorDialog(settings: settings),
-      );
-      if (edited == null) return;
-
-      if (previousPath != null && previousPath.isNotEmpty) {
-        PaintingBinding.instance.imageCache.evict(
-          FileImage(File(previousPath)),
-        );
-      }
-      PaintingBinding.instance.imageCache.evict(FileImage(destination));
-      await notifier.save(edited);
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('已应用自定义背景')));
-    } catch (error) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('背景图片处理失败：$error')));
-    }
-  }
-
-  Future<void> _editBackground(
-    BuildContext context,
-    AppBackgroundSettings settings,
-    AppBackgroundSettingsNotifier notifier,
-  ) async {
-    final imagePath = settings.imagePath;
-    if (imagePath == null ||
-        imagePath.isEmpty ||
-        !File(imagePath).existsSync()) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('背景图片文件不存在，请重新选择')));
-      return;
-    }
-
-    final edited = await showDialog<AppBackgroundSettings>(
-      context: context,
-      builder: (context) => BackgroundEditorDialog(settings: settings),
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('诊断与关于')),
+      body: ListView(
+        padding: const EdgeInsets.only(bottom: 24),
+        children: [
+          const Divider(),
+          const _SectionHeader('诊断'),
+          _DiagnosticsTile(diagnostics: DiagnosticsService.instance),
+          const Divider(),
+          const _SectionHeader('关于'),
+          const ListTile(
+            leading: Icon(Icons.info_outline),
+            title: Text('版本'),
+            subtitle: Text(AppConstants.appVersion),
+          ),
+        ],
+      ),
     );
-    if (edited == null) return;
-
-    PaintingBinding.instance.imageCache.evict(FileImage(File(imagePath)));
-    await notifier.save(edited);
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('已更新自定义背景')));
-  }
-
-  Future<({int width, int height})> _decodeImageSize(Uint8List bytes) async {
-    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
-    final descriptor = await ui.ImageDescriptor.encoded(buffer);
-    final size = (width: descriptor.width, height: descriptor.height);
-    descriptor.dispose();
-    buffer.dispose();
-    return size;
   }
 }
 

@@ -21,4 +21,51 @@ void main() {
 
     expect(container.read(searchModeProvider), SearchMode.playlists);
   });
+
+  testWidgets('search input updates query after debounce and clears immediately', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const ProviderScope(
+        child: MaterialApp(home: Scaffold(body: SearchScreen())),
+      ),
+    );
+    final context = tester.element(find.byType(SearchScreen));
+    final container = ProviderScope.containerOf(context);
+
+    await tester.enterText(find.byType(TextField), '周杰伦');
+    await tester.pump(const Duration(milliseconds: 299));
+    expect(container.read(searchQueryProvider), isEmpty);
+
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(container.read(searchQueryProvider), '周杰伦');
+
+    await tester.tap(find.byIcon(Icons.clear));
+    await tester.pump();
+    expect(container.read(searchQueryProvider), isEmpty);
+  });
+
+  testWidgets('search distinguishes initial empty state from no results', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          searchResultsProvider.overrideWith((ref) async => const []),
+        ],
+        child: const MaterialApp(home: Scaffold(body: SearchScreen())),
+      ),
+    );
+    final context = tester.element(find.byType(SearchScreen));
+    final container = ProviderScope.containerOf(context);
+    await tester.pump();
+
+    expect(find.text('请输入关键词'), findsOneWidget);
+
+    container.read(searchQueryProvider.notifier).state = 'no-match';
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('未找到相关内容'), findsOneWidget);
+  });
 }

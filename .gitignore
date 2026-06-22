@@ -77,6 +77,8 @@ downloads/
 download/
 Download/
 Downloads/
+!lib/features/download/
+!lib/features/download/**
 music/
 Music/
 local_music/

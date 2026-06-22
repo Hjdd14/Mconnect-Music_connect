@@ -242,6 +242,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                   final artworkSize = constraints.maxHeight < 620
                       ? 220.0
                       : 280.0;
+                  final preferredLyricsHeight = constraints.maxHeight < 620
+                      ? 320.0
+                      : 400.0;
+                  final maxLyricsHeight = constraints.maxHeight * 0.58;
+                  final lyricsHeight =
+                      preferredLyricsHeight > maxLyricsHeight
+                      ? maxLyricsHeight
+                      : preferredLyricsHeight;
                   return SingleChildScrollView(
                     child: ConstrainedBox(
                       constraints: BoxConstraints(
@@ -258,63 +266,88 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                               key: const ValueKey('player_middle_toggle'),
                               behavior: HitTestBehavior.opaque,
                               onTap: _toggleLyrics,
-                              child: AnimatedCrossFade(
-                                firstChild: ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: song.coverUrl != null
-                                      ? CachedNetworkImage(
-                                          imageUrl: song.coverUrl!,
-                                          width: artworkSize,
-                                          height: artworkSize,
-                                          memCacheWidth: (artworkSize * 2)
-                                              .round(),
-                                          fit: BoxFit.cover,
-                                          placeholder: (_, __) => Container(
-                                            width: artworkSize,
-                                            height: artworkSize,
-                                            color: AppColors.placeholder(
-                                              context,
-                                            ),
-                                            child: const Icon(
-                                              Icons.music_note,
-                                              size: 80,
-                                            ),
-                                          ),
-                                          errorWidget: (_, __, ___) =>
-                                              Container(
-                                                width: artworkSize,
-                                                height: artworkSize,
-                                                color: AppColors.placeholder(
-                                                  context,
-                                                ),
-                                                child: const Icon(
-                                                  Icons.music_note,
-                                                  size: 80,
-                                                ),
-                                              ),
-                                        )
-                                      : Container(
-                                          width: artworkSize,
-                                          height: artworkSize,
-                                          color: AppColors.placeholder(context),
-                                          child: Icon(
-                                            Icons.music_note,
-                                            size: 80,
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.outline,
-                                          ),
-                                        ),
-                                ),
-                                secondChild: SizedBox(
-                                  height: artworkSize,
-                                  width: artworkSize,
-                                  child: const LyricsDisplay(),
-                                ),
-                                crossFadeState: _showLyrics
-                                    ? CrossFadeState.showSecond
-                                    : CrossFadeState.showFirst,
+                              child: AnimatedSwitcher(
                                 duration: const Duration(milliseconds: 300),
+                                child: _showLyrics
+                                    ? Container(
+                                        key: const ValueKey(
+                                          'player_lyrics_panel',
+                                        ),
+                                        height: lyricsHeight,
+                                        width: double.infinity,
+                                        decoration: BoxDecoration(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .surfaceContainerHighest
+                                              .withValues(alpha: 0.42),
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                        ),
+                                        clipBehavior: Clip.antiAlias,
+                                        child: const LyricsDisplay(),
+                                      )
+                                    : SizedBox(
+                                        key: const ValueKey(
+                                          'player_artwork_panel',
+                                        ),
+                                        width: artworkSize,
+                                        height: artworkSize,
+                                        child: ClipRRect(
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          child: song.coverUrl != null
+                                              ? CachedNetworkImage(
+                                                  imageUrl: song.coverUrl!,
+                                                  width: artworkSize,
+                                                  height: artworkSize,
+                                                  memCacheWidth:
+                                                      (artworkSize * 2).round(),
+                                                  fit: BoxFit.cover,
+                                                  placeholder: (_, __) =>
+                                                      Container(
+                                                        width: artworkSize,
+                                                        height: artworkSize,
+                                                        color:
+                                                            AppColors
+                                                                .placeholder(
+                                                                  context,
+                                                                ),
+                                                        child: const Icon(
+                                                          Icons.music_note,
+                                                          size: 80,
+                                                        ),
+                                                      ),
+                                                  errorWidget: (_, __, ___) =>
+                                                      Container(
+                                                        width: artworkSize,
+                                                        height: artworkSize,
+                                                        color:
+                                                            AppColors
+                                                                .placeholder(
+                                                                  context,
+                                                                ),
+                                                        child: const Icon(
+                                                          Icons.music_note,
+                                                          size: 80,
+                                                        ),
+                                                      ),
+                                                )
+                                              : Container(
+                                                  width: artworkSize,
+                                                  height: artworkSize,
+                                                  color: AppColors.placeholder(
+                                                    context,
+                                                  ),
+                                                  child: Icon(
+                                                    Icons.music_note,
+                                                    size: 80,
+                                                    color: Theme.of(
+                                                      context,
+                                                    ).colorScheme.outline,
+                                                  ),
+                                                ),
+                                        ),
+                                      ),
                               ),
                             ),
                             const SizedBox(height: 28),

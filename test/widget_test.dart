@@ -696,6 +696,33 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('player lyrics mode uses a taller lyrics panel than artwork', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          playerProvider.overrideWith((ref) => _SeededPlayerNotifier()),
+        ],
+        child: const MaterialApp(home: PlayerScreen()),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+    final artworkSize = tester.getSize(
+      find.byKey(const ValueKey('player_artwork_panel')),
+    );
+    expect(artworkSize.height, artworkSize.width);
+
+    await tester.tap(find.byKey(const ValueKey('player_middle_toggle')));
+    await tester.pump(const Duration(milliseconds: 350));
+
+    final lyricsSize = tester.getSize(
+      find.byKey(const ValueKey('player_lyrics_panel')),
+    );
+    expect(lyricsSize.height, greaterThan(artworkSize.height));
+  });
 }
 
 const _song = Song(

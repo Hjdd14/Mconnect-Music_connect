@@ -417,10 +417,7 @@ PlaybackState buildPlaybackNotificationState({
       MediaAction.skipToPrevious,
       MediaAction.skipToNext,
     },
-    androidCompactActionIndices: List<int>.generate(
-      controls.length,
-      (index) => index,
-    ),
+    androidCompactActionIndices: hasCurrentSong ? const [0, 1, 2] : const [0],
     processingState: hasCurrentSong
         ? (processingState ?? AudioProcessingState.ready)
         : AudioProcessingState.idle,

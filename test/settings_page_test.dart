@@ -28,7 +28,7 @@ void main() {
 
   testWidgets('settings page exposes diagnostics log path', (tester) async {
     await tester.pumpWidget(
-      const ProviderScope(child: MaterialApp(home: SettingsPage())),
+      const ProviderScope(child: MaterialApp(home: SettingsDiagnosticsPage())),
     );
 
     await tester.scrollUntilVisible(
@@ -44,7 +44,7 @@ void main() {
 
   testWidgets('settings page shows the current app version', (tester) async {
     await tester.pumpWidget(
-      const ProviderScope(child: MaterialApp(home: SettingsPage())),
+      const ProviderScope(child: MaterialApp(home: SettingsDiagnosticsPage())),
     );
 
     await tester.scrollUntilVisible(
@@ -53,14 +53,33 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
 
-    expect(find.text('v1.2.2'), findsOneWidget);
+    expect(find.text('v1.2.4'), findsOneWidget);
   });
 
   testWidgets(
-    'settings page exposes theme color and floating lyrics controls',
+    'settings home exposes section entry points',
     (tester) async {
       await tester.pumpWidget(
         const ProviderScope(child: MaterialApp(home: SettingsPage())),
+      );
+
+      for (final label in const [
+        '账号管理',
+        '外观',
+        '悬浮歌词',
+        '音频增强',
+        '诊断与关于',
+      ]) {
+        expect(find.text(label), findsOneWidget);
+      }
+    },
+  );
+
+  testWidgets(
+    'appearance settings page exposes theme color and background controls',
+    (tester) async {
+      await tester.pumpWidget(
+        const ProviderScope(child: MaterialApp(home: SettingsAppearancePage())),
       );
 
       expect(find.text('主题色'), findsOneWidget);
@@ -70,6 +89,17 @@ void main() {
         scrollable: find.byType(Scrollable).first,
       );
       expect(find.byKey(const Key('app-background-tile')), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'floating lyrics settings page exposes lyrics controls',
+    (tester) async {
+      await tester.pumpWidget(
+        const ProviderScope(
+          child: MaterialApp(home: SettingsFloatingLyricsPage()),
+        ),
+      );
 
       for (final label in const ['桌面悬浮歌词', '歌词颜色', '高亮颜色', '字号']) {
         await _dragUntilTextVisible(tester, label);
@@ -82,7 +112,9 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      const ProviderScope(child: MaterialApp(home: SettingsPage())),
+      const ProviderScope(
+        child: MaterialApp(home: SettingsFloatingLyricsPage()),
+      ),
     );
 
     await tester.scrollUntilVisible(
@@ -118,7 +150,9 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      const ProviderScope(child: MaterialApp(home: SettingsPage())),
+      const ProviderScope(
+        child: MaterialApp(home: SettingsFloatingLyricsPage()),
+      ),
     );
 
     await tester.scrollUntilVisible(
@@ -147,7 +181,7 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      const ProviderScope(child: MaterialApp(home: SettingsPage())),
+      const ProviderScope(child: MaterialApp(home: SettingsAudioPage())),
     );
 
     for (final label in const [
