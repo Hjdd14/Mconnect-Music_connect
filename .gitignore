@@ -146,3 +146,6 @@ accounts/
 .buildlog/
 .swiftpm/
 migrate_working_dir/
+
+# Android Gradle 构建产物
+android/build/
