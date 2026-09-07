@@ -144,6 +144,10 @@ class _AudioMutex {
 }
 
 class PlayerNotifier extends StateNotifier<PlayerState> {
+  static const _playbackPositionAdvanceTolerance = Duration(seconds: 1);
+  static const _playbackEndTolerance = Duration(seconds: 5);
+  static const _maxPlaybackRecoveryAttemptsPerSong = 2;
+
   PlayerAudioController? _audioController;
   final MusicPlatform Function(PlatformType) _platformResolver;
   final PlayerAudioController Function() _audioControllerFactory;
@@ -151,6 +155,11 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   final Duration _audioDisposeTimeout;
   final Duration _qualitySwitchTimeout;
   final Duration _playbackMemorySaveInterval;
+  final Duration _playbackHealthCheckInterval;
+  final Duration _playbackStallThreshold;
+  final Duration _playbackRecoveryCooldown;
+  final Duration _playbackStartupGracePeriod;
+  final DateTime Function() _now;
   final PlayerPlaybackMemoryStore _playbackMemoryStore;
   final playback_notification.PlaybackNotificationController
   _notificationController;
@@ -166,11 +175,25 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   int _qualityRequestId = 0;
   Timer? _transitionWatchdog;
   Timer? _playbackMemoryTimer;
+  Timer? _playbackHealthTimer;
   PlayerPlaybackMemory? _pendingPlaybackMemory;
   bool _fadeEnabled = false;
   Duration _fadeDuration = const Duration(milliseconds: 800);
   bool _lastKeepAlivePlaying = false;
   int _fadeGeneration = 0;
+  ProcessingState _lastProcessingState = ProcessingState.idle;
+  DateTime? _lastProcessingStateChangedAt;
+  Duration _lastPlaybackHealthPosition = Duration.zero;
+  DateTime? _lastPlaybackHealthPositionChangedAt;
+  DateTime? _playbackHealthGraceUntil;
+  DateTime? _lastPlaybackRecoveryAt;
+  bool _isRecoveringPlayback = false;
+  String? _healthSongKey;
+  int _healthPlayRequestId = 0;
+  int _healthQualityRequestId = 0;
+  String? _recoverySongKey;
+  int _recoveryAttemptsForSong = 0;
+  String? _recoveryLimitReportedSongKey;
 
   PlayerNotifier({
     PlayerAudioController? audioController,
@@ -187,6 +210,11 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     PlaybackKeepAliveController? keepAliveController,
     SongLikeResolver? isSongLiked,
     SongLikeToggle? toggleSongLike,
+    Duration playbackHealthCheckInterval = const Duration(seconds: 5),
+    Duration playbackStallThreshold = const Duration(seconds: 12),
+    Duration playbackRecoveryCooldown = const Duration(seconds: 30),
+    Duration playbackStartupGracePeriod = const Duration(seconds: 8),
+    DateTime Function()? now,
   }) : _audioController = audioController,
        _platformResolver = platformResolver ?? PlatformRegistry.get,
        _audioControllerFactory =
@@ -194,6 +222,11 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
        _audioOperationTimeout = audioOperationTimeout,
        _audioDisposeTimeout = audioDisposeTimeout,
        _qualitySwitchTimeout = qualitySwitchTimeout ?? audioOperationTimeout,
+       _playbackHealthCheckInterval = playbackHealthCheckInterval,
+       _playbackStallThreshold = playbackStallThreshold,
+       _playbackRecoveryCooldown = playbackRecoveryCooldown,
+       _playbackStartupGracePeriod = playbackStartupGracePeriod,
+       _now = now ?? DateTime.now,
        _playbackMemoryStore = playbackMemoryStore,
        _playbackMemorySaveInterval = playbackMemorySaveInterval,
        _notificationController =
@@ -219,6 +252,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     }
     unawaited(_restorePlaybackMemory());
     _syncNotificationState();
+    _startPlaybackHealthMonitor();
   }
 
   Future<void> _playFromNotification() async {
@@ -265,6 +299,32 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     );
   }
 
+  Duration _initialDurationForSong(Song song) {
+    if (song.duration > Duration.zero) return song.duration;
+    if (PlatformUtils.isAndroid && state.duration > Duration.zero) {
+      return state.duration;
+    }
+    return Duration.zero;
+  }
+
+  Duration? _durationFromController(Duration? duration) {
+    final isEmptyDuration = duration == null || duration == Duration.zero;
+    if (PlatformUtils.isAndroid &&
+        state.isTransitioning &&
+        isEmptyDuration &&
+        state.duration > Duration.zero) {
+      return null;
+    }
+    return duration ?? Duration.zero;
+  }
+
+  bool _shouldKeepPlayingThroughTransientState(AudioPlaybackState playerState) {
+    return PlatformUtils.isAndroid &&
+        state.isTransitioning &&
+        state.isPlaying &&
+        !playerState.playing;
+  }
+
   void refreshNotificationState() {
     _syncNotificationState();
   }
@@ -295,6 +355,273 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     await _syncPlaybackKeepAlive(true, force: true);
   }
 
+  void _startPlaybackHealthMonitor() {
+    if (!PlatformUtils.isAndroid) return;
+    if (_playbackHealthCheckInterval <= Duration.zero) return;
+    _playbackHealthTimer = Timer.periodic(
+      _playbackHealthCheckInterval,
+      (_) => unawaited(_checkPlaybackHealth()),
+    );
+  }
+
+  @visibleForTesting
+  Future<void> runPlaybackHealthCheckForTest() => _checkPlaybackHealth();
+
+  String? _songKey(Song? song) =>
+      song == null ? null : '${song.platform.name}:${song.id}';
+
+  bool _isOnlineSong(Song song) => song.platform != PlatformType.local;
+
+  bool _isNearPlaybackEnd() {
+    final song = state.currentSong;
+    if (song == null) return true;
+    final effectiveDuration = state.duration == Duration.zero
+        ? song.duration
+        : state.duration;
+    if (effectiveDuration == Duration.zero) return false;
+    return state.position + _playbackEndTolerance >= effectiveDuration;
+  }
+
+  bool _isStalledProcessingState(ProcessingState state) {
+    return state == ProcessingState.idle ||
+        state == ProcessingState.loading ||
+        state == ProcessingState.buffering;
+  }
+
+  bool _samePlaybackHealthFingerprint() {
+    return _healthSongKey == _songKey(state.currentSong) &&
+        _healthPlayRequestId == _playRequestId &&
+        _healthQualityRequestId == _qualityRequestId;
+  }
+
+  void _resetPlaybackRecoveryIfSongChanged(String? songKey) {
+    if (_recoverySongKey == songKey) return;
+    _recoverySongKey = songKey;
+    _recoveryAttemptsForSong = 0;
+    _recoveryLimitReportedSongKey = null;
+  }
+
+  void _resetPlaybackHealthWindow({
+    bool applyGrace = true,
+    bool resetRecoveryAttempts = false,
+  }) {
+    final now = _now();
+    final songKey = _songKey(state.currentSong);
+    _healthSongKey = songKey;
+    _healthPlayRequestId = _playRequestId;
+    _healthQualityRequestId = _qualityRequestId;
+    _lastPlaybackHealthPosition = state.position;
+    _lastPlaybackHealthPositionChangedAt = now;
+    _lastProcessingStateChangedAt = now;
+    _playbackHealthGraceUntil =
+        applyGrace && _playbackStartupGracePeriod > Duration.zero
+        ? now.add(_playbackStartupGracePeriod)
+        : null;
+    if (resetRecoveryAttempts) {
+      _recoverySongKey = songKey;
+      _recoveryAttemptsForSong = 0;
+      _recoveryLimitReportedSongKey = null;
+    }
+  }
+
+  void _observePlaybackHealthPosition(Duration position) {
+    if (position + _playbackPositionAdvanceTolerance <
+        _lastPlaybackHealthPosition) {
+      _lastPlaybackHealthPosition = position;
+      _lastPlaybackHealthPositionChangedAt = _now();
+      _healthSongKey = _songKey(state.currentSong);
+      _healthPlayRequestId = _playRequestId;
+      _healthQualityRequestId = _qualityRequestId;
+      return;
+    }
+    if (position >=
+        _lastPlaybackHealthPosition + _playbackPositionAdvanceTolerance) {
+      _lastPlaybackHealthPosition = position;
+      _lastPlaybackHealthPositionChangedAt = _now();
+      _healthSongKey = _songKey(state.currentSong);
+      _healthPlayRequestId = _playRequestId;
+      _healthQualityRequestId = _qualityRequestId;
+    }
+  }
+
+  bool _canCheckPlaybackHealth() {
+    final song = state.currentSong;
+    final controller = _audioController;
+    return PlatformUtils.isAndroid &&
+        song != null &&
+        _isOnlineSong(song) &&
+        state.isPlaying &&
+        controller != null &&
+        controller.playing &&
+        !state.isTransitioning &&
+        !_isSwitchingQuality &&
+        !_restoredSourceNeedsLoad &&
+        !_isRecoveringPlayback;
+  }
+
+  Future<void> _checkPlaybackHealth() async {
+    if (!mounted) return;
+    if (!_canCheckPlaybackHealth()) {
+      _resetPlaybackHealthWindow(applyGrace: false);
+      return;
+    }
+    final now = _now();
+    final graceUntil = _playbackHealthGraceUntil;
+    if (graceUntil != null && now.isBefore(graceUntil)) return;
+    if (_isNearPlaybackEnd()) {
+      _resetPlaybackHealthWindow(applyGrace: false);
+      return;
+    }
+    if (!_samePlaybackHealthFingerprint()) {
+      _resetPlaybackHealthWindow(applyGrace: false);
+      return;
+    }
+
+    final processingChangedAt = _lastProcessingStateChangedAt;
+    final processingStalled =
+        _isStalledProcessingState(_lastProcessingState) &&
+        processingChangedAt != null &&
+        now.difference(processingChangedAt) >= _playbackStallThreshold;
+    final positionChangedAt = _lastPlaybackHealthPositionChangedAt;
+    final positionStalled =
+        positionChangedAt != null &&
+        now.difference(positionChangedAt) >= _playbackStallThreshold;
+    if (!processingStalled && !positionStalled) return;
+
+    final reason = processingStalled
+        ? 'processing_${_lastProcessingState.name}'
+        : 'position_stalled';
+    await _recoverStalledOnlinePlayback(reason);
+  }
+
+  Future<void> _recoverStalledOnlinePlayback(String reason) async {
+    if (_isRecoveringPlayback) return;
+    final song = state.currentSong;
+    if (song == null || !_isOnlineSong(song)) return;
+    final songKey = _songKey(song);
+    _resetPlaybackRecoveryIfSongChanged(songKey);
+
+    final now = _now();
+    final lastRecoveryAt = _lastPlaybackRecoveryAt;
+    if (_playbackRecoveryCooldown > Duration.zero &&
+        lastRecoveryAt != null &&
+        now.difference(lastRecoveryAt) < _playbackRecoveryCooldown) {
+      return;
+    }
+    if (_recoveryAttemptsForSong >= _maxPlaybackRecoveryAttemptsPerSong) {
+      if (_recoveryLimitReportedSongKey != songKey) {
+        _recoveryLimitReportedSongKey = songKey;
+        DiagnosticsService.instance.record(
+          'player',
+          'playback_recovery_limit_reached',
+          data: {
+            'song_id': song.id,
+            'platform': song.platform.name,
+            'reason': reason,
+            'attempts': _recoveryAttemptsForSong,
+          },
+        );
+        _setState(
+          state.copyWith(
+            error: () => 'Playback stalled repeatedly. Please switch tracks.',
+          ),
+        );
+      }
+      return;
+    }
+
+    final requestId = _playRequestId;
+    final qualityRequestId = _qualityRequestId;
+    final quality = state.currentQuality;
+    final resumePosition = state.position;
+    _isRecoveringPlayback = true;
+    _recoveryAttemptsForSong++;
+    _lastPlaybackRecoveryAt = now;
+    DiagnosticsService.instance.record(
+      'player',
+      'playback_stall_recovery_start',
+      data: {
+        'song_id': song.id,
+        'platform': song.platform.name,
+        'reason': reason,
+        'position_ms': resumePosition.inMilliseconds,
+        'attempt': _recoveryAttemptsForSong,
+      },
+    );
+
+    try {
+      final platform = _platformResolver(song.platform);
+      final url = await DiagnosticsService.instance.measure(
+        'platform.getSongUrl.stallRecovery',
+        () => platform
+            .getSongUrl(song.id, quality: quality)
+            .timeout(const Duration(seconds: 10)),
+        data: {
+          'platform': song.platform.name,
+          'song_id': song.id,
+          'quality': quality.name,
+        },
+      );
+      final stillSamePlayback =
+          mounted &&
+          requestId == _playRequestId &&
+          qualityRequestId == _qualityRequestId &&
+          state.currentSong?.id == song.id &&
+          state.currentSong?.platform == song.platform;
+      if (!stillSamePlayback) return;
+
+      final fadeGeneration = _cancelActiveFades();
+      await _safeStop();
+      if (requestId != _playRequestId) return;
+      await _setUrlWithRecovery(url, 'playbackStallRecovery');
+      if (requestId != _playRequestId) return;
+      if (resumePosition > Duration.zero) {
+        await _safeSeek(resumePosition);
+      }
+      if (requestId != _playRequestId) return;
+      await _safeSetVolume(1);
+      _safePlay(requestId: requestId);
+      _schedulePlaybackVolumeRecovery(fadeGeneration);
+      _setState(
+        state.copyWith(
+          isPlaying: true,
+          isTransitioning: false,
+          position: resumePosition,
+          error: () => null,
+        ),
+      );
+      _resetPlaybackHealthWindow(applyGrace: true);
+      DiagnosticsService.instance.record(
+        'player',
+        'playback_stall_recovery_success',
+        data: {
+          'song_id': song.id,
+          'platform': song.platform.name,
+          'position_ms': resumePosition.inMilliseconds,
+          'attempt': _recoveryAttemptsForSong,
+        },
+      );
+    } catch (error, stack) {
+      if (!mounted) return;
+      DiagnosticsService.instance.recordError(
+        'player.playbackStallRecovery',
+        error,
+        stack,
+        data: {
+          'song_id': song.id,
+          'platform': song.platform.name,
+          'reason': reason,
+          'attempt': _recoveryAttemptsForSong,
+        },
+      );
+      _setState(
+        state.copyWith(error: () => 'Playback recovery failed: $error'),
+      );
+    } finally {
+      _isRecoveringPlayback = false;
+    }
+  }
+
   void _setupListeners(PlayerAudioController controller) {
     _subscriptions.add(
       controller.positionStream.listen((pos) {
@@ -304,6 +631,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         if (sec != _lastPositionSecond) {
           _lastPositionSecond = sec;
           _setState(state.copyWith(position: pos));
+          _observePlaybackHealthPosition(pos);
           _schedulePlaybackMemorySave();
         }
       }),
@@ -312,7 +640,9 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       controller.durationStream.listen((dur) {
         if (!mounted) return;
         if (!identical(controller, _audioController)) return;
-        _setState(state.copyWith(duration: dur ?? Duration.zero));
+        final duration = _durationFromController(dur);
+        if (duration == null) return;
+        _setState(state.copyWith(duration: duration));
         _schedulePlaybackMemorySave();
       }),
     );
@@ -321,13 +651,24 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         (playerState) {
           if (!mounted) return;
           if (!identical(controller, _audioController)) return;
+          if (playerState.processingState != _lastProcessingState) {
+            _lastProcessingState = playerState.processingState;
+            _lastProcessingStateChangedAt = _now();
+            _healthSongKey = _songKey(state.currentSong);
+            _healthPlayRequestId = _playRequestId;
+            _healthQualityRequestId = _qualityRequestId;
+          }
           final clearTransition =
               state.isTransitioning &&
+              !_shouldKeepPlayingThroughTransientState(playerState) &&
               (playerState.playing ||
                   playerState.processingState == ProcessingState.ready);
+          final isPlaying = _shouldKeepPlayingThroughTransientState(playerState)
+              ? true
+              : playerState.playing;
           _setState(
             state.copyWith(
-              isPlaying: playerState.playing,
+              isPlaying: isPlaying,
               isTransitioning: clearTransition ? false : state.isTransitioning,
             ),
           );
@@ -756,6 +1097,10 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
           (s) => s.id == song.id && s.platform == song.platform,
         );
         final newPlaylist = List<Song>.from(state.playlist);
+        final initialDuration = _initialDurationForSong(song);
+        final transitionPlayingIntent = PlatformUtils.isAndroid
+            ? true
+            : state.isPlaying;
         if (newIndex == -1) {
           newPlaylist.add(song);
           _setState(
@@ -763,7 +1108,9 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
               currentSong: song,
               playlist: newPlaylist,
               currentIndex: newPlaylist.length - 1,
+              isPlaying: transitionPlayingIntent,
               position: Duration.zero,
+              duration: initialDuration,
               error: () => null,
               isTransitioning: true,
             ),
@@ -773,12 +1120,15 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
             state.copyWith(
               currentSong: song,
               currentIndex: newIndex,
+              isPlaying: transitionPlayingIntent,
               position: Duration.zero,
+              duration: initialDuration,
               error: () => null,
               isTransitioning: true,
             ),
           );
         }
+        _resetPlaybackHealthWindow(resetRecoveryAttempts: true);
         _schedulePlaybackMemorySave();
 
         final playbackQuality = await _resolvePlaybackQuality(song, platform);
@@ -822,6 +1172,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
         if (requestId == _playRequestId) {
           _setState(state.copyWith(isPlaying: true, isTransitioning: false));
+          _resetPlaybackHealthWindow(applyGrace: true);
           _schedulePlaybackMemorySave();
           _cancelTransitionWatchdog();
           DiagnosticsService.instance.record(
@@ -875,6 +1226,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       try {
         final fadeGeneration = _cancelActiveFades();
         _setState(state.copyWith(isTransitioning: true, error: () => null));
+        _resetPlaybackHealthWindow(resetRecoveryAttempts: true);
         final url = song.platform == PlatformType.local
             ? _localSongPlaybackUrl(song.id)
             : await DiagnosticsService.instance.measure(
@@ -913,6 +1265,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
             error: () => null,
           ),
         );
+        _resetPlaybackHealthWindow(applyGrace: true);
         _schedulePlaybackMemorySave();
         _cancelTransitionWatchdog();
       } catch (e, s) {
@@ -948,6 +1301,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
           await _runFade(from: 1, to: 0, generation: fadeGeneration);
           await audioController.pause().timeout(_audioOperationTimeout);
           _setState(state.copyWith(isPlaying: false));
+          _resetPlaybackHealthWindow(applyGrace: false);
           if (_fadeEnabled) {
             await _safeSetVolume(1);
           }
@@ -959,6 +1313,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
           _safePlay();
           unawaited(_runFade(from: 0, to: 1, generation: fadeGeneration));
           _schedulePlaybackVolumeRecovery(fadeGeneration);
+          _resetPlaybackHealthWindow(applyGrace: true);
         }
       } catch (e) {
         debugPrint('togglePlay: audio operation failed, recreating player: $e');
@@ -983,6 +1338,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         return;
       }
       _isSwitchingQuality = true;
+      _resetPlaybackHealthWindow(applyGrace: true);
 
       try {
         final platform = song.platform == PlatformType.local
@@ -1026,6 +1382,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
             error: () => null,
           ),
         );
+        _resetPlaybackHealthWindow(applyGrace: true);
         _schedulePlaybackMemorySave();
 
         if (wasPlaying) {
@@ -1154,6 +1511,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   Future<void> seek(Duration position) async {
     if (!mounted) return;
     _setState(state.copyWith(position: position, isTransitioning: false));
+    _resetPlaybackHealthWindow(applyGrace: true);
     _schedulePlaybackMemorySave();
     if (_restoredSourceNeedsLoad) return;
     await _safeSeek(position);
@@ -1168,6 +1526,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         await _runFade(from: 1, to: 0, generation: fadeGeneration);
         await audioController.pause().timeout(_audioOperationTimeout);
         _setState(state.copyWith(isPlaying: false));
+        _resetPlaybackHealthWindow(applyGrace: false);
         if (_fadeEnabled) {
           await _safeSetVolume(1);
         }
@@ -1194,6 +1553,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   void dispose() {
     _cancelTransitionWatchdog();
     _playbackMemoryTimer?.cancel();
+    _playbackHealthTimer?.cancel();
     unawaited(flushPlaybackMemory());
     for (final sub in _subscriptions) {
       sub.cancel();

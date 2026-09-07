@@ -310,6 +310,122 @@ void main() {
   });
 
   test(
+    'Android transition keeps playback intent through transient stopped state',
+    () async {
+      PlatformUtils.setDebugOverride(AppPlatform.android);
+      addTearDown(() => PlatformUtils.setDebugOverride(null));
+      final audio = _FakeAudioController();
+      final nextUrl = Completer<String>();
+      final platform = _ControlledUrlPlatform(
+        urls: {'transition-next': nextUrl.future},
+      );
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        platformResolver: (_) => platform,
+        audioControllerFactory: () => _FakeAudioController(),
+        playbackHealthCheckInterval: Duration.zero,
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+      );
+      addTearDown(notifier.dispose);
+
+      await notifier.playSong(
+        _song('transition-current', duration: const Duration(minutes: 4)),
+      );
+      final transition = notifier.playSong(
+        _song('transition-next', duration: const Duration(minutes: 3)),
+      );
+      await pumpEventQueue();
+
+      expect(notifier.state.currentSong?.id, 'transition-next');
+      expect(notifier.state.isTransitioning, isTrue);
+      expect(notifier.state.isPlaying, isTrue);
+
+      audio.emitState(
+        playing: false,
+        processingState: just_audio.ProcessingState.loading,
+      );
+      await pumpEventQueue();
+
+      expect(notifier.state.currentSong?.id, 'transition-next');
+      expect(notifier.state.isPlaying, isTrue);
+      expect(notifier.state.isTransitioning, isTrue);
+
+      nextUrl.complete('https://example.test/transition-next-low.mp3');
+      await transition;
+    },
+  );
+
+  test(
+    'Android transition keeps song duration through null and zero stream values',
+    () async {
+      PlatformUtils.setDebugOverride(AppPlatform.android);
+      addTearDown(() => PlatformUtils.setDebugOverride(null));
+      final audio = _FakeAudioController();
+      final nextUrl = Completer<String>();
+      final platform = _ControlledUrlPlatform(
+        urls: {'duration-next': nextUrl.future},
+      );
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        platformResolver: (_) => platform,
+        audioControllerFactory: () => _FakeAudioController(),
+        playbackHealthCheckInterval: Duration.zero,
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+      );
+      addTearDown(notifier.dispose);
+
+      await notifier.playSong(
+        _song('duration-current', duration: const Duration(minutes: 4)),
+      );
+      final transition = notifier.playSong(
+        _song('duration-next', duration: const Duration(minutes: 3)),
+      );
+      await pumpEventQueue();
+
+      expect(notifier.state.duration, const Duration(minutes: 3));
+
+      audio.emitDuration(null);
+      await pumpEventQueue();
+      expect(notifier.state.duration, const Duration(minutes: 3));
+
+      audio.emitDuration(Duration.zero);
+      await pumpEventQueue();
+      expect(notifier.state.duration, const Duration(minutes: 3));
+
+      nextUrl.complete('https://example.test/duration-next-low.mp3');
+      await transition;
+    },
+  );
+
+  test(
+    'explicit pause still clears playback intent after transition guards',
+    () async {
+      PlatformUtils.setDebugOverride(AppPlatform.android);
+      addTearDown(() => PlatformUtils.setDebugOverride(null));
+      final audio = _FakeAudioController();
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        platformResolver: (_) => _FakeMusicPlatform(),
+        audioControllerFactory: () => _FakeAudioController(),
+        playbackHealthCheckInterval: Duration.zero,
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+      );
+      addTearDown(notifier.dispose);
+
+      await notifier.playSong(_song('explicit-pause'));
+      await notifier.pause();
+      audio.emitState(
+        playing: false,
+        processingState: just_audio.ProcessingState.ready,
+      );
+      await pumpEventQueue();
+
+      expect(notifier.state.isPlaying, isFalse);
+      expect(audio.pauseCalls, 1);
+    },
+  );
+
+  test(
     'player stream errors clear playback state and expose the error',
     () async {
       final audio = _FakeAudioController();
@@ -642,14 +758,349 @@ void main() {
       expect(notifier.state.isPlaying, isTrue);
     },
   );
+
+  test(
+    'Android health check recovers stalled online playback without changing song',
+    () async {
+      PlatformUtils.setDebugOverride(AppPlatform.android);
+      addTearDown(() => PlatformUtils.setDebugOverride(null));
+      final clock = _FakeClock();
+      final audio = _FakeAudioController();
+      final platform = _FakeMusicPlatform();
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        audioControllerFactory: () => _FakeAudioController(),
+        platformResolver: (_) => platform,
+        playbackHealthCheckInterval: Duration.zero,
+        playbackStallThreshold: const Duration(milliseconds: 12),
+        playbackRecoveryCooldown: const Duration(milliseconds: 30),
+        playbackStartupGracePeriod: Duration.zero,
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+        now: clock.now,
+      );
+      addTearDown(notifier.dispose);
+
+      await notifier.playSong(_song('online-stall'));
+      audio.emitPosition(const Duration(seconds: 20));
+      await pumpEventQueue();
+
+      await notifier.runPlaybackHealthCheckForTest();
+      expect(audio.setUrlCalls, 1);
+
+      clock.advance(const Duration(milliseconds: 13));
+      await notifier.runPlaybackHealthCheckForTest();
+      await pumpEventQueue();
+
+      expect(notifier.state.currentSong?.id, 'online-stall');
+      expect(platform.requestedQualitiesFor('online-stall'), [
+        AudioLevel.low,
+        AudioLevel.low,
+      ]);
+      expect(audio.setUrlCalls, 2);
+      expect(audio.seekCalls, 1);
+      expect(audio.position, const Duration(seconds: 20));
+      expect(audio.playCalls, 2);
+      expect(audio.volumeChanges.last, 1);
+    },
+  );
+
+  test(
+    'Android health check does not recover while position advances',
+    () async {
+      PlatformUtils.setDebugOverride(AppPlatform.android);
+      addTearDown(() => PlatformUtils.setDebugOverride(null));
+      final clock = _FakeClock();
+      final audio = _FakeAudioController();
+      final platform = _FakeMusicPlatform();
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        audioControllerFactory: () => _FakeAudioController(),
+        platformResolver: (_) => platform,
+        playbackHealthCheckInterval: Duration.zero,
+        playbackStallThreshold: const Duration(milliseconds: 12),
+        playbackRecoveryCooldown: const Duration(milliseconds: 30),
+        playbackStartupGracePeriod: Duration.zero,
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+        now: clock.now,
+      );
+      addTearDown(notifier.dispose);
+
+      await notifier.playSong(_song('advancing'));
+      for (var i = 1; i <= 4; i++) {
+        clock.advance(const Duration(milliseconds: 10));
+        audio.emitPosition(Duration(seconds: i * 2));
+        await pumpEventQueue();
+        await notifier.runPlaybackHealthCheckForTest();
+      }
+
+      expect(platform.requestedQualitiesFor('advancing'), [AudioLevel.low]);
+      expect(audio.setUrlCalls, 1);
+    },
+  );
+
+  test(
+    'Android health check ignores short buffering below stall threshold',
+    () async {
+      PlatformUtils.setDebugOverride(AppPlatform.android);
+      addTearDown(() => PlatformUtils.setDebugOverride(null));
+      final clock = _FakeClock();
+      final audio = _FakeAudioController();
+      final platform = _FakeMusicPlatform();
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        audioControllerFactory: () => _FakeAudioController(),
+        platformResolver: (_) => platform,
+        playbackHealthCheckInterval: Duration.zero,
+        playbackStallThreshold: const Duration(milliseconds: 12),
+        playbackRecoveryCooldown: const Duration(milliseconds: 30),
+        playbackStartupGracePeriod: Duration.zero,
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+        now: clock.now,
+      );
+      addTearDown(notifier.dispose);
+
+      await notifier.playSong(_song('short-buffer'));
+      audio.emitPosition(const Duration(seconds: 20));
+      audio.emitState(
+        playing: true,
+        processingState: just_audio.ProcessingState.buffering,
+      );
+      await pumpEventQueue();
+      clock.advance(const Duration(milliseconds: 8));
+
+      await notifier.runPlaybackHealthCheckForTest();
+
+      expect(platform.requestedQualitiesFor('short-buffer'), [AudioLevel.low]);
+      expect(audio.setUrlCalls, 1);
+    },
+  );
+
+  test('Android health check ignores recent seek grace period', () async {
+    PlatformUtils.setDebugOverride(AppPlatform.android);
+    addTearDown(() => PlatformUtils.setDebugOverride(null));
+    final clock = _FakeClock();
+    final audio = _FakeAudioController();
+    final platform = _FakeMusicPlatform();
+    final notifier = PlayerNotifier(
+      audioController: audio,
+      audioControllerFactory: () => _FakeAudioController(),
+      platformResolver: (_) => platform,
+      playbackHealthCheckInterval: Duration.zero,
+      playbackStallThreshold: const Duration(milliseconds: 12),
+      playbackRecoveryCooldown: const Duration(milliseconds: 30),
+      playbackStartupGracePeriod: const Duration(milliseconds: 50),
+      keepAliveController: const NoopPlaybackKeepAliveController(),
+      now: clock.now,
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.playSong(_song('seek-grace'));
+    await notifier.seek(const Duration(seconds: 30));
+    audio.emitState(
+      playing: true,
+      processingState: just_audio.ProcessingState.buffering,
+    );
+    await pumpEventQueue();
+    clock.advance(const Duration(milliseconds: 20));
+
+    await notifier.runPlaybackHealthCheckForTest();
+
+    expect(platform.requestedQualitiesFor('seek-grace'), [AudioLevel.low]);
+    expect(audio.setUrlCalls, 1);
+  });
+
+  test('Android health check ignores songs near the end', () async {
+    PlatformUtils.setDebugOverride(AppPlatform.android);
+    addTearDown(() => PlatformUtils.setDebugOverride(null));
+    final clock = _FakeClock();
+    final audio = _FakeAudioController();
+    final platform = _FakeMusicPlatform();
+    final notifier = PlayerNotifier(
+      audioController: audio,
+      audioControllerFactory: () => _FakeAudioController(),
+      platformResolver: (_) => platform,
+      playbackHealthCheckInterval: Duration.zero,
+      playbackStallThreshold: const Duration(milliseconds: 12),
+      playbackRecoveryCooldown: const Duration(milliseconds: 30),
+      playbackStartupGracePeriod: Duration.zero,
+      keepAliveController: const NoopPlaybackKeepAliveController(),
+      now: clock.now,
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.playSong(_song('near-end'));
+    audio.emitDuration(const Duration(minutes: 3));
+    audio.emitPosition(const Duration(minutes: 2, seconds: 58));
+    audio.emitState(
+      playing: true,
+      processingState: just_audio.ProcessingState.buffering,
+    );
+    await pumpEventQueue();
+    clock.advance(const Duration(milliseconds: 20));
+
+    await notifier.runPlaybackHealthCheckForTest();
+
+    expect(platform.requestedQualitiesFor('near-end'), [AudioLevel.low]);
+    expect(audio.setUrlCalls, 1);
+  });
+
+  test('Android health check ignores paused playback', () async {
+    PlatformUtils.setDebugOverride(AppPlatform.android);
+    addTearDown(() => PlatformUtils.setDebugOverride(null));
+    final clock = _FakeClock();
+    final audio = _FakeAudioController();
+    final platform = _FakeMusicPlatform();
+    final notifier = PlayerNotifier(
+      audioController: audio,
+      audioControllerFactory: () => _FakeAudioController(),
+      platformResolver: (_) => platform,
+      playbackHealthCheckInterval: Duration.zero,
+      playbackStallThreshold: const Duration(milliseconds: 12),
+      playbackRecoveryCooldown: const Duration(milliseconds: 30),
+      playbackStartupGracePeriod: Duration.zero,
+      keepAliveController: const NoopPlaybackKeepAliveController(),
+      now: clock.now,
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.playSong(_song('paused'));
+    await notifier.pause();
+    clock.advance(const Duration(milliseconds: 20));
+
+    await notifier.runPlaybackHealthCheckForTest();
+
+    expect(platform.requestedQualitiesFor('paused'), [AudioLevel.low]);
+    expect(audio.setUrlCalls, 1);
+  });
+
+  test('Android health check does not recover local songs', () async {
+    PlatformUtils.setDebugOverride(AppPlatform.android);
+    addTearDown(() => PlatformUtils.setDebugOverride(null));
+    final clock = _FakeClock();
+    final audio = _FakeAudioController();
+    final platform = _FakeMusicPlatform();
+    final notifier = PlayerNotifier(
+      audioController: audio,
+      audioControllerFactory: () => _FakeAudioController(),
+      platformResolver: (_) => platform,
+      playbackHealthCheckInterval: Duration.zero,
+      playbackStallThreshold: const Duration(milliseconds: 12),
+      playbackRecoveryCooldown: const Duration(milliseconds: 30),
+      playbackStartupGracePeriod: Duration.zero,
+      keepAliveController: const NoopPlaybackKeepAliveController(),
+      now: clock.now,
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.playSong(
+      _song('content://local/song.mp3', platform: PlatformType.local),
+    );
+    audio.emitPosition(const Duration(seconds: 20));
+    await pumpEventQueue();
+    clock.advance(const Duration(milliseconds: 20));
+
+    await notifier.runPlaybackHealthCheckForTest();
+
+    expect(platform.requestedQualities, isEmpty);
+    expect(audio.setUrlCalls, 1);
+  });
+
+  test('Android health check respects recovery cooldown', () async {
+    PlatformUtils.setDebugOverride(AppPlatform.android);
+    addTearDown(() => PlatformUtils.setDebugOverride(null));
+    final clock = _FakeClock();
+    final audio = _FakeAudioController();
+    final platform = _FakeMusicPlatform();
+    final notifier = PlayerNotifier(
+      audioController: audio,
+      audioControllerFactory: () => _FakeAudioController(),
+      platformResolver: (_) => platform,
+      playbackHealthCheckInterval: Duration.zero,
+      playbackStallThreshold: const Duration(milliseconds: 10),
+      playbackRecoveryCooldown: const Duration(milliseconds: 60),
+      playbackStartupGracePeriod: Duration.zero,
+      keepAliveController: const NoopPlaybackKeepAliveController(),
+      now: clock.now,
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.playSong(_song('cooldown'));
+    audio.emitPosition(const Duration(seconds: 20));
+    await pumpEventQueue();
+    clock.advance(const Duration(milliseconds: 11));
+    await notifier.runPlaybackHealthCheckForTest();
+    clock.advance(const Duration(milliseconds: 30));
+    await notifier.runPlaybackHealthCheckForTest();
+
+    expect(platform.requestedQualitiesFor('cooldown'), [
+      AudioLevel.low,
+      AudioLevel.low,
+    ]);
+    expect(audio.setUrlCalls, 2);
+  });
+
+  test(
+    'Android health check stops automatic recovery after two attempts',
+    () async {
+      PlatformUtils.setDebugOverride(AppPlatform.android);
+      addTearDown(() => PlatformUtils.setDebugOverride(null));
+      final clock = _FakeClock();
+      final audio = _FakeAudioController();
+      final platform = _FakeMusicPlatform();
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        audioControllerFactory: () => _FakeAudioController(),
+        platformResolver: (_) => platform,
+        playbackHealthCheckInterval: Duration.zero,
+        playbackStallThreshold: const Duration(milliseconds: 10),
+        playbackRecoveryCooldown: Duration.zero,
+        playbackStartupGracePeriod: Duration.zero,
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+        now: clock.now,
+      );
+      addTearDown(notifier.dispose);
+
+      await notifier.playSong(_song('max-recovery'));
+      audio.emitPosition(const Duration(seconds: 20));
+      await pumpEventQueue();
+
+      for (var i = 0; i < 3; i++) {
+        clock.advance(const Duration(milliseconds: 11));
+        await notifier.runPlaybackHealthCheckForTest();
+      }
+
+      expect(platform.requestedQualitiesFor('max-recovery'), [
+        AudioLevel.low,
+        AudioLevel.low,
+        AudioLevel.low,
+      ]);
+      expect(audio.setUrlCalls, 3);
+      expect(notifier.state.error, contains('Playback stalled repeatedly'));
+    },
+  );
 }
 
-Song _song(String id, {PlatformType platform = PlatformType.netease}) => Song(
+Song _song(
+  String id, {
+  PlatformType platform = PlatformType.netease,
+  Duration duration = Duration.zero,
+}) => Song(
   id: id,
   platform: platform,
   name: 'song $id',
+  duration: duration,
   artists: const [Artist(id: 'artist', name: 'artist')],
 );
+
+class _FakeClock {
+  DateTime _now = DateTime(2026);
+
+  DateTime now() => _now;
+
+  void advance(Duration duration) {
+    _now = _now.add(duration);
+  }
+}
 
 class _FakeAudioController implements PlayerAudioController {
   final _positionController = StreamController<Duration>.broadcast();
@@ -663,6 +1114,7 @@ class _FakeAudioController implements PlayerAudioController {
   int playCalls = 0;
   int pauseCalls = 0;
   int seekCalls = 0;
+  int setUrlCalls = 0;
   String? lastUrl;
   bool _playing = false;
   Duration _position = Duration.zero;
@@ -698,6 +1150,7 @@ class _FakeAudioController implements PlayerAudioController {
 
   @override
   Future<void> setUrl(String url) async {
+    setUrlCalls++;
     lastUrl = url;
     _playerStateController.add(
       const AudioPlaybackState(
@@ -750,6 +1203,25 @@ class _FakeAudioController implements PlayerAudioController {
     );
   }
 
+  void emitPosition(Duration position) {
+    _position = position;
+    _positionController.add(position);
+  }
+
+  void emitDuration(Duration? duration) {
+    _durationController.add(duration);
+  }
+
+  void emitState({
+    required bool playing,
+    required just_audio.ProcessingState processingState,
+  }) {
+    _playing = playing;
+    _playerStateController.add(
+      AudioPlaybackState(playing: playing, processingState: processingState),
+    );
+  }
+
   void emitError(Object error) {
     _playing = false;
     _playerStateController.addError(error);
@@ -796,11 +1268,13 @@ class _PlaybackNotificationUpdate {
   final Song? currentSong;
   final bool isCurrentSongLiked;
   final bool isPlaying;
+  final Duration duration;
 
   const _PlaybackNotificationUpdate({
     required this.currentSong,
     required this.isCurrentSongLiked,
     required this.isPlaying,
+    required this.duration,
   });
 }
 
@@ -838,6 +1312,7 @@ class _FakePlaybackNotificationController
         currentSong: currentSong,
         isCurrentSongLiked: isCurrentSongLiked,
         isPlaying: isPlaying,
+        duration: duration,
       ),
     );
   }

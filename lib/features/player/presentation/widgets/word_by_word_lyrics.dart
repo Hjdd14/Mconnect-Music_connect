@@ -7,6 +7,7 @@ class WordByWordLine extends StatelessWidget {
   final LyricsLine line;
   final Duration currentPosition;
   final bool isCurrentLine;
+  final Key? primaryKey;
   final VoidCallback? onTap;
 
   const WordByWordLine({
@@ -14,6 +15,7 @@ class WordByWordLine extends StatelessWidget {
     required this.line,
     required this.currentPosition,
     required this.isCurrentLine,
+    this.primaryKey,
     this.onTap,
   });
 
@@ -27,6 +29,7 @@ class WordByWordLine extends StatelessWidget {
           children: [
             Text(
               line.text,
+              key: line.text.trim().isNotEmpty ? primaryKey : null,
               style: TextStyle(
                 fontSize: isCurrentLine ? 20 : 16,
                 fontWeight: isCurrentLine ? FontWeight.bold : FontWeight.normal,
@@ -49,6 +52,7 @@ class WordByWordLine extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           RichText(
+            key: line.text.trim().isNotEmpty ? primaryKey : null,
             textAlign: TextAlign.center,
             text: TextSpan(
               style: TextStyle(
@@ -58,7 +62,8 @@ class WordByWordLine extends StatelessWidget {
               ),
               children: words.map((w) {
                 final isPlayed = currentPosition >= w.start + w.duration;
-                final isPlaying = currentPosition >= w.start &&
+                final isPlaying =
+                    currentPosition >= w.start &&
                     currentPosition < w.start + w.duration;
                 final color = isPlayed || isPlaying
                     ? Theme.of(context).colorScheme.primary
@@ -66,10 +71,7 @@ class WordByWordLine extends StatelessWidget {
 
                 return TextSpan(
                   text: w.word,
-                  style: TextStyle(
-                    color: color,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(color: color, fontWeight: FontWeight.bold),
                 );
               }).toList(),
             ),
