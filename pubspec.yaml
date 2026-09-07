@@ -1,7 +1,7 @@
 name: mconnect
 description: "Multi-platform music aggregator"
 publish_to: 'none'
-version: 1.2.4+5
+version: 1.2.5+6
 
 environment:
   sdk: ^3.10.3

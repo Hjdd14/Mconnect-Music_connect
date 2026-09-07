@@ -183,6 +183,10 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   int _fadeGeneration = 0;
   ProcessingState _lastProcessingState = ProcessingState.idle;
   DateTime? _lastProcessingStateChangedAt;
+  bool? _lastLoggedPlaying;
+  ProcessingState _lastLoggedProcessingState = ProcessingState.idle;
+  bool _hasLoggedPlayerState = false;
+  DateTime? _lastVolumeWriteAt;
   Duration _lastPlaybackHealthPosition = Duration.zero;
   DateTime? _lastPlaybackHealthPositionChangedAt;
   DateTime? _playbackHealthGraceUntil;
@@ -461,6 +465,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
   Future<void> _checkPlaybackHealth() async {
     if (!mounted) return;
+    await _ensurePlaybackVolume();
     if (!_canCheckPlaybackHealth()) {
       _resetPlaybackHealthWindow(applyGrace: false);
       return;
@@ -492,6 +497,38 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         ? 'processing_${_lastProcessingState.name}'
         : 'position_stalled';
     await _recoverStalledOnlinePlayback(reason);
+  }
+
+  // 音量守护：健康监测 tick 里把残留在非 1.0 的播放器音量拉回满音量，
+  // 避免淡入淡出被打断等泄漏让后台播放只走进度没有声音。
+  Future<void> _ensurePlaybackVolume() async {
+    if (!mounted) return;
+    final controller = _audioController;
+    if (controller == null) return;
+    if (state.currentSong == null || !state.isPlaying) return;
+    if (state.isTransitioning ||
+        _isSwitchingQuality ||
+        _isRecoveringPlayback ||
+        _restoredSourceNeedsLoad) {
+      return;
+    }
+    final current = controller.volume;
+    if (current >= 1.0) return;
+    if (_fadeEnabled) {
+      final lastWriteAt = _lastVolumeWriteAt;
+      if (lastWriteAt != null &&
+          _now().difference(lastWriteAt) <
+              _fadeDuration + const Duration(seconds: 1)) {
+        // 正在淡入淡出的合法非满音量窗口，不干预，避免顶掉淡入淡出。
+        return;
+      }
+    }
+    DiagnosticsService.instance.record(
+      'player',
+      'volume_watchdog_restore',
+      data: {'volume': current, 'fade_enabled': _fadeEnabled},
+    );
+    await _safeSetVolume(1);
   }
 
   Future<void> _recoverStalledOnlinePlayback(String reason) async {
@@ -651,6 +688,21 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         (playerState) {
           if (!mounted) return;
           if (!identical(controller, _audioController)) return;
+          if (!_hasLoggedPlayerState ||
+              _lastLoggedPlaying != playerState.playing ||
+              _lastLoggedProcessingState != playerState.processingState) {
+            _hasLoggedPlayerState = true;
+            _lastLoggedPlaying = playerState.playing;
+            _lastLoggedProcessingState = playerState.processingState;
+            DiagnosticsService.instance.record(
+              'player',
+              'player_state',
+              data: {
+                'playing': playerState.playing,
+                'processing_state': playerState.processingState.name,
+              },
+            );
+          }
           if (playerState.processingState != _lastProcessingState) {
             _lastProcessingState = playerState.processingState;
             _lastProcessingStateChangedAt = _now();
@@ -828,12 +880,25 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   }
 
   Future<void> _safeSetVolume(double volume) async {
+    final target = volume.clamp(0.0, 1.0);
     try {
       await _ensureAudioController()
-          .setVolume(volume.clamp(0.0, 1.0))
+          .setVolume(target)
           .timeout(const Duration(milliseconds: 300));
-    } catch (e) {
+      _lastVolumeWriteAt = _now();
+      DiagnosticsService.instance.record(
+        'player',
+        'volume_set',
+        data: {'volume': target},
+      );
+    } catch (e, s) {
       debugPrint('PlayerNotifier setVolume failed: $e');
+      DiagnosticsService.instance.recordError(
+        'player.setVolume',
+        e,
+        s,
+        data: {'volume': target},
+      );
     }
   }
 

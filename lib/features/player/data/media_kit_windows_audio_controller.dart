@@ -42,6 +42,7 @@ class MediaKitWindowsAudioController implements PlayerAudioController {
   bool _playing = false;
   bool _buffering = false;
   bool _completed = false;
+  double _volume = 1.0;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
 
@@ -62,6 +63,9 @@ class MediaKitWindowsAudioController implements PlayerAudioController {
 
   @override
   Duration get position => _backend?.position ?? _position;
+
+  @override
+  double get volume => _volume;
 
   @override
   Stream<Duration> get positionStream => _positionController.stream;
@@ -120,6 +124,7 @@ class MediaKitWindowsAudioController implements PlayerAudioController {
   @override
   Future<void> setVolume(double volume) {
     final backend = _ensureBackend();
+    _volume = volume.clamp(0.0, 1.0);
     return backend.setVolume(volume.clamp(0.0, 1.0) * 100);
   }
 

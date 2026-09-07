@@ -1078,6 +1078,169 @@ void main() {
       expect(notifier.state.error, contains('Playback stalled repeatedly'));
     },
   );
+group('diagnostics instrumentation', () {
+    late Directory tempDir;
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('mconnect_player_diag_');
+      await DiagnosticsService.instance.initializeForTest(tempDir);
+    });
+
+    tearDown(() async {
+      await DiagnosticsService.instance.resetForTest();
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+
+    test('volume writes are recorded to diagnostics', () async {
+      final audio = _FakeAudioController();
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+      );
+      addTearDown(notifier.dispose);
+
+      notifier.setFadeOptions(
+        enabled: false,
+        duration: const Duration(milliseconds: 300),
+      );
+      await pumpEventQueue();
+
+      expect(
+        DiagnosticsService.instance.recentEvents.any(
+          (e) => e.type == 'player' && e.message.contains('volume_set'),
+        ),
+        isTrue,
+      );
+    });
+
+    test('failed volume writes are recorded as errors', () async {
+      final audio = _FakeAudioController()..failOnSetVolume = true;
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+      );
+      addTearDown(notifier.dispose);
+
+      notifier.setFadeOptions(
+        enabled: false,
+        duration: const Duration(milliseconds: 300),
+      );
+      await pumpEventQueue();
+
+      expect(
+        DiagnosticsService.instance.recentEvents.any(
+          (e) =>
+              e.type == 'error' &&
+              e.message.contains('setVolume'),
+        ),
+        isTrue,
+      );
+    });
+
+    test('player state changes are recorded once per transition', () async {
+      final audio = _FakeAudioController();
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        platformResolver: (_) => _FakeMusicPlatform(),
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+      );
+      addTearDown(notifier.dispose);
+
+      await notifier.playSong(_song('state-log'));
+      audio.emitState(
+        playing: true,
+        processingState: just_audio.ProcessingState.ready,
+      );
+      await pumpEventQueue();
+      // 相同状态重复上报不应产生第二条记录
+      audio.emitState(
+        playing: true,
+        processingState: just_audio.ProcessingState.ready,
+      );
+      await pumpEventQueue();
+      audio.emitState(
+        playing: false,
+        processingState: just_audio.ProcessingState.ready,
+      );
+      await pumpEventQueue();
+
+      final states = DiagnosticsService.instance.recentEvents
+          .where((e) => e.type == 'player' && e.message.contains('player_state'))
+          .toList();
+      expect(
+        states.any((e) => e.message.contains('"playing":true')),
+        isTrue,
+      );
+      expect(
+        states.any((e) => e.message.contains('"playing":false')),
+        isTrue,
+      );
+    });
+
+    test('Android health check restores stale sub-unit volume', () async {
+      PlatformUtils.setDebugOverride(AppPlatform.android);
+      addTearDown(() => PlatformUtils.setDebugOverride(null));
+      final audio = _FakeAudioController();
+      final platform = _FakeMusicPlatform();
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        audioControllerFactory: () => _FakeAudioController(),
+        platformResolver: (_) => platform,
+        playbackHealthCheckInterval: Duration.zero,
+        playbackStartupGracePeriod: Duration.zero,
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+      );
+      addTearDown(notifier.dispose);
+
+      await notifier.playSong(_song('volume-ok'));
+      audio.emitPosition(const Duration(seconds: 20));
+      await pumpEventQueue();
+      // 模拟音量被外部路径压到 0.3（绕过 notifier 直接写播放器）。
+      await audio.setVolume(0.3);
+      await pumpEventQueue();
+
+      await notifier.runPlaybackHealthCheckForTest();
+
+      expect(audio.volume, 1.0);
+      expect(audio.volumeChanges.contains(1.0), isTrue);
+      expect(
+        DiagnosticsService.instance.recentEvents.any(
+          (e) =>
+              e.type == 'player' &&
+              e.message.contains('volume_watchdog_restore'),
+        ),
+        isTrue,
+      );
+    });
+
+    test('Android health check leaves healthy volume untouched', () async {
+      PlatformUtils.setDebugOverride(AppPlatform.android);
+      addTearDown(() => PlatformUtils.setDebugOverride(null));
+      final audio = _FakeAudioController();
+      final platform = _FakeMusicPlatform();
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        audioControllerFactory: () => _FakeAudioController(),
+        platformResolver: (_) => platform,
+        playbackHealthCheckInterval: Duration.zero,
+        playbackStartupGracePeriod: Duration.zero,
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+      );
+      addTearDown(notifier.dispose);
+
+      await notifier.playSong(_song('volume-healthy'));
+      audio.emitPosition(const Duration(seconds: 20));
+      await pumpEventQueue();
+
+      await notifier.runPlaybackHealthCheckForTest();
+
+      // 默认音量已是 1.0，不应产生新的 setVolume 调用。
+      expect(audio.volumeChanges, isEmpty);
+      expect(audio.volume, 1.0);
+    });
+  });
 }
 
 Song _song(
@@ -1124,11 +1287,17 @@ class _FakeAudioController implements PlayerAudioController {
 
   _FakeAudioController({this.hangOnStop = false, this.hangOnSeek = false});
 
+  bool failOnSetVolume = false;
+  double _volume = 1.0;
+
   @override
   bool get playing => _playing;
 
   @override
   Duration get position => _position;
+
+  @override
+  double get volume => _volume;
 
   @override
   Stream<Duration> get positionStream => _positionController.stream;
@@ -1190,6 +1359,8 @@ class _FakeAudioController implements PlayerAudioController {
 
   @override
   Future<void> setVolume(double volume) async {
+    if (failOnSetVolume) throw StateError('setVolume failed');
+    _volume = volume;
     volumeChanges.add(volume);
   }
 

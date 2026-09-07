@@ -8,6 +8,7 @@ import 'package:just_audio/just_audio.dart' as just_audio;
 import '../../../core/diagnostics/diagnostics_service.dart';
 import '../../../core/platform/platform_utils.dart';
 import '../../../models/song.dart';
+import 'audio_focus_diagnostics.dart';
 import 'player_audio_controller.dart';
 
 typedef PlaybackCommand = Future<void> Function();
@@ -91,6 +92,7 @@ class AudioServicePlayerController
   final MconnectAudioHandler _handler;
   final PlayerAudioController Function() _audioControllerFactory;
   PlayerAudioController? _audioController;
+  AudioFocusDiagnosticsObserver? _focusObserver;
   bool _initialized = false;
 
   PlayerAudioController _ensureAudioController() {
@@ -108,6 +110,10 @@ class AudioServicePlayerController
     try {
       final session = await AudioSession.instance;
       await session.configure(const AudioSessionConfiguration.music());
+      _focusObserver = AudioFocusDiagnosticsObserver(
+        interruptionStream: session.interruptionEventStream,
+        becomingNoisyStream: session.becomingNoisyEventStream,
+      )..start();
       await AudioService.init(
         builder: () => _handler,
         config: const AudioServiceConfig(
@@ -162,6 +168,9 @@ class AudioServicePlayerController
   Duration get position => _ensureAudioController().position;
 
   @override
+  double get volume => _ensureAudioController().volume;
+
+  @override
   Stream<Duration> get positionStream =>
       _ensureAudioController().positionStream;
 
@@ -206,6 +215,8 @@ class AudioServicePlayerController
 
   @override
   Future<void> dispose() async {
+    await _focusObserver?.dispose();
+    _focusObserver = null;
     final controller = _audioController;
     _audioController = null;
     _handler.bindAudioController(null);

@@ -1,8 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart' as just_audio;
+import 'package:mconnect/core/diagnostics/diagnostics_service.dart';
+import 'package:mconnect/features/player/data/audio_focus_diagnostics.dart';
 import 'package:mconnect/features/player/data/playback_notification_service.dart';
 import 'package:mconnect/features/player/presentation/providers/player_provider.dart';
 import 'package:mconnect/models/artist.dart';
@@ -284,6 +288,98 @@ void main() {
       expect(handler.mediaItem.value?.duration, const Duration(minutes: 3));
     },
   );
+
+  group('audio focus diagnostics', () {
+    late Directory tempDir;
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('mconnect_focus_diag_');
+      await DiagnosticsService.instance.initializeForTest(tempDir);
+    });
+
+    tearDown(() async {
+      await DiagnosticsService.instance.resetForTest();
+      if (await tempDir.exists()) {
+        await tempDir.delete(recursive: true);
+      }
+    });
+
+    test('records interruption begin/end and becoming noisy events',
+        () async {
+          final interruptions =
+              StreamController<AudioInterruptionEvent>.broadcast();
+          final noisy = StreamController<void>.broadcast();
+          final observer = AudioFocusDiagnosticsObserver(
+            interruptionStream: interruptions.stream,
+            becomingNoisyStream: noisy.stream,
+          );
+          observer.start();
+
+          interruptions.add(
+            AudioInterruptionEvent(true, AudioInterruptionType.pause),
+          );
+          interruptions.add(
+            AudioInterruptionEvent(false, AudioInterruptionType.pause),
+          );
+          interruptions.add(
+            AudioInterruptionEvent(true, AudioInterruptionType.duck),
+          );
+          noisy.add(null);
+          await pumpEventQueue();
+
+          final messages =
+              DiagnosticsService.instance.recentEvents
+                  .where((e) => e.type == 'audio_focus')
+                  .map((e) => e.message)
+                  .toList();
+          expect(
+            messages.any(
+              (m) => m.contains('interruption_begin') && m.contains('pause'),
+            ),
+            isTrue,
+          );
+          expect(
+            messages.any(
+              (m) => m.contains('interruption_end') && m.contains('pause'),
+            ),
+            isTrue,
+          );
+          expect(
+            messages.any(
+              (m) => m.contains('interruption_begin') && m.contains('duck'),
+            ),
+            isTrue,
+          );
+          expect(messages.any((m) => m.contains('becoming_noisy')), isTrue);
+
+          await observer.dispose();
+        });
+
+    test('stops logging after dispose', () async {
+      final interruptions =
+          StreamController<AudioInterruptionEvent>.broadcast();
+      final noisy = StreamController<void>.broadcast();
+      final observer = AudioFocusDiagnosticsObserver(
+        interruptionStream: interruptions.stream,
+        becomingNoisyStream: noisy.stream,
+      );
+      observer.start();
+      await observer.dispose();
+
+      interruptions.add(
+        AudioInterruptionEvent(true, AudioInterruptionType.pause),
+      );
+      noisy.add(null);
+      await pumpEventQueue();
+
+      expect(
+        DiagnosticsService.instance.recentEvents.where(
+          (e) => e.type == 'audio_focus',
+        ),
+        isEmpty,
+      );
+    });
+  });
 }
 
 Song _song(String id, {String? name, Duration duration = Duration.zero}) =>
@@ -301,6 +397,7 @@ class _FakeHandlerAudioController implements PlayerAudioController {
   final _playerStateController =
       StreamController<AudioPlaybackState>.broadcast();
   bool _playing = false;
+  double _volume = 1.0;
   Duration _position = Duration.zero;
 
   @override
@@ -308,6 +405,9 @@ class _FakeHandlerAudioController implements PlayerAudioController {
 
   @override
   Duration get position => _position;
+
+  @override
+  double get volume => _volume;
 
   @override
   Stream<Duration> get positionStream => _positionController.stream;

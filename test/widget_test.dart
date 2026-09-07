@@ -776,6 +776,9 @@ class _IdleAudioController implements PlayerAudioController {
   Duration get position => Duration.zero;
 
   @override
+  double get volume => 1.0;
+
+  @override
   Stream<Duration> get positionStream => _positionController.stream;
 
   @override

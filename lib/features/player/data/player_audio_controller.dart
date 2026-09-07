@@ -19,6 +19,7 @@ class AudioPlaybackState {
 abstract class PlayerAudioController {
   bool get playing;
   Duration get position;
+  double get volume;
   Stream<Duration> get positionStream;
   Stream<Duration?> get durationStream;
   Stream<AudioPlaybackState> get playerStateStream;
@@ -127,6 +128,9 @@ class JustAudioController implements PlayerAudioController {
 
   @override
   Duration get position => _player.position;
+
+  @override
+  double get volume => _player.volume;
 
   @override
   Stream<Duration> get positionStream => _player.positionStream;
