@@ -397,7 +397,7 @@ class _FakeHandlerAudioController implements PlayerAudioController {
   final _playerStateController =
       StreamController<AudioPlaybackState>.broadcast();
   bool _playing = false;
-  double _volume = 1.0;
+  final double _volume = 1.0;
   Duration _position = Duration.zero;
 
   @override

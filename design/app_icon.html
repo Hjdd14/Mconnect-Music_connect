@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Mconnect 图标 · 设计稿与预览</title>
+<style>
+  :root {
+    /* Brand tokens, taken from the app itself:
+       - seed colour: lib/core/theme/app_theme.dart  (0xFFE91E63)
+       - adaptive background: pubspec.yaml           (#101522) */
+    --brand:        #E91E63;
+    --brand-soft:   #FF6E9C;
+    --bg-outer:     #0B1020;
+    --bg-inner:     #171A38;
+    --ring-blue:    #7FA8FF;
+    --ring-green:   #2ED6A0;
+    --ring-red:     #F4566B;
+    --accent-gold:  #FFB13B;
+    --ink:          #E8EAF6;
+    --ink-dim:      #8B90B5;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: #07080F;
+    color: var(--ink);
+    font: 15px/1.6 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 48px 24px 72px;
+    gap: 40px;
+  }
+
+  h1 { font-size: 20px; font-weight: 650; margin: 0; letter-spacing: .3px; }
+  h2 { font-size: 13px; font-weight: 600; margin: 0 0 14px; letter-spacing: 1.4px;
+       text-transform: uppercase; color: var(--ink-dim); }
+
+  .panel {
+    background: #0E1018;
+    border: 1px solid #1E2233;
+    border-radius: 18px;
+    padding: 28px 32px;
+  }
+
+  /* ---- the master mark: one SVG, scaled everywhere ---- */
+  #mark { width: 320px; height: 320px; display: block; border-radius: 22.5%; }
+
+  .sizes { display: flex; align-items: flex-end; gap: 28px; flex-wrap: wrap; }
+  .size  { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .size svg { display: block; border-radius: 22.5%; }
+  .size span { font-size: 11px; color: var(--ink-dim); letter-spacing: .5px; }
+
+  /* a row of realistic launcher contexts */
+  .contexts { display: flex; gap: 22px; flex-wrap: wrap; }
+  .ctx {
+    width: 92px; height: 92px; border-radius: 26px;
+    display: grid; place-items: center;
+    background: linear-gradient(145deg, #1A1F33, #0C0F1A);
+    border: 1px solid #232840;
+  }
+  .ctx.round { border-radius: 50%; }
+  .ctx.light { background: linear-gradient(145deg, #F3F4F8, #DDE0EA); border-color: #C7CBD8; }
+
+  .notes { max-width: 760px; font-size: 13.5px; color: var(--ink-dim); }
+  .notes b { color: var(--ink); font-weight: 600; }
+  .notes ul { margin: 10px 0 0; padding-left: 20px; }
+  .notes li { margin: 5px 0; }
+  code { background: #14182A; padding: 1.5px 6px; border-radius: 5px;
+         font-size: 12.5px; color: #B9C0E8; }
+</style>
+</head>
+<body>
+
+<h1>Mconnect · 应用图标设计稿</h1>
+
+<!-- =============================================================
+     The master artwork. Everything below reuses this exact SVG, so
+     the previews can never drift from the artwork that ships.
+     ============================================================= -->
+<svg id="mark" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img"
+     aria-label="Mconnect">
+  <defs>
+    <!-- Background: deep navy → violet, the identity the old icon already had -->
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0"   stop-color="#0B1020"/>
+      <stop offset="0.52" stop-color="#171A38"/>
+      <stop offset="1"   stop-color="#2A1B3D"/>
+    </linearGradient>
+
+    <!-- Soft top-left highlight, to keep the plate from reading as flat -->
+    <radialGradient id="glow" cx="0.34" cy="0.24" r="0.78">
+      <stop offset="0"   stop-color="#8E9BFF" stop-opacity="0.34"/>
+      <stop offset="0.55" stop-color="#5B63C8" stop-opacity="0.10"/>
+      <stop offset="1"   stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Vignette, so the mark sits in a lit centre -->
+    <radialGradient id="vig" cx="0.5" cy="0.5" r="0.72">
+      <stop offset="0.55" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1"    stop-color="#000000" stop-opacity="0.42"/>
+    </radialGradient>
+
+    <!-- The M gets a faint vertical fall-off, like brushed metal -->
+    <linearGradient id="mink" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0"   stop-color="#FFFFFF"/>
+      <stop offset="0.72" stop-color="#F2F4FF"/>
+      <stop offset="1"   stop-color="#D8DDF5"/>
+    </linearGradient>
+
+    <filter id="mShadow" x="-25%" y="-15%" width="150%" height="135%">
+      <feDropShadow dx="0" dy="7" stdDeviation="11"
+                    flood-color="#04060F" flood-opacity="0.5"/>
+    </filter>
+
+    <filter id="nodeGlow" x="-120%" y="-120%" width="340%" height="340%">
+      <feGaussianBlur stdDeviation="9" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- ── plate ─────────────────────────────────────────────────── -->
+  <rect width="512" height="512" rx="115" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="115" fill="url(#glow)"/>
+  <rect width="512" height="512" rx="115" fill="url(#vig)"/>
+  <!-- hairline rim: reads as a physical edge without a hard border -->
+  <rect x="1.5" y="1.5" width="509" height="509" rx="113.5"
+        fill="none" stroke="#FFFFFF" stroke-opacity="0.07" stroke-width="3"/>
+
+  <!-- ── record grooves ────────────────────────────────────────
+       Only clean circular arcs. The old mark also carried two
+       straight connector lines and overlapping grey circles;
+       those were dropped because at 48 dp they turned the mark
+       into noise. -->
+  <g fill="none" stroke-linecap="round">
+    <!-- The whole ring set is shifted 16 px left of the M's centre so the single
+         brand node on the red ring's terminus lands in the gap beside the M's
+         right arm instead of on top of it. The first draft parked the node on
+         the letterform, which looked like a smudge.
+         Radii grow from 96 outwards and the M is inset to x 176..320, so no
+         stroke ever crosses the letterform. -->
+    <path d="M 184 180 A 96 96 0 0 1 304 180"
+          stroke="var(--ring-red)"   stroke-width="8"  stroke-opacity="0.95"/>
+    <path d="M 122.8 191.6 A 124 124 0 0 1 357.2 191.6"
+          stroke="var(--ring-green)" stroke-width="9"  stroke-opacity="0.92"/>
+    <path d="M 92  215.4 A 160 160 0 0 1 388  215.4"
+          stroke="var(--ring-blue)"  stroke-width="10" stroke-opacity="0.90"/>
+
+    <!-- lower half, mirrored -->
+    <path d="M 184 332 A 96 96 0 0 0 304 332"
+          stroke="var(--ring-red)"   stroke-width="8"  stroke-opacity="0.95"/>
+    <path d="M 122.8 320.4 A 124 124 0 0 0 357.2 320.4"
+          stroke="var(--ring-green)" stroke-width="9"  stroke-opacity="0.92"/>
+    <path d="M 92  296.6 A 160 160 0 0 0 388  296.6"
+          stroke="var(--ring-blue)"  stroke-width="10" stroke-opacity="0.90"/>
+  </g>
+
+  <!-- ── the M ─────────────────────────────────────────────────
+       A single filled path rather than text: no font dependency, and
+       the counters stay correct at 16 px. It is the one element that
+       must survive every size, so it is the boldest thing here. -->
+  <g filter="url(#mShadow)">
+    <path fill="url(#mink)" fill-rule="evenodd" d="
+      M 176 352
+      L 176 166
+      L 202 166
+      L 256 264
+      L 310 166
+      L 336 166
+      L 336 352
+      L 306 352
+      L 306 242
+      L 261 320
+      L 251 320
+      L 206 242
+      L 206 352
+      Z"/>
+  </g>
+
+  <!-- ── play control, sitting in the M's upper counter ────────
+       Narrower than the first draft so it reads as a control rather
+       than a second, competing shape. -->
+  <path d="M 222 182 L 222 250 L 282 216 Z" fill="var(--accent-gold)"/>
+
+  <!-- ── the single brand node ──────────────────────────────────
+       Exactly one pink accent, on the red ring's right terminus, in the gap
+       right of the M. It echoes the app's seed colour (#E91E63) without
+       adding clutter. -->
+  <g filter="url(#nodeGlow)">
+    <circle cx="304" cy="180" r="14" fill="var(--brand)"/>
+    <circle cx="304" cy="180" r="5.5" fill="#FFFFFF" fill-opacity="0.85"/>
+  </g>
+</svg>
+
+<!-- ===================== 真实尺寸预览 ===================== -->
+<div class="panel">
+  <h2>同一矢量，不同尺寸</h2>
+  <div class="sizes" id="sizeRow"></div>
+</div>
+
+<div class="panel">
+  <h2>启动器情境（深色 / 圆形 / 浅色）</h2>
+  <div class="contexts" id="ctxRow"></div>
+</div>
+
+<!-- ===================== 设计说明 ===================== -->
+<div class="notes">
+  <b>这版相对旧图标的改动</b>
+  <ul>
+    <li>去掉两条斜穿画面的<b>灰色/白色连线</b>——它们在 48 dp 下最像噪点。</li>
+    <li>去掉重叠的灰色圆与多余节点，环线改为<b>精确的同心圆弧</b>，间距均匀。</li>
+    <li>环线加粗、透明度收敛，小尺寸下仍能看出一圈“唱片纹”。</li>
+    <li>M 改为<b>单一填充路径</b>（不依赖字体），笔画更锐利、字腔更干净。</li>
+    <li>新增顶部<b>径向高光</b>与<b>暗角</b>，让底板有体积感而非平涂。</li>
+    <li>品牌粉只保留<b>一个节点</b>，与 <code>#E91E63</code> 呼应，不再与金/绿/蓝抢视线。</li>
+  </ul>
+</div>
+
+<script>
+  // ------------------------------------------------------------------
+  // Preview plumbing only — it clones the master SVG so every preview is
+  // guaranteed to be the same artwork, never a hand-made lookalike.
+  // ------------------------------------------------------------------
+  const master = document.getElementById('mark');
+
+  // ------------------------------------------------------------------
+  // Export modes. Driven by the URL *fragment* rather than a query string,
+  // because `file://` treats `?x` as part of the path and Chrome would then
+  // browse the directory instead of rendering the page.
+  //
+  //   #full     rounded plate, as shipped on Android's legacy icon and the web
+  //   #android  square plate, no corner radius: Android's adaptive mask cuts it
+  //   #fg       two-thirds scale on a transparent field: the adaptive foreground
+  //   (none)    the design sheet with every size preview
+  // ------------------------------------------------------------------
+  const mode = location.hash.replace('#', '') || 'sheet';
+
+  if (mode !== 'sheet') {
+    document.body.style.cssText =
+      'margin:0;padding:0;display:block;background:transparent;min-height:0';
+    for (const el of document.querySelectorAll('body > *')) {
+      if (el !== master) el.remove();
+    }
+    master.style.cssText = 'width:100vw;height:100vh;display:block;border-radius:0';
+
+    if (mode === 'android') {
+      // No corner radius: the launcher mask supplies the shape.
+      for (const r of master.querySelectorAll('rect')) {
+        if (r.hasAttribute('rx')) r.removeAttribute('rx');
+      }
+    }
+
+    if (mode === 'fg') {
+      // Two things have to happen for an adaptive foreground, and the first
+      // draft got the second wrong:
+      //
+      //  1. the plate must go. An adaptive foreground is composited over a
+      //     background layer, so any plate baked into the artwork shows up as a
+      //     dark square around the mask — and a rounded plate leaves black in
+      //     the corners the mask keeps.
+      //  2. the artwork is authored on a 108 dp canvas whose outer third is the
+      //     launcher's mask bleed, so it is scaled to ~2/3 and centred.
+      for (const r of Array.from(master.querySelectorAll(':scope > rect'))) {
+        r.remove();
+      }
+      const art = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      art.setAttribute(
+        'transform',
+        'translate(256 256) scale(0.68) translate(-256 -256)',
+      );
+      for (const node of Array.from(master.children)) {
+        if (node.tagName !== 'defs') art.appendChild(node);
+      }
+      master.appendChild(art);
+    }
+  }
+
+  function cloneMark(size) {
+    const node = master.cloneNode(true);
+    node.removeAttribute('id');
+    node.removeAttribute('style');
+    node.setAttribute('width', size);
+    node.setAttribute('height', size);
+    return node;
+  }
+
+  // 1) size ladder
+  const sizeRow = document.getElementById('sizeRow');
+  for (const s of [512, 256, 128, 64, 48, 32, 24, 16]) {
+    const box = document.createElement('div');
+    box.className = 'size';
+    box.appendChild(cloneMark(s));
+    const label = document.createElement('span');
+    label.textContent = s + 'px';
+    box.appendChild(label);
+    sizeRow.appendChild(box);
+  }
+
+  // 2) launcher contexts, all at a realistic 92 px
+  const ctxRow = document.getElementById('ctxRow');
+  for (const cls of ['', 'round', 'light']) {
+    const tile = document.createElement('div');
+    tile.className = 'ctx ' + cls;
+    tile.appendChild(cloneMark(72));
+    ctxRow.appendChild(tile);
+  }
+</script>
+</body>
+</html>

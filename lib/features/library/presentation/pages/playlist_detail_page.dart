@@ -241,9 +241,9 @@ class _PlaylistHeader extends StatelessWidget {
                     height: 96,
                     fit: BoxFit.cover,
                     memCacheWidth: 192,
-                    placeholder: (_, __) =>
+                    placeholder: (_, _) =>
                         _CoverPlaceholder(color: cs.primaryContainer),
-                    errorWidget: (_, __, ___) =>
+                    errorWidget: (_, _, _) =>
                         _CoverPlaceholder(color: cs.primaryContainer),
                   )
                 : _CoverPlaceholder(color: cs.primaryContainer),

@@ -45,9 +45,8 @@ class SmartPlaylistsNotifier extends StateNotifier<SmartPlaylistsState> {
   final SmartPlaylistRepository _repository;
   late final Future<void> ready;
 
-  SmartPlaylistsNotifier({required SmartPlaylistRepository repository})
-    : _repository = repository,
-      super(const SmartPlaylistsState(isLoading: true)) {
+  SmartPlaylistsNotifier({required this._repository})
+    : super(const SmartPlaylistsState(isLoading: true)) {
     ready = load();
   }
 

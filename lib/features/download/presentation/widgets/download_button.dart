@@ -132,7 +132,7 @@ class DownloadButton extends ConsumerWidget {
                       child: ListView.separated(
                         shrinkWrap: true,
                         itemCount: qualities.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        separatorBuilder: (_, _) => const Divider(height: 1),
                         itemBuilder: (context, index) {
                           final quality = qualities[index];
                           return ListTile(

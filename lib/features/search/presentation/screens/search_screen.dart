@@ -151,7 +151,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                     prefixIcon: const Icon(Icons.search),
                     suffixIcon: ValueListenableBuilder<bool>(
                       valueListenable: _hasText,
-                      builder: (_, hasText, __) => hasText
+                      builder: (_, hasText, _) => hasText
                           ? IconButton(
                               icon: const Icon(Icons.clear),
                               onPressed: _clearSearch,
@@ -286,8 +286,8 @@ class _SongTile extends ConsumerWidget {
                 height: 48,
                 memCacheWidth: 96,
                 fit: BoxFit.cover,
-                placeholder: (_, __) => _ArtPlaceholder(icon: Icons.music_note),
-                errorWidget: (_, __, ___) =>
+                placeholder: (_, _) => _ArtPlaceholder(icon: Icons.music_note),
+                errorWidget: (_, _, _) =>
                     _ArtPlaceholder(icon: Icons.music_note),
               )
             : _ArtPlaceholder(icon: Icons.music_note),
@@ -372,9 +372,9 @@ class _PlaylistTile extends StatelessWidget {
                 height: 48,
                 memCacheWidth: 96,
                 fit: BoxFit.cover,
-                placeholder: (_, __) =>
+                placeholder: (_, _) =>
                     _ArtPlaceholder(icon: Icons.queue_music),
-                errorWidget: (_, __, ___) =>
+                errorWidget: (_, _, _) =>
                     _ArtPlaceholder(icon: Icons.queue_music),
               )
             : _ArtPlaceholder(icon: Icons.queue_music),

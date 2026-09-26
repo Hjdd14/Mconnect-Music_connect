@@ -59,12 +59,10 @@ class SleepTimerNotifier extends StateNotifier<SleepTimerState> {
   Timer? _timer;
 
   SleepTimerNotifier({
-    required PausePlayback pausePlayback,
+    required this._pausePlayback,
     Duration initialDuration = const Duration(minutes: 30),
-    Duration tickInterval = const Duration(seconds: 1),
-  }) : _pausePlayback = pausePlayback,
-       _tickInterval = tickInterval,
-       super(SleepTimerState(duration: initialDuration));
+    this._tickInterval = const Duration(seconds: 1),
+  }) : super(SleepTimerState(duration: initialDuration));
 
   void setDuration(Duration duration) {
     final clamped = duration.inMinutes < 5

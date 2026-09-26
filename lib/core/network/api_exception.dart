@@ -31,7 +31,7 @@ class LyricsNotFoundException extends ApiException {
 class NoVipMembershipException extends ApiException {
   final String platformName;
   NoVipMembershipException(this.platformName)
-      : super(message: '需要开通${platformName}会员');
+      : super(message: '需要开通$platformName会员');
 }
 
 class StoragePermissionDeniedException extends ApiException {

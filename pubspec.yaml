@@ -4,7 +4,12 @@ publish_to: 'none'
 version: 1.2.5+6
 
 environment:
-  sdk: ^3.10.3
+  # 3.13.0 与 Flutter 3.47.5 自带的 Dart 3.13.4 对齐。
+  # 原先的 ^3.10.3 会把包的语言版本钉在 3.10，使 dot-shorthands
+  # (Dart 3.11+ 默认启用) 不可用 —— Flutter 3.47.5 的 SDK 源码
+  # (如 animation_controller.dart / text_painter.dart) 使用了该语法，
+  # 导致 `flutter test` 编译失败。
+  sdk: ^3.13.0
 
 dependencies:
   flutter:
@@ -42,6 +47,9 @@ dependencies:
   cached_network_image: ^3.4.1
   shimmer: ^3.0.0
   flutter_svg: ^2.0.10+1
+  # 液态玻璃（iOS 26）底栏与控件。1.0.0 起有破坏性重命名，
+  # 底栏必须用 GlassTabBar.bottom（GlassBottomBar 已删除）。
+  liquid_glass_widgets: ^1.7.2
 
   # QR Code
   mobile_scanner: ^5.2.0

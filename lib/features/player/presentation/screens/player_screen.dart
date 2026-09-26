@@ -1,5 +1,9 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
+// Flutter 3.47.5 在 material.dart 中新增了 `RepeatMode`
+// (src/widgets/repeating_animation_builder.dart)，与本项目的
+// `RepeatMode` 枚举（player_provider.dart）命名冲突。此处隐藏 Flutter 的
+// 版本，使 `RepeatMode` 唯一解析到本项目定义。
+import 'package:flutter/material.dart' hide RepeatMode;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -113,6 +117,32 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
 
   void _toggleLyrics() {
     setState(() => _showLyrics = !_showLyrics);
+  }
+
+  /// Vertical space the column needs for everything that is **not** the lyrics
+  /// panel: the spacers, title, artist, quality chip, slider, time labels and the
+  /// transport row.
+  ///
+  /// A constant rather than a measurement because it must be known before the
+  /// column is laid out. It only has to be an upper bound: over-reserving shrinks
+  /// the lyrics panel a little, under-reserving clips the transport row — which is
+  /// the bug this guards.
+  static const double _nonLyricsColumnHeight = 470;
+
+  /// Height for the lyrics panel so the whole column fits [availableHeight].
+  ///
+  /// `artworkSize` is the floor rather than a fixed number, because the panel must
+  /// stay taller than the artwork it replaces — that relationship is a product
+  /// contract an existing test asserts, and a fixed floor can undercut it on a
+  /// short viewport (the default test surface is 600 dp tall).
+  ///
+  /// The panel's content is a `ListView`, so shrinking it is safe.
+  static double _lyricsPanelHeight(double availableHeight, double artworkSize) {
+    final remaining = availableHeight - _nonLyricsColumnHeight;
+    final floor = artworkSize + 8;
+    if (remaining < floor) return floor;
+    if (remaining > 400) return 400;
+    return remaining;
   }
 
   @override
@@ -242,14 +272,22 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                   final artworkSize = constraints.maxHeight < 620
                       ? 220.0
                       : 280.0;
-                  final preferredLyricsHeight = constraints.maxHeight < 620
-                      ? 320.0
-                      : 400.0;
-                  final maxLyricsHeight = constraints.maxHeight * 0.58;
-                  final lyricsHeight =
-                      preferredLyricsHeight > maxLyricsHeight
-                      ? maxLyricsHeight
-                      : preferredLyricsHeight;
+                  // The lyrics panel gets whatever is left after the rest of the
+                  // column, capped so it never grows unbounded on a tall screen and
+                  // floored so it stays usable on a short one.
+                  //
+                  // This used to be a flat 400 dp (or 58 % of the height, whichever
+                  // was smaller). On the reporter's ~736 dp-tall device that pushed
+                  // the whole column past the viewport by ~21 dp, and because the
+                  // `SingleChildScrollView` starts at offset 0 the shortfall was cut
+                  // off at the *bottom* — the shuffle/previous/play/next/repeat row
+                  // sank below the screen when lyrics were opened.
+                  //
+                  // The panel's content is a `ListView`, so shrinking it is safe.
+                  final lyricsHeight = _lyricsPanelHeight(
+                    constraints.maxHeight,
+                    artworkSize,
+                  );
                   return SingleChildScrollView(
                     child: ConstrainedBox(
                       constraints: BoxConstraints(
@@ -303,7 +341,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                                   memCacheWidth:
                                                       (artworkSize * 2).round(),
                                                   fit: BoxFit.cover,
-                                                  placeholder: (_, __) =>
+                                                  placeholder: (_, _) =>
                                                       Container(
                                                         width: artworkSize,
                                                         height: artworkSize,
@@ -317,7 +355,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                                           size: 80,
                                                         ),
                                                       ),
-                                                  errorWidget: (_, __, ___) =>
+                                                  errorWidget: (_, _, _) =>
                                                       Container(
                                                         width: artworkSize,
                                                         height: artworkSize,

@@ -11,12 +11,10 @@ import '../../../core/diagnostics/diagnostics_service.dart';
 /// （例如焦点被抢占、duck 后音量未恢复、拔耳机等）。
 class AudioFocusDiagnosticsObserver {
   AudioFocusDiagnosticsObserver({
-    required Stream<AudioInterruptionEvent> interruptionStream,
-    required Stream<void> becomingNoisyStream,
+    required this._interruptionStream,
+    required this._becomingNoisyStream,
     DiagnosticsService? diagnostics,
-  }) : _interruptionStream = interruptionStream,
-       _becomingNoisyStream = becomingNoisyStream,
-       _diagnostics = diagnostics ?? DiagnosticsService.instance;
+  }) : _diagnostics = diagnostics ?? DiagnosticsService.instance;
 
   final Stream<AudioInterruptionEvent> _interruptionStream;
   final Stream<void> _becomingNoisyStream;

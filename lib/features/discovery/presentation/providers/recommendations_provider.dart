@@ -52,11 +52,10 @@ class RecommendationsNotifier extends StateNotifier<RecommendationsState> {
   RecommendationsNotifier({
     List<PlatformType>? supportedTypes,
     MusicPlatform Function(PlatformType)? platformResolver,
-    Duration operationTimeout = const Duration(seconds: 12),
+    this._operationTimeout = const Duration(seconds: 12),
   }) : _supportedTypes = (() =>
            supportedTypes ?? PlatformRegistry.supportedTypes),
        _platformResolver = platformResolver ?? PlatformRegistry.get,
-       _operationTimeout = operationTimeout,
        super(const RecommendationsState());
 
   Future<void> loadRecommendations() async {

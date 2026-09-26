@@ -25,8 +25,20 @@ class AppTheme {
           color: colorScheme.onSurface,
         ),
       ),
-      navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: colorScheme.surface.withValues(alpha: 0.92),
+      navigationBarTheme: const NavigationBarThemeData(
+        // Fully transparent on purpose. The app's scaffold background is already
+        // transparent (see `scaffoldBackgroundColor`), so whatever is behind the
+        // window — the launcher wallpaper, or the user's custom background image
+        // — is the real background. An opaque bar cut that background off in a
+        // rectangle, which is exactly the "背景被切成一块" the user reported.
+        //
+        // `surfaceTintColor` matters as much as `backgroundColor`: Material 3
+        // tints surfaces by elevation, and leaving it set would re-introduce a
+        // translucent fill even with a transparent background colour.
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        shadowColor: Colors.transparent,
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
       ),
       sliderTheme: const SliderThemeData(
@@ -68,8 +80,13 @@ class AppTheme {
           color: colorScheme.onSurface,
         ),
       ),
-      navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: colorScheme.surface.withValues(alpha: 0.9),
+      navigationBarTheme: const NavigationBarThemeData(
+        // Transparent for the same reason as the light theme: the real
+        // background lives behind the window.
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        shadowColor: Colors.transparent,
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
       ),
       sliderTheme: const SliderThemeData(

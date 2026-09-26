@@ -55,10 +55,9 @@ class PlatformPlaylistsNotifier extends StateNotifier<PlatformPlaylistsState> {
   PlatformPlaylistsNotifier({
     List<PlatformType>? supportedTypes,
     MusicPlatform Function(PlatformType)? platformResolver,
-    Duration operationTimeout = const Duration(seconds: 8),
+    this._operationTimeout = const Duration(seconds: 8),
   })  : _supportedTypes = (() => supportedTypes ?? PlatformType.musicServices),
         _platformResolver = platformResolver ?? PlatformRegistry.get,
-        _operationTimeout = operationTimeout,
         super(const PlatformPlaylistsState());
 
   Future<void> load() async {

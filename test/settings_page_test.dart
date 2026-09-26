@@ -200,6 +200,45 @@ void main() {
     }
   });
 
+  testWidgets(
+    'appearance settings page exposes the ui style switch',
+    (tester) async {
+      await tester.pumpWidget(
+        const ProviderScope(child: MaterialApp(home: SettingsAppearancePage())),
+      );
+
+      expect(find.text('UI 风格'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('ui-style-tile')),
+        220,
+        scrollable: find.byType(Scrollable).first,
+      );
+
+      expect(find.byKey(const Key('ui-style-tile')), findsOneWidget);
+      expect(find.text('Material 风格'), findsOneWidget);
+      expect(find.text('Miuix 风格'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'appearance settings page keeps the existing controls above the ui style switch',
+    (tester) async {
+      await tester.pumpWidget(
+        const ProviderScope(child: MaterialApp(home: SettingsAppearancePage())),
+      );
+
+      for (final label in const ['跟随系统', '浅色模式', '深色模式', '主题色']) {
+        expect(find.text(label), findsOneWidget);
+      }
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('app-background-tile')),
+        220,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.byKey(const Key('app-background-tile')), findsOneWidget);
+    },
+  );
+
   test('background editor uses a landscape crop shape on wide windows', () {
     final crop = backgroundCropViewportSize(const Size(1200, 800));
 

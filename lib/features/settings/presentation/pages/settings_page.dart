@@ -13,6 +13,7 @@ import 'package:mconnect/core/theme/app_background.dart';
 import 'package:mconnect/core/theme/app_background_provider.dart';
 import 'package:mconnect/core/theme/app_theme.dart';
 import 'package:mconnect/core/theme/theme_provider.dart';
+import 'package:mconnect/core/theme/ui_style_provider.dart';
 import 'package:mconnect/features/auth/presentation/providers/auth_provider.dart';
 import 'package:mconnect/features/audio_effects/presentation/providers/audio_effects_provider.dart';
 import 'package:mconnect/features/audio_effects/presentation/providers/sleep_timer_provider.dart';
@@ -177,6 +178,7 @@ class SettingsAppearancePage extends ConsumerWidget {
     final appBackgroundNotifier = ref.read(
       appBackgroundSettingsProvider.notifier,
     );
+    final uiStyleSettings = ref.watch(uiStyleProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('外观')),
@@ -222,6 +224,13 @@ class SettingsAppearancePage extends ConsumerWidget {
                 context,
               ).showSnackBar(const SnackBar(content: Text('已移除自定义背景')));
             },
+          ),
+          const Divider(),
+          const _SectionHeader('UI 风格'),
+          _UiStyleTile(
+            selected: uiStyleSettings.style,
+            onSelected: (style) =>
+                ref.read(uiStyleProvider.notifier).setStyle(style),
           ),
         ],
       ),
@@ -1262,6 +1271,39 @@ class _ThemeTile extends StatelessWidget {
           ? Icon(Icons.check, color: Theme.of(context).colorScheme.primary)
           : null,
       onTap: onTap,
+    );
+  }
+}
+
+/// Material / Miuix switch for the app chrome.
+///
+/// Mirrors [_ThemeTile]'s interaction exactly; it is appended after the
+/// existing appearance controls and leaves their structure, keys and copy
+/// untouched.
+class _UiStyleTile extends StatelessWidget {
+  final UiStyle selected;
+  final ValueChanged<UiStyle> onSelected;
+
+  const _UiStyleTile({required this.selected, required this.onSelected});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      key: const Key('ui-style-tile'),
+      children: [
+        _ThemeTile(
+          title: 'Material 风格',
+          icon: Icons.widgets_outlined,
+          selected: selected == UiStyle.material,
+          onTap: () => onSelected(UiStyle.material),
+        ),
+        _ThemeTile(
+          title: 'Miuix 风格',
+          icon: Icons.auto_awesome_mosaic_outlined,
+          selected: selected == UiStyle.miuix,
+          onTap: () => onSelected(UiStyle.miuix),
+        ),
+      ],
     );
   }
 }

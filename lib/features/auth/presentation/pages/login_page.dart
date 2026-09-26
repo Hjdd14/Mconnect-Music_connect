@@ -203,10 +203,13 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     final platformColor = _platformColor();
     final cs = Theme.of(context).colorScheme;
 
-    // Phone login is available for Netease and Kugou
-    final supportsPhoneLogin =
-        widget.platform == PlatformType.netease ||
-        widget.platform == PlatformType.kugou;
+    // Phone-code login is offered for Kugou only.
+    //
+    // It used to be offered for Netease too. That entry point is deliberately gone,
+    // so Netease logs in by QR code only. The platform layer still implements
+    // `sendPhoneCode` / `loginByPhone` and is untouched — this only removes the way
+    // to reach it, which is why re-enabling it is a one-line change here.
+    final supportsPhoneLogin = widget.platform == PlatformType.kugou;
     // QR login is available for all registered platforms.
     final supportsQrLogin =
         widget.platform == PlatformType.netease ||

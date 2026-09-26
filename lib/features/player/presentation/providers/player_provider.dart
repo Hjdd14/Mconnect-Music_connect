@@ -204,42 +204,33 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     MusicPlatform Function(PlatformType)? platformResolver,
     PlayerAudioController Function()? audioControllerFactory,
     Duration audioOperationTimeout = const Duration(seconds: 10),
-    Duration audioDisposeTimeout = const Duration(seconds: 3),
+    this._audioDisposeTimeout = const Duration(seconds: 3),
     Duration? qualitySwitchTimeout,
-    PlayerPlaybackMemoryStore playbackMemoryStore =
-        const NoopPlayerPlaybackMemoryStore(),
-    Duration playbackMemorySaveInterval = const Duration(seconds: 5),
+    this._playbackMemoryStore = const NoopPlayerPlaybackMemoryStore(),
+    this._playbackMemorySaveInterval = const Duration(seconds: 5),
     playback_notification.PlaybackNotificationController?
     notificationController,
     PlaybackKeepAliveController? keepAliveController,
     SongLikeResolver? isSongLiked,
-    SongLikeToggle? toggleSongLike,
-    Duration playbackHealthCheckInterval = const Duration(seconds: 5),
-    Duration playbackStallThreshold = const Duration(seconds: 12),
-    Duration playbackRecoveryCooldown = const Duration(seconds: 30),
-    Duration playbackStartupGracePeriod = const Duration(seconds: 8),
+    this._toggleSongLike,
+    this._playbackHealthCheckInterval = const Duration(seconds: 5),
+    this._playbackStallThreshold = const Duration(seconds: 12),
+    this._playbackRecoveryCooldown = const Duration(seconds: 30),
+    this._playbackStartupGracePeriod = const Duration(seconds: 8),
     DateTime Function()? now,
   }) : _audioController = audioController,
        _platformResolver = platformResolver ?? PlatformRegistry.get,
        _audioControllerFactory =
            audioControllerFactory ?? defaultPlayerAudioControllerFactory,
        _audioOperationTimeout = audioOperationTimeout,
-       _audioDisposeTimeout = audioDisposeTimeout,
        _qualitySwitchTimeout = qualitySwitchTimeout ?? audioOperationTimeout,
-       _playbackHealthCheckInterval = playbackHealthCheckInterval,
-       _playbackStallThreshold = playbackStallThreshold,
-       _playbackRecoveryCooldown = playbackRecoveryCooldown,
-       _playbackStartupGracePeriod = playbackStartupGracePeriod,
        _now = now ?? DateTime.now,
-       _playbackMemoryStore = playbackMemoryStore,
-       _playbackMemorySaveInterval = playbackMemorySaveInterval,
        _notificationController =
            notificationController ?? defaultPlaybackNotificationController(),
        _keepAliveController =
            keepAliveController ??
            MethodChannelPlaybackKeepAliveController.instance,
        _isSongLiked = isSongLiked ?? ((_) => false),
-       _toggleSongLike = toggleSongLike,
        super(const PlayerState()) {
     _notificationController.attach(
       playback_notification.PlaybackNotificationActions(
@@ -1644,7 +1635,7 @@ final playerProvider = StateNotifierProvider<PlayerNotifier, PlayerState>((
   );
   ref.listen<List<Song>>(
     likesProvider.select((state) => state.songs),
-    (_, __) => notifier.refreshNotificationState(),
+    (_, _) => notifier.refreshNotificationState(),
   );
   return notifier;
 });

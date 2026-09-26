@@ -723,6 +723,72 @@ void main() {
     );
     expect(lyricsSize.height, greaterThan(artworkSize.height));
   });
+
+  testWidgets('opening lyrics never pushes the transport row off screen', (
+    tester,
+  ) async {
+    // The lyrics panel used to be a flat 400 dp (or 58 % of the height). On a
+    // ~736 dp-tall device that made the column ~21 dp taller than the viewport, and
+    // because the `SingleChildScrollView` sits at offset 0 the shortfall was cut off
+    // at the *bottom* — opens lyrics and the
+    // shuffle/previous/play/next/repeat row sank below the screen.
+    //
+    // Sizes here are the reporter's device class plus tighter ones.
+    for (final height in [700.0, 736.0, 780.0, 840.0]) {
+      tester.view.devicePixelRatio = 1.0;
+      tester.view.physicalSize = Size(414, height);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            playerProvider.overrideWith((ref) => _SeededPlayerNotifier()),
+          ],
+          child: const MaterialApp(home: PlayerScreen()),
+        ),
+      );
+      // Deliberately not `pumpAndSettle`: the lyrics panel shows a spinner while it
+      // loads, so there is always something animating and settling never completes.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      await tester.tap(find.byKey(const ValueKey('player_middle_toggle')));
+      await tester.pump(const Duration(milliseconds: 400));
+
+      // Nothing may be left to scroll: a non-zero extent means part of the column
+      // is outside the viewport, which is the defect.
+      final scrollable = tester.state<ScrollableState>(
+        find.byType(Scrollable).first,
+      );
+      expect(
+        scrollable.position.maxScrollExtent,
+        0,
+        reason: 'at ${height}dp the column must fit without scrolling',
+      );
+
+      for (final icon in [
+        Icons.shuffle,
+        Icons.skip_previous,
+        Icons.skip_next,
+        Icons.repeat,
+      ]) {
+        final finder = find.byIcon(icon);
+        expect(
+          finder,
+          findsWidgets,
+          reason: '$icon must still be built at ${height}dp',
+        );
+        final rect = tester.getRect(finder.first);
+        expect(
+          rect.bottom,
+          lessThanOrEqualTo(height),
+          reason: '$icon must stay on screen at ${height}dp',
+        );
+        expect(rect.top, greaterThanOrEqualTo(0));
+      }
+    }
+  });
 }
 
 const _song = Song(

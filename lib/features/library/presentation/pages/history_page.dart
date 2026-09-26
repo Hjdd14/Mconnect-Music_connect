@@ -154,7 +154,7 @@ class HistoryPage extends ConsumerWidget {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (dateHeader != null) dateHeader,
+              ?dateHeader,
               _HistoryTile(
                 song: entry.song,
                 time: entry.listenedAt,

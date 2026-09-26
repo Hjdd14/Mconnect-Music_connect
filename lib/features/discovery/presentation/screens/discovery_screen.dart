@@ -204,11 +204,11 @@ class _RecommendationGrid extends ConsumerWidget {
                             fit: BoxFit.cover,
                             width: double.infinity,
                             memCacheWidth: 600,
-                            placeholder: (_, __) => Container(
+                            placeholder: (_, _) => Container(
                               color: color.withValues(alpha: 0.1),
                               child: Icon(Icons.music_note, color: color),
                             ),
-                            errorWidget: (_, __, ___) => Container(
+                            errorWidget: (_, _, _) => Container(
                               color: color.withValues(alpha: 0.1),
                               child: Icon(Icons.music_note, color: color),
                             ),

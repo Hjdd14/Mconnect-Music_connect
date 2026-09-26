@@ -77,7 +77,7 @@ class QualityBottomSheet extends ConsumerWidget {
               padding: EdgeInsets.all(24),
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
-            error: (_, __) => Padding(
+            error: (_, _) => Padding(
               padding: const EdgeInsets.all(24),
               child: Text(
                 '加载失败',
@@ -105,7 +105,7 @@ class QualityBottomSheet extends ConsumerWidget {
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: qualities.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
+                separatorBuilder: (_, _) => const Divider(height: 1),
                 itemBuilder: (context, index) {
                   final q = qualities[index];
                   final isSelected = q.level == currentQuality;

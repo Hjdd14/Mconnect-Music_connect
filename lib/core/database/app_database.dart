@@ -72,7 +72,7 @@ class Playlists extends Table {
 
 @DriftAccessor(tables: [Songs, ListeningHistory, UserLikes, LyricsCache, Playlists])
 class SongsDao extends DatabaseAccessor<AppDatabase> with _$SongsDaoMixin {
-  SongsDao(AppDatabase db) : super(db);
+  SongsDao(super.db);
 
   Future<void> insertSong(SongsCompanion song) async {
     await into(songs).insert(song, mode: InsertMode.insertOrReplace);
@@ -109,7 +109,7 @@ class SongsDao extends DatabaseAccessor<AppDatabase> with _$SongsDaoMixin {
 
 @DriftAccessor(tables: [Songs, ListeningHistory])
 class HistoryDao extends DatabaseAccessor<AppDatabase> with _$HistoryDaoMixin {
-  HistoryDao(AppDatabase db) : super(db);
+  HistoryDao(super.db);
 
   Future<void> recordListen(String songId, String platform, {int durationMs = 0}) async {
     await into(listeningHistory).insert(ListeningHistoryCompanion.insert(
@@ -134,7 +134,7 @@ class HistoryDao extends DatabaseAccessor<AppDatabase> with _$HistoryDaoMixin {
 
 @DriftAccessor(tables: [Songs, UserLikes])
 class LikesDao extends DatabaseAccessor<AppDatabase> with _$LikesDaoMixin {
-  LikesDao(AppDatabase db) : super(db);
+  LikesDao(super.db);
 
   Future<void> likeSong(String songId, String platform) async {
     await into(userLikes).insert(
@@ -171,7 +171,7 @@ class LikesDao extends DatabaseAccessor<AppDatabase> with _$LikesDaoMixin {
 
 @DriftAccessor(tables: [LyricsCache])
 class LyricsCacheDao extends DatabaseAccessor<AppDatabase> with _$LyricsCacheDaoMixin {
-  LyricsCacheDao(AppDatabase db) : super(db);
+  LyricsCacheDao(super.db);
 
   Future<String?> getCachedLyrics(String songId, String platform) async {
     final result = await (select(lyricsCache)

@@ -10,26 +10,26 @@ class SessionStorage {
   static const _userPrefix = 'user_';
 
   Future<void> saveCookie(PlatformType platform, String cookie) async {
-    await _storage.write(key: '${_cookiePrefix}${platform.name}', value: cookie);
+    await _storage.write(key: '$_cookiePrefix${platform.name}', value: cookie);
   }
 
   Future<String?> loadCookie(PlatformType platform) async {
-    return _storage.read(key: '${_cookiePrefix}${platform.name}');
+    return _storage.read(key: '$_cookiePrefix${platform.name}');
   }
 
   Future<void> deleteCookie(PlatformType platform) async {
-    await _storage.delete(key: '${_cookiePrefix}${platform.name}');
+    await _storage.delete(key: '$_cookiePrefix${platform.name}');
   }
 
   Future<void> saveUser(PlatformType platform, User user) async {
     await _storage.write(
-      key: '${_userPrefix}${platform.name}',
+      key: '$_userPrefix${platform.name}',
       value: jsonEncode(user.toJson()),
     );
   }
 
   Future<User?> loadUser(PlatformType platform) async {
-    final json = await _storage.read(key: '${_userPrefix}${platform.name}');
+    final json = await _storage.read(key: '$_userPrefix${platform.name}');
     if (json == null) return null;
     try {
       return User.fromJson(jsonDecode(json) as Map<String, dynamic>);
@@ -39,7 +39,7 @@ class SessionStorage {
   }
 
   Future<void> deleteUser(PlatformType platform) async {
-    await _storage.delete(key: '${_userPrefix}${platform.name}');
+    await _storage.delete(key: '$_userPrefix${platform.name}');
   }
 
   Future<void> clearAll() async {

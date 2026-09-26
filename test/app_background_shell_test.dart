@@ -200,30 +200,202 @@ void main() {
     expect(filter, isA<ImageFilter>());
   });
 
-  testWidgets(
-    'player glass surface falls back to theme surface without image',
-    (tester) async {
+  testWidgets('player glass surface falls back to theme surface without image', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const ProviderScope(
+        child: MaterialApp(home: PlayerGlassRouteSurface(child: Text('player'))),
+      ),
+    );
+
+    expect(find.text('player'), findsOneWidget);
+    expect(
+      find.byKey(const Key('player-glass-route-surface')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('player-glass-route-base')), findsOneWidget);
+    expect(
+      find.byKey(const Key('player-glass-background-blur')),
+      findsNothing,
+    );
+    expect(find.byType(Image), findsNothing);
+  });
+
+  group('the background image is painted exactly once', () {
+    testWidgets('a shell with drawImage: false contributes no image', (
+      tester,
+    ) async {
+      // Route shells used to paint their own copy. `appBackgroundImageGeometry`
+      // scales the image to whichever viewport it is handed, and a route shell's
+      // viewport is smaller than the app shell's (the app shell also covers the
+      // Scaffold's bottom inset), so the two copies came out at different sizes —
+      // the "重复 / 缩小 / 黑边" that was reported.
       await tester.pumpWidget(
-        const ProviderScope(
+        ProviderScope(
+          overrides: [
+            appBackgroundSettingsProvider.overrideWith(
+              (ref) => _FixedBackgroundNotifier(_backgroundSettings(imageFile)),
+            ),
+          ],
           child: MaterialApp(
-            home: PlayerGlassRouteSurface(child: Text('player')),
+            home: SizedBox(
+              width: 300,
+              height: 300,
+              child: AppBackgroundShell(
+                drawImage: false,
+                imageBuilder: (_) => const ColoredBox(
+                  key: Key('route-copy-image'),
+                  color: Colors.red,
+                  child: SizedBox.expand(),
+                ),
+                child: const Text('content'),
+              ),
+            ),
           ),
         ),
       );
 
-      expect(find.text('player'), findsOneWidget);
+      expect(find.text('content'), findsOneWidget);
       expect(
-        find.byKey(const Key('player-glass-route-surface')),
+        find.byKey(const Key('app-background-image-frame')),
+        findsNothing,
+        reason: 'a route backing must not paint the image a second time',
+      );
+      expect(find.byKey(const Key('route-copy-image')), findsNothing);
+      // …but it must still be opaque enough to mask the page below it.
+      final base = tester.widget<ColoredBox>(
+        find
+            .ancestor(
+              of: find.text('content'),
+              matching: find.byType(ColoredBox),
+            )
+            .first,
+      );
+      expect(base.color.a, greaterThan(0.8));
+    });
+
+    testWidgets('drawImage: true still paints the image once', (tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            appBackgroundSettingsProvider.overrideWith(
+              (ref) => _FixedBackgroundNotifier(_backgroundSettings(imageFile)),
+            ),
+          ],
+          child: MaterialApp(
+            home: SizedBox(
+              width: 300,
+              height: 300,
+              child: AppBackgroundShell(
+                imageBuilder: (_) => const ColoredBox(
+                  key: Key('app-copy-image'),
+                  color: Colors.red,
+                  child: SizedBox.expand(),
+                ),
+                child: const Text('content'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(
+        find.byKey(const Key('app-background-image-frame')),
         findsOneWidget,
       );
-      expect(find.byKey(const Key('player-glass-route-base')), findsOneWidget);
-      expect(
-        find.byKey(const Key('player-glass-background-blur')),
-        findsNothing,
+      expect(find.byKey(const Key('app-copy-image')), findsOneWidget);
+    });
+
+    testWidgets('the image frame is not painted on a black plate', (
+      tester,
+    ) async {
+      // `Colors.black` behind the image canvas is what showed up as black bars
+      // once a copy was scaled down. Only the real image layer should exist, and
+      // it must not be sitting on black.
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            appBackgroundSettingsProvider.overrideWith(
+              (ref) => _FixedBackgroundNotifier(_backgroundSettings(imageFile)),
+            ),
+          ],
+          child: MaterialApp(
+            home: SizedBox(
+              width: 300,
+              height: 300,
+              child: AppBackgroundShell(
+                imageBuilder: (_) => const ColoredBox(
+                  key: Key('only-image'),
+                  color: Colors.red,
+                  child: SizedBox.expand(),
+                ),
+                child: const Text('content'),
+              ),
+            ),
+          ),
+        ),
       );
-      expect(find.byType(Image), findsNothing);
-    },
-  );
+
+      expect(find.byKey(const Key('app-background-image-frame')), findsOneWidget);
+      expect(find.byKey(const Key('only-image')), findsOneWidget);
+    });
+  });
+
+  group('the player route is liquid glass', () {
+    testWidgets('a glass layer sits over the artwork', (tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            appBackgroundSettingsProvider.overrideWith(
+              (ref) => _FixedBackgroundNotifier(_backgroundSettings(imageFile)),
+            ),
+          ],
+          child: const _PlayerGlassTestApp(),
+        ),
+      );
+
+      // The glass samples what is painted before it, so the artwork must come
+      // first in the stack.
+      expect(find.byKey(const Key('player-glass-liquid-layer')), findsOneWidget);
+
+      final stack = tester.widget<Stack>(
+        find.byKey(const Key('player-glass-route-surface')),
+      );
+      final glassIndex = stack.children.indexWhere(
+        (w) => w is Positioned && w.child is IgnorePointer,
+      );
+      final blurIndex = stack.children.indexWhere(
+        (w) => w is Positioned && w.child is ImageFiltered,
+      );
+      expect(blurIndex, isNonNegative);
+      expect(
+        blurIndex,
+        lessThan(glassIndex),
+        reason: 'the glass must be able to sample the artwork below it',
+      );
+    });
+
+    testWidgets('glass does not need a wrap() ancestor', (tester) async {
+      // `InheritedLiquidGlass.of` and `LiquidGlassScope.of` both return null when
+      // no `LiquidGlassWidgets.wrap` is present, so the player route must render
+      // under a plain `MaterialApp` without throwing — which is also what keeps
+      // `UiStyle.material` working.
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            appBackgroundSettingsProvider.overrideWith(
+              (ref) => _FixedBackgroundNotifier(_backgroundSettings(imageFile)),
+            ),
+          ],
+          child: const _PlayerGlassTestApp(),
+        ),
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('player'), findsOneWidget);
+    });
+  });
 }
 
 AppBackgroundSettings _backgroundSettings(File imageFile) {

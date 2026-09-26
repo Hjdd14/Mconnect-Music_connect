@@ -355,8 +355,8 @@ class _PlaylistCover extends StatelessWidget {
               height: 48,
               fit: BoxFit.cover,
               memCacheWidth: 96,
-              placeholder: (_, __) => placeholder,
-              errorWidget: (_, __, ___) => placeholder,
+              placeholder: (_, _) => placeholder,
+              errorWidget: (_, _, _) => placeholder,
             )
           : placeholder,
     );

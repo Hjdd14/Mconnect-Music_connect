@@ -122,7 +122,7 @@ class DiagnosticsService {
           name,
           data: {
             'elapsed_ms': watch.elapsedMilliseconds,
-            if (data != null) ...data,
+            ...?data,
           },
         );
       }
@@ -141,7 +141,7 @@ class DiagnosticsService {
       data: {
         'error': error.toString(),
         'stack': _compactStack(stack),
-        if (data != null) ...data,
+        ...?data,
       },
     );
   }
