@@ -1,14 +1,19 @@
-# Renders design/app_icon.html to the PNGs the app's icon pipeline consumes.
+# Renders design/app_icon.html to every image asset the app ships.
 #
 #   design/app_icon.html      single source of truth (vector SVG + previews)
 #   assets/icon/app_icon.png  Android legacy + every web size, via flutter_launcher_icons
 #   assets/icon/app_icon_foreground.png
 #                             Android adaptive foreground, via flutter_launcher_icons
+#   assets/images/splash_logo.png
+#                             native splash logo, via flutter_native_splash
 #   windows/runner/resources/app_icon.ico
 #   installer/app_icon.ico
 #
 # Run from the repository root:
 #   pwsh -File design/export_app_icon.ps1
+# then regenerate the derived resources:
+#   dart run flutter_launcher_icons
+#   dart run flutter_native_splash:create
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -38,6 +43,7 @@ function Render([string]$mode, [int]$size, [string]$name) {
 "--- rasterising ---"
 Render 'full'    1024 'app_icon.png'
 Render 'fg'      1024 'app_icon_foreground.png'
+Render 'splash'  1024 'splash_logo.png'
 Render 'android'  512 'plate_square.png'
 Render 'full'     512 'Icon-512.png'
 Render 'full'     192 'Icon-192.png'
@@ -46,6 +52,7 @@ Render 'full'     1024 'maskable.png'
 "--- installing ---"
 Copy-Item (Join-Path $staging 'app_icon.png')            'assets\icon\app_icon.png' -Force
 Copy-Item (Join-Path $staging 'app_icon_foreground.png') 'assets\icon\app_icon_foreground.png' -Force
+Copy-Item (Join-Path $staging 'splash_logo.png')         'assets\images\splash_logo.png' -Force
 Copy-Item (Join-Path $staging 'Icon-512.png')            'web\icons\Icon-512.png' -Force
 Copy-Item (Join-Path $staging 'Icon-192.png')            'web\icons\Icon-192.png' -Force
 Copy-Item (Join-Path $staging 'maskable.png')            'web\icons\Icon-maskable-512.png' -Force
@@ -65,4 +72,6 @@ for d in dests:
 "@ (Join-Path $staging 'app_icon.png') 'windows\runner\resources\app_icon.ico' 'installer\app_icon.ico'
 
 "--- done ---"
-"Next: flutter pub run flutter_launcher_icons   (regenerates Android mipmaps)"
+"Next:"
+"  dart run flutter_launcher_icons          (Android launcher icons)"
+"  dart run flutter_native_splash:create    (native splash)"

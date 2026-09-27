@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Mconnect 图标 · 简约化方案对比</title>
+<style>
+  :root {
+    --brand: #E91E63;
+    --bg-outer: #0B1020;
+    --bg-inner: #1A1A38;
+    --ink: #E8EAF6;
+    --ink-dim: #8B90B5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #07080F; color: var(--ink);
+    font: 14px/1.55 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    padding: 36px 28px 60px;
+  }
+  h1 { font-size: 18px; margin: 0 0 6px; }
+  .sub { color: var(--ink-dim); font-size: 13px; margin-bottom: 26px; }
+
+  .row { display: flex; gap: 26px; flex-wrap: wrap; align-items: flex-start; }
+  .card {
+    background: #0E1018; border: 1px solid #1E2233; border-radius: 16px;
+    padding: 20px; width: 268px;
+  }
+  .card h2 { font-size: 14px; margin: 0 0 4px; }
+  .tag { font-size: 11.5px; color: var(--ink-dim); letter-spacing: .3px; margin-bottom: 14px; }
+  .hero { display: flex; justify-content: center; margin-bottom: 14px; }
+  .hero svg { border-radius: 22.5%; display: block; }
+  .ladder { display: flex; align-items: flex-end; gap: 12px; justify-content: center;
+            padding-top: 12px; border-top: 1px solid #1B1F30; }
+  .ladder div { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .ladder span { font-size: 10px; color: var(--ink-dim); }
+  .ladder svg { display: block; border-radius: 22.5%; }
+  .why { font-size: 12px; color: var(--ink-dim); margin-top: 14px;
+         padding-top: 12px; border-top: 1px solid #1B1F30; }
+  .why b { color: var(--ink); }
+</style>
+</head>
+<body>
+
+<h1>简约化方案对比</h1>
+<div class="sub">
+  三个方案都刻意遵守「单一元素 · 少图层 · 克制渐变」的约束。
+  请重点看每张卡片下方 <b>16 / 24 / 32px</b> 一排——图标的真实试金石。
+</div>
+
+<!-- =====================================================================
+     A. 只剩一个播放三角。一个形状、零文字、零环。
+     ===================================================================== -->
+<svg id="variant-a" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"
+     style="display:none">
+  <defs>
+    <linearGradient id="a-bg" x1="0" y1="0" x2="0.7" y2="1">
+      <stop offset="0" stop-color="#151A30"/>
+      <stop offset="1" stop-color="#0A0D18"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="115" fill="url(#a-bg)"/>
+  <path d="M 214 158 L 214 354 L 372 256 Z" fill="var(--brand)"/>
+</svg>
+
+<!-- =====================================================================
+     B. 白色 M + 一条细环。去掉三角、粉点、暗角、双重描边。
+     ===================================================================== -->
+<svg id="variant-b" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"
+     style="display:none">
+  <defs>
+    <linearGradient id="b-bg" x1="0" y1="0" x2="0.7" y2="1">
+      <stop offset="0" stop-color="#151A30"/>
+      <stop offset="1" stop-color="#0A0D18"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="115" fill="url(#b-bg)"/>
+  <circle cx="256" cy="256" r="150" fill="none"
+          stroke="var(--brand)" stroke-width="10" stroke-opacity="0.85"/>
+  <path fill="#FFFFFF" fill-rule="evenodd" d="
+    M 176 350 L 176 168 L 204 168 L 256 262 L 308 168 L 336 168
+    L 336 350 L 306 350 L 306 246 L 261 320 L 251 320 L 206 246
+    L 206 350 Z"/>
+</svg>
+
+<!-- =====================================================================
+     C. M 本身就是一个播放键：把 M 中央的负形挖成三角。
+         一个形状同时承担品牌与功能，不叠加任何额外元素。
+     ===================================================================== -->
+<svg id="variant-c" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"
+     style="display:none">
+  <defs>
+    <linearGradient id="c-bg" x1="0" y1="0" x2="0.7" y2="1">
+      <stop offset="0" stop-color="#151A30"/>
+      <stop offset="1" stop-color="#0A0D18"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="115" fill="url(#c-bg)"/>
+  <path fill="#FFFFFF" fill-rule="evenodd" d="
+    M 176 350 L 176 168 L 204 168 L 256 262 L 308 168 L 336 168
+    L 336 350 L 306 350 L 306 246 L 261 320 L 251 320 L 206 246
+    L 206 350 Z
+    M 224 192 L 224 248 L 278 220 Z"/>
+</svg>
+
+<div class="row" id="row"></div>
+
+<script>
+  const variants = [
+    {
+      id: 'variant-a',
+      title: 'A · 只有一个播放三角',
+      tag: '1 个形状 · 0 文字 · 0 环',
+      why: '<b>最简约</b>。完全符合“用单一元素表达核心概念”，任何尺寸都清晰。' +
+           '代价：丢掉 M 与“唱片/多平台”的联想。'
+    },
+    {
+      id: 'variant-b',
+      title: 'B · 白色 M + 一条细环',
+      tag: '2 个形状 · 1 色强调',
+      why: '<b>保留品牌辨识</b>。去掉三角、粉点、暗角、外描边与两道彩环，' +
+           '只留一处粉色强调。仍保留了你原本“M + 环”的构图。'
+    },
+    {
+      id: 'variant-c',
+      title: 'C · M 中央挖成播放三角',
+      tag: '1 个形状 · 1 色（白）',
+      why: '<b>一个形状同时是 M 和播放键</b>，不叠加任何额外元素。' +
+           '在“单一元素”原则下最纯粹，同时保住了 M 的品牌锚点。'
+    }
+  ];
+
+  const row = document.getElementById('row');
+
+  for (const v of variants) {
+    const src = document.getElementById(v.id);
+
+    const card = document.createElement('div');
+    card.className = 'card';
+
+    const h2 = document.createElement('h2');
+    h2.textContent = v.title;
+    card.appendChild(h2);
+
+    const tag = document.createElement('div');
+    tag.className = 'tag';
+    tag.textContent = v.tag;
+    card.appendChild(tag);
+
+    const hero = document.createElement('div');
+    hero.className = 'hero';
+    hero.appendChild(clone(src, 200));
+    card.appendChild(hero);
+
+    const ladder = document.createElement('div');
+    ladder.className = 'ladder';
+    for (const s of [48, 32, 24, 16]) {
+      const cell = document.createElement('div');
+      cell.appendChild(clone(src, s));
+      const label = document.createElement('span');
+      label.textContent = s;
+      cell.appendChild(label);
+      ladder.appendChild(cell);
+    }
+    card.appendChild(ladder);
+
+    const why = document.createElement('div');
+    why.className = 'why';
+    why.innerHTML = v.why;
+    card.appendChild(why);
+
+    row.appendChild(card);
+  }
+
+  function clone(src, size) {
+    const node = src.cloneNode(true);
+    node.removeAttribute('id');
+    node.removeAttribute('style');
+    node.setAttribute('width', size);
+    node.setAttribute('height', size);
+    return node;
+  }
+</script>
+</body>
+</html>

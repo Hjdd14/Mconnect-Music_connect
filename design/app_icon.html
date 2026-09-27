@@ -2,200 +2,124 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>Mconnect 图标 · 设计稿与预览</title>
+<title>Mconnect 图标 · 设计稿</title>
 <style>
   :root {
-    /* Brand tokens, taken from the app itself:
-       - seed colour: lib/core/theme/app_theme.dart  (0xFFE91E63)
-       - adaptive background: pubspec.yaml           (#101522) */
-    --brand:        #E91E63;
-    --brand-soft:   #FF6E9C;
-    --bg-outer:     #0B1020;
-    --bg-inner:     #171A38;
-    --ring-blue:    #7FA8FF;
-    --ring-green:   #2ED6A0;
-    --ring-red:     #F4566B;
-    --accent-gold:  #FFB13B;
-    --ink:          #E8EAF6;
-    --ink-dim:      #8B90B5;
+    /* Brand seed, taken from the app: lib/core/theme/app_theme.dart */
+    --brand: #E91E63;
+    --ink: #E8EAF6;
+    --ink-dim: #8B90B5;
   }
-
   * { box-sizing: border-box; }
-
   body {
-    margin: 0;
-    min-height: 100vh;
-    background: #07080F;
-    color: var(--ink);
+    margin: 0; background: #07080F; color: var(--ink);
     font: 15px/1.6 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 48px 24px 72px;
-    gap: 40px;
+    min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; gap: 38px; padding: 46px 24px 70px;
   }
-
-  h1 { font-size: 20px; font-weight: 650; margin: 0; letter-spacing: .3px; }
-  h2 { font-size: 13px; font-weight: 600; margin: 0 0 14px; letter-spacing: 1.4px;
-       text-transform: uppercase; color: var(--ink-dim); }
-
-  .panel {
-    background: #0E1018;
-    border: 1px solid #1E2233;
-    border-radius: 18px;
-    padding: 28px 32px;
-  }
-
-  /* ---- the master mark: one SVG, scaled everywhere ---- */
+  h1 { font-size: 19px; margin: 0; }
+  h2 { font-size: 12.5px; font-weight: 600; margin: 0 0 14px;
+       letter-spacing: 1.4px; text-transform: uppercase; color: var(--ink-dim); }
   #mark { width: 320px; height: 320px; display: block; border-radius: 22.5%; }
-
-  .sizes { display: flex; align-items: flex-end; gap: 28px; flex-wrap: wrap; }
-  .size  { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .panel { background: #0E1018; border: 1px solid #1E2233;
+           border-radius: 18px; padding: 28px 32px; }
+  .sizes { display: flex; align-items: flex-end; gap: 26px; flex-wrap: wrap; }
+  .size { display: flex; flex-direction: column; align-items: center; gap: 10px; }
   .size svg { display: block; border-radius: 22.5%; }
-  .size span { font-size: 11px; color: var(--ink-dim); letter-spacing: .5px; }
-
-  /* a row of realistic launcher contexts */
+  .size span { font-size: 11px; color: var(--ink-dim); }
   .contexts { display: flex; gap: 22px; flex-wrap: wrap; }
-  .ctx {
-    width: 92px; height: 92px; border-radius: 26px;
-    display: grid; place-items: center;
-    background: linear-gradient(145deg, #1A1F33, #0C0F1A);
-    border: 1px solid #232840;
-  }
+  .ctx { width: 92px; height: 92px; border-radius: 26px; display: grid;
+         place-items: center; background: linear-gradient(145deg, #1A1F33, #0C0F1A);
+         border: 1px solid #232840; }
   .ctx.round { border-radius: 50%; }
-  .ctx.light { background: linear-gradient(145deg, #F3F4F8, #DDE0EA); border-color: #C7CBD8; }
-
-  .notes { max-width: 760px; font-size: 13.5px; color: var(--ink-dim); }
+  .ctx.light { background: linear-gradient(145deg, #F3F4F8, #DDE0EA);
+               border-color: #C7CBD8; }
+  .notes { max-width: 780px; font-size: 13.5px; color: var(--ink-dim); }
   .notes b { color: var(--ink); font-weight: 600; }
   .notes ul { margin: 10px 0 0; padding-left: 20px; }
-  .notes li { margin: 5px 0; }
-  code { background: #14182A; padding: 1.5px 6px; border-radius: 5px;
-         font-size: 12.5px; color: #B9C0E8; }
+  .notes li { margin: 6px 0; }
 </style>
 </head>
 <body>
 
 <h1>Mconnect · 应用图标设计稿</h1>
 
-<!-- =============================================================
-     The master artwork. Everything below reuses this exact SVG, so
-     the previews can never drift from the artwork that ships.
-     ============================================================= -->
-<svg id="mark" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img"
-     aria-label="Mconnect">
+<!-- =====================================================================
+     The master artwork. Everything else reuses this exact SVG, so no
+     preview can drift from what actually ships.
+     ===================================================================== -->
+<svg id="mark" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"
+     role="img" aria-label="Mconnect">
   <defs>
-    <!-- Background: deep navy → violet, the identity the old icon already had -->
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0"   stop-color="#0B1020"/>
-      <stop offset="0.52" stop-color="#171A38"/>
-      <stop offset="1"   stop-color="#2A1B3D"/>
+    <!-- One background gradient, two stops: "keep gradients to one or two steps". -->
+    <linearGradient id="bg" x1="0" y1="0" x2="0.65" y2="1">
+      <stop offset="0" stop-color="#161B33"/>
+      <stop offset="1" stop-color="#0A0D18"/>
     </linearGradient>
 
-    <!-- Soft top-left highlight, to keep the plate from reading as flat -->
-    <radialGradient id="glow" cx="0.34" cy="0.24" r="0.78">
-      <stop offset="0"   stop-color="#8E9BFF" stop-opacity="0.34"/>
-      <stop offset="0.55" stop-color="#5B63C8" stop-opacity="0.10"/>
-      <stop offset="1"   stop-color="#000000" stop-opacity="0"/>
-    </radialGradient>
+    <!-- The M carries the three platforms it aggregates. Colours are the ones the
+         app already uses for these platforms (lib/features/auth/presentation/
+         pages/login_page.dart), so the icon and the UI cannot drift apart.
 
-    <!-- Vignette, so the mark sits in a lit centre -->
-    <radialGradient id="vig" cx="0.5" cy="0.5" r="0.72">
-      <stop offset="0.55" stop-color="#000000" stop-opacity="0"/>
-      <stop offset="1"    stop-color="#000000" stop-opacity="0.42"/>
-    </radialGradient>
+         How the bands meet, and why there are five colours rather than three:
 
-    <!-- The M gets a faint vertical fall-off, like brushed metal -->
-    <linearGradient id="mink" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0"   stop-color="#FFFFFF"/>
-      <stop offset="0.72" stop-color="#F2F4FF"/>
-      <stop offset="1"   stop-color="#D8DDF5"/>
+         * **The boundaries are slanted.** A gradient in objectBoundingBox runs
+           along a vector whose slope depends on the box's aspect ratio, so
+           `x1/y1 -> x2/y2` are computed for the M's box (w=220, h=234) instead of
+           being written as round numbers.
+         * **Each seam passes through an intermediate hue.** Interpolating
+           red -> green in RGB crosses the complementary axis and goes through
+           muddy grey, which is what made the first attempts look harsh. Routing
+           red -> **yellow** -> green and green -> **cyan** -> blue keeps each jump
+           inside one neighbouring pair of hues.
+         * **The seams are wide — about 18% of the axis each.** They were 12% at
+           first and still read as a band change rather than a blend. Because the
+           intermediates carry the hue across, the zones can be wide without going
+           muddy: that is what makes the wider fade affordable. -->
+    <linearGradient id="trio"
+                    x1="0.1743" y1="0.0993"
+                    x2="0.8257" y2="0.9007">
+      <stop offset="0.180" stop-color="#E60026"/>   <!-- Netease            -->
+      <stop offset="0.270" stop-color="#F5A623"/>   <!-- red    -> yellow   -->
+      <stop offset="0.360" stop-color="#31C27C"/>   <!-- QQ Music           -->
+      <stop offset="0.640" stop-color="#31C27C"/>
+      <stop offset="0.730" stop-color="#3ED8D8"/>   <!-- green  -> cyan     -->
+      <stop offset="0.820" stop-color="#2CA2F9"/>   <!-- Kugou              -->
     </linearGradient>
-
-    <filter id="mShadow" x="-25%" y="-15%" width="150%" height="135%">
-      <feDropShadow dx="0" dy="7" stdDeviation="11"
-                    flood-color="#04060F" flood-opacity="0.5"/>
-    </filter>
-
-    <filter id="nodeGlow" x="-120%" y="-120%" width="340%" height="340%">
-      <feGaussianBlur stdDeviation="9" result="b"/>
-      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
   </defs>
 
-  <!-- ── plate ─────────────────────────────────────────────────── -->
   <rect width="512" height="512" rx="115" fill="url(#bg)"/>
-  <rect width="512" height="512" rx="115" fill="url(#glow)"/>
-  <rect width="512" height="512" rx="115" fill="url(#vig)"/>
-  <!-- hairline rim: reads as a physical edge without a hard border -->
-  <rect x="1.5" y="1.5" width="509" height="509" rx="113.5"
-        fill="none" stroke="#FFFFFF" stroke-opacity="0.07" stroke-width="3"/>
 
-  <!-- ── record grooves ────────────────────────────────────────
-       Only clean circular arcs. The old mark also carried two
-       straight connector lines and overlapping grey circles;
-       those were dropped because at 48 dp they turned the mark
-       into noise. -->
-  <g fill="none" stroke-linecap="round">
-    <!-- The whole ring set is shifted 16 px left of the M's centre so the single
-         brand node on the red ring's terminus lands in the gap beside the M's
-         right arm instead of on top of it. The first draft parked the node on
-         the letterform, which looked like a smudge.
-         Radii grow from 96 outwards and the M is inset to x 176..320, so no
-         stroke ever crosses the letterform. -->
-    <path d="M 184 180 A 96 96 0 0 1 304 180"
-          stroke="var(--ring-red)"   stroke-width="8"  stroke-opacity="0.95"/>
-    <path d="M 122.8 191.6 A 124 124 0 0 1 357.2 191.6"
-          stroke="var(--ring-green)" stroke-width="9"  stroke-opacity="0.92"/>
-    <path d="M 92  215.4 A 160 160 0 0 1 388  215.4"
-          stroke="var(--ring-blue)"  stroke-width="10" stroke-opacity="0.90"/>
+  <!-- ── the mark ─────────────────────────────────────────────────────
+       The M is split into three equal diagonal bands, one per platform.
+       The white play triangle then sits in the M's counter as a solid
+       shape, which is the arrangement that read correctly: cutting the
+       triangle out of the M did not work, because an M has no wide white
+       field in its centre and the cut either clipped on the diagonals or
+       forced the letterform into an "H with a jaw". -->
+  <path fill="url(#trio)" fill-rule="evenodd" d="
+    M 146 372
+    L 146 138
+    L 186 138
+    L 256 268
+    L 326 138
+    L 366 138
+    L 366 372
+    L 323 372
+    L 323 266
+    L 280 320
+    L 232 320
+    L 189 266
+    L 189 372
+    Z"/>
 
-    <!-- lower half, mirrored -->
-    <path d="M 184 332 A 96 96 0 0 0 304 332"
-          stroke="var(--ring-red)"   stroke-width="8"  stroke-opacity="0.95"/>
-    <path d="M 122.8 320.4 A 124 124 0 0 0 357.2 320.4"
-          stroke="var(--ring-green)" stroke-width="9"  stroke-opacity="0.92"/>
-    <path d="M 92  296.6 A 160 160 0 0 0 388  296.6"
-          stroke="var(--ring-blue)"  stroke-width="10" stroke-opacity="0.90"/>
-  </g>
-
-  <!-- ── the M ─────────────────────────────────────────────────
-       A single filled path rather than text: no font dependency, and
-       the counters stay correct at 16 px. It is the one element that
-       must survive every size, so it is the boldest thing here. -->
-  <g filter="url(#mShadow)">
-    <path fill="url(#mink)" fill-rule="evenodd" d="
-      M 176 352
-      L 176 166
-      L 202 166
-      L 256 264
-      L 310 166
-      L 336 166
-      L 336 352
-      L 306 352
-      L 306 242
-      L 261 320
-      L 251 320
-      L 206 242
-      L 206 352
-      Z"/>
-  </g>
-
-  <!-- ── play control, sitting in the M's upper counter ────────
-       Narrower than the first draft so it reads as a control rather
-       than a second, competing shape. -->
-  <path d="M 222 182 L 222 250 L 282 216 Z" fill="var(--accent-gold)"/>
-
-  <!-- ── the single brand node ──────────────────────────────────
-       Exactly one pink accent, on the red ring's right terminus, in the gap
-       right of the M. It echoes the app's seed colour (#E91E63) without
-       adding clutter. -->
-  <g filter="url(#nodeGlow)">
-    <circle cx="304" cy="180" r="14" fill="var(--brand)"/>
-    <circle cx="304" cy="180" r="5.5" fill="#FFFFFF" fill-opacity="0.85"/>
-  </g>
+  <!-- The play triangle, centred in the M's lower counter. It has to sit
+       *below* the V-junction: higher up and it overlaps the apex and starts
+       to look like a chipped letterform instead of a control. -->
+  <path d="M 234 292 L 234 352 L 290 322 Z" fill="#FFFFFF"/>
+</svg>
 </svg>
 
-<!-- ===================== 真实尺寸预览 ===================== -->
 <div class="panel">
   <h2>同一矢量，不同尺寸</h2>
   <div class="sizes" id="sizeRow"></div>
@@ -206,35 +130,30 @@
   <div class="contexts" id="ctxRow"></div>
 </div>
 
-<!-- ===================== 设计说明 ===================== -->
 <div class="notes">
-  <b>这版相对旧图标的改动</b>
+  <b>方案 C：M 的负形即播放键</b>
   <ul>
-    <li>去掉两条斜穿画面的<b>灰色/白色连线</b>——它们在 48 dp 下最像噪点。</li>
-    <li>去掉重叠的灰色圆与多余节点，环线改为<b>精确的同心圆弧</b>，间距均匀。</li>
-    <li>环线加粗、透明度收敛，小尺寸下仍能看出一圈“唱片纹”。</li>
-    <li>M 改为<b>单一填充路径</b>（不依赖字体），笔画更锐利、字腔更干净。</li>
-    <li>新增顶部<b>径向高光</b>与<b>暗角</b>，让底板有体积感而非平涂。</li>
-    <li>品牌粉只保留<b>一个节点</b>，与 <code>#E91E63</code> 呼应，不再与金/绿/蓝抢视线。</li>
+    <li>整个图标是<b>一个白色剪影</b>：M 与播放三角不是两层叠加，三角是 M 上挖出的洞。</li>
+    <li>去掉三道彩环、金色三角、粉色节点、暗角、顶部高光、外描边与投影 —— 从 4 类图形降到 1 个。</li>
+    <li>渐变从 5 个降到 <b>1 个</b>（两档），符合“渐变克制”的要求。</li>
+    <li>底色沿用原有深蓝紫，保留与旧图标的连续性。</li>
+    <li>纯白标志带来最高对比度，且在任何底色（含浅色启动器）上都成立。</li>
   </ul>
 </div>
 
 <script>
-  // ------------------------------------------------------------------
-  // Preview plumbing only — it clones the master SVG so every preview is
-  // guaranteed to be the same artwork, never a hand-made lookalike.
-  // ------------------------------------------------------------------
   const master = document.getElementById('mark');
 
   // ------------------------------------------------------------------
-  // Export modes. Driven by the URL *fragment* rather than a query string,
-  // because `file://` treats `?x` as part of the path and Chrome would then
-  // browse the directory instead of rendering the page.
+  // Export modes, driven by the URL fragment (a fragment, not a query
+  // string: `file://` treats `?x` as part of the path and Chrome then
+  // browses the directory instead of rendering the page).
   //
-  //   #full     rounded plate, as shipped on Android's legacy icon and the web
-  //   #android  square plate, no corner radius: Android's adaptive mask cuts it
-  //   #fg       two-thirds scale on a transparent field: the adaptive foreground
-  //   (none)    the design sheet with every size preview
+  //   #full     rounded plate — Android legacy icon and the web icons
+  //   #android  square plate, no radius — Android's adaptive mask cuts it
+  //   #fg       artwork at ~2/3 on transparency — adaptive foreground
+  //   #splash   artwork at ~2/3 on transparency with a soft white halo
+  //   (none)    this design sheet
   // ------------------------------------------------------------------
   const mode = location.hash.replace('#', '') || 'sheet';
 
@@ -247,34 +166,45 @@
     master.style.cssText = 'width:100vw;height:100vh;display:block;border-radius:0';
 
     if (mode === 'android') {
-      // No corner radius: the launcher mask supplies the shape.
-      for (const r of master.querySelectorAll('rect')) {
-        if (r.hasAttribute('rx')) r.removeAttribute('rx');
+      // The launcher mask supplies the shape, so the plate must be square.
+      for (const r of master.querySelectorAll(':scope > rect')) {
+        r.removeAttribute('rx');
       }
     }
 
-    if (mode === 'fg') {
-      // Two things have to happen for an adaptive foreground, and the first
-      // draft got the second wrong:
-      //
-      //  1. the plate must go. An adaptive foreground is composited over a
-      //     background layer, so any plate baked into the artwork shows up as a
-      //     dark square around the mask — and a rounded plate leaves black in
-      //     the corners the mask keeps.
-      //  2. the artwork is authored on a 108 dp canvas whose outer third is the
-      //     launcher's mask bleed, so it is scaled to ~2/3 and centred.
+    if (mode === 'fg' || mode === 'splash') {
+      // Both modes are composited onto something else — an adaptive background
+      // layer, or the native splash's flat colour — so the plate has to go. A
+      // plate baked in here would show around the mask on the launcher, and on
+      // the splash it would read as a second plate inside the splash colour.
       for (const r of Array.from(master.querySelectorAll(':scope > rect'))) {
         r.remove();
       }
       const art = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-      art.setAttribute(
-        'transform',
-        'translate(256 256) scale(0.68) translate(-256 -256)',
-      );
+      art.setAttribute('transform',
+        'translate(256 256) scale(0.68) translate(-256 -256)');
       for (const node of Array.from(master.children)) {
         if (node.tagName !== 'defs') art.appendChild(node);
       }
       master.appendChild(art);
+    }
+
+    if (mode === 'splash') {
+      // The splash colour is #101522 (pubspec.yaml). The M's gradient ends in
+      // Kugou blue, which would sink into that colour, so the mark gets a soft
+      // white halo rather than a plate: a halo keeps all three platform colours
+      // legible on dark without becoming a visible card in the middle of the
+      // splash. The halo is an ellipse behind the mark, blurred.
+      master.insertAdjacentHTML(
+        'afterbegin',
+        `<defs><filter id="halo" x="-60%" y="-60%" width="220%" height="220%">
+           <feGaussianBlur stdDeviation="34"/>
+         </filter></defs>
+         <ellipse cx="256" cy="256" rx="196" ry="182"
+                  fill="#FFFFFF" fill-opacity="0.17" filter="url(#halo)"/>
+         <ellipse cx="256" cy="256" rx="150" ry="138"
+                  fill="#FFFFFF" fill-opacity="0.12" filter="url(#halo)"/>`,
+      );
     }
   }
 
@@ -287,7 +217,6 @@
     return node;
   }
 
-  // 1) size ladder
   const sizeRow = document.getElementById('sizeRow');
   for (const s of [512, 256, 128, 64, 48, 32, 24, 16]) {
     const box = document.createElement('div');
@@ -299,7 +228,6 @@
     sizeRow.appendChild(box);
   }
 
-  // 2) launcher contexts, all at a realistic 92 px
   const ctxRow = document.getElementById('ctxRow');
   for (const cls of ['', 'round', 'light']) {
     const tile = document.createElement('div');

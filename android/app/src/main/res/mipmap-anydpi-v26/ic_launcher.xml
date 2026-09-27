@@ -4,11 +4,11 @@
   mode renders the mark at ~2/3 of the canvas, which is the adaptive-icon
   convention (the outer third is mask bleed). `flutter_launcher_icons` additionally
   wraps the foreground in `android:inset="16%"`, and the two compound — the mark
-  came out at roughly 57% of the canvas and read as too small beside other
+  comes out at roughly 57% of the canvas and reads as too small beside other
   launcher icons.
 
-  Hence no inset here. If `dart run flutter_launcher_icons` is re-run and re-adds
-  the <inset> wrapper, remove it again and keep the drawable.
+  Hence no inset here. Re-running `dart run flutter_launcher_icons` re-adds the
+  <inset> wrapper; remove it again and keep the drawable.
 -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/ic_launcher_background"/>
