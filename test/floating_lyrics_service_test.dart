@@ -67,6 +67,7 @@ void main() {
     expect(args['textColor'], settings.textColor.toARGB32());
     expect(args['highlightColor'], settings.highlightColor.toARGB32());
     expect(args['positionY'], settings.positionY);
+    expect(args['fontSize'], settings.fontSize);
     expect(args['isPlaying'], isTrue);
     expect(args['hasSong'], isTrue);
   });
@@ -195,6 +196,22 @@ void main() {
     expect(source, isNot(contains('configureScrollingLine')));
     expect(source, isNot(contains('scrollTo(')));
     expect(source, contains('configureMarquee'));
+  });
+
+  test('Android overlay always re-applies the font size to fresh views', () {
+    final source = File(
+      'android/app/src/main/kotlin/com/mconnect/mconnect/FloatingLyricsController.kt',
+    ).readAsStringSync();
+
+    // The overlay rebuilds its TextViews every time it is shown again, and the
+    // default TextView size is 14sp. Gating applyTextSize() on "the incoming
+    // size differs from the cached field" meant an unchanged persisted size was
+    // never written to the fresh views, so the lyrics fell back to 14sp until
+    // the user tapped a size button.
+    expect(source, contains('applyTextSize()'));
+    expect(source, isNot(contains('if (sizeChanged || shadowChanged)')));
+    expect(source, contains('resetAppliedState()'));
+    expect(source, contains('appliedFontSize = -1f'));
   });
 
   test('Android overlay is click-through while locked', () {

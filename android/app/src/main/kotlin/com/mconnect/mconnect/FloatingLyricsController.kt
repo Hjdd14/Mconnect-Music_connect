@@ -245,18 +245,21 @@ class FloatingLyricsController(
             includeFontPadding = false
             minHeight = dp(34)
             configureMarquee()
+            textSize = fontSize
         }
         nextText = TextView(activity).apply {
             gravity = Gravity.CENTER
             includeFontPadding = false
             minHeight = dp(26)
             configureMarquee()
+            textSize = fontSize * NEXT_LINE_FONT_SCALE
         }
         translationText = TextView(activity).apply {
             gravity = Gravity.CENTER
             includeFontPadding = false
             minHeight = dp(20)
             configureMarquee()
+            textSize = (fontSize * TRANSLATION_FONT_SCALE).coerceAtLeast(11f)
         }
         lyricsColumn.addView(
             lyricText,
@@ -356,6 +359,33 @@ class FloatingLyricsController(
         windowManager.addView(root, params)
         overlayView = root
         layoutParams = params
+        // Fresh views: invalidate every applied-value snapshot so the first
+        // applyData() re-writes text, colors, sizes and progress unconditionally.
+        resetAppliedState()
+    }
+
+    /**
+     * Forgets what has been pushed into the views.
+     *
+     * Called whenever the overlay is created or removed: every applier compares
+     * against these snapshots, so clearing them means a rebuilt view can never
+     * skip a style (the font size did exactly that before this existed).
+     */
+    private fun resetAppliedState() {
+        appliedLyricText = null
+        appliedNextText = null
+        appliedTranslation = null
+        appliedProgress = -1.0
+        appliedSpanWhole = -1
+        appliedSpanStep = -1
+        appliedFontSize = -1f
+        appliedShadowOpacity = -1.0
+        appliedBaseColor = Int.MIN_VALUE
+        appliedDotColor = Int.MIN_VALUE
+        appliedBackgroundColor = Int.MIN_VALUE
+        appliedPlaying = null
+        appliedHasSong = null
+        appliedLocked = null
     }
 
     private fun buildControlRow(): LinearLayout {
@@ -665,8 +695,6 @@ class FloatingLyricsController(
     ) {
         val baseChanged = appliedBaseColor != color
         val dotChanged = appliedDotColor != highlight
-        val sizeChanged = size != fontSize
-        val shadowChanged = shadow != shadowOpacity
         textColor = color
         highlightColor = highlight
         fontSize = size
@@ -677,9 +705,13 @@ class FloatingLyricsController(
             backgroundColor = background
             overlayView?.setBackgroundColor(background)
         }
-        if (sizeChanged || shadowChanged) {
-            applyTextSize()
-        }
+        // Always re-apply: the TextViews are rebuilt every time the overlay is
+        // shown again, and the previous gate compared the incoming size with the
+        // cached field, so an unchanged size (e.g. the same persisted font size
+        // after hiding and re-showing) never reached the fresh views and they
+        // stayed at the TextView default of 14sp. applyTextSize() keeps its own
+        // applied-snapshot guard, so this is idempotent.
+        applyTextSize()
         if (baseChanged) {
             appliedBaseColor = color
             lyricText?.setTextColor(color)
@@ -1056,23 +1088,10 @@ class FloatingLyricsController(
         isLocked = false
         controlsVisible = true
         settingsVisible = false
-        appliedLyricText = null
-        appliedNextText = null
-        appliedTranslation = null
-        appliedProgress = -1.0
-        appliedSpanWhole = -1
-        appliedSpanStep = -1
+        resetAppliedState()
         anchorProgress = 0.0
         anchorRatePerMs = 0.0
         anchorUptime = 0L
-        appliedFontSize = -1f
-        appliedShadowOpacity = -1.0
-        appliedBaseColor = Int.MIN_VALUE
-        appliedDotColor = Int.MIN_VALUE
-        appliedBackgroundColor = Int.MIN_VALUE
-        appliedPlaying = null
-        appliedHasSong = null
-        appliedLocked = null
         pendingFontSize = null
         pendingHighlightColor = null
         lastReportedPosition = Int.MIN_VALUE
