@@ -7,6 +7,7 @@ import 'package:just_audio/just_audio.dart' show AudioPlayer, ProcessingState;
 import '../../../../core/diagnostics/diagnostics_service.dart';
 import '../../../../core/platform/platform_utils.dart';
 import '../../../audio_effects/presentation/providers/audio_effects_provider.dart';
+import '../../../floating_lyrics/presentation/providers/floating_lyrics_provider.dart';
 import '../../../../models/audio_quality.dart';
 import '../../../../models/platform_type.dart';
 import '../../../../models/song.dart';
@@ -166,6 +167,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   final PlaybackKeepAliveController _keepAliveController;
   final SongLikeResolver _isSongLiked;
   final SongLikeToggle? _toggleSongLike;
+  final Future<void> Function()? _toggleFloatingLyrics;
+  final bool Function() _isFloatingLyricsEnabled;
   final List<StreamSubscription> _subscriptions = [];
   final _mutex = _AudioMutex();
   bool _isSwitchingQuality = false;
@@ -213,6 +216,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     PlaybackKeepAliveController? keepAliveController,
     SongLikeResolver? isSongLiked,
     this._toggleSongLike,
+    this._toggleFloatingLyrics,
+    bool Function()? isFloatingLyricsEnabled,
     this._playbackHealthCheckInterval = const Duration(seconds: 5),
     this._playbackStallThreshold = const Duration(seconds: 12),
     this._playbackRecoveryCooldown = const Duration(seconds: 30),
@@ -231,6 +236,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
            keepAliveController ??
            MethodChannelPlaybackKeepAliveController.instance,
        _isSongLiked = isSongLiked ?? ((_) => false),
+       _isFloatingLyricsEnabled = isFloatingLyricsEnabled ?? (() => false),
        super(const PlayerState()) {
     _notificationController.attach(
       playback_notification.PlaybackNotificationActions(
@@ -240,6 +246,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         skipToPrevious: skipToPrevious,
         seek: seek,
         toggleLikeCurrentSong: _toggleLikeCurrentSongFromNotification,
+        toggleFloatingLyrics: _toggleFloatingLyricsFromNotification,
       ),
     );
     if (audioController != null) {
@@ -266,6 +273,13 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     _syncNotificationState();
   }
 
+  Future<void> _toggleFloatingLyricsFromNotification() async {
+    final toggle = _toggleFloatingLyrics;
+    if (toggle == null) return;
+    await toggle();
+    _syncNotificationState();
+  }
+
   PlayerAudioController _ensureAudioController() {
     final existing = _audioController;
     if (existing != null) return existing;
@@ -288,6 +302,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       currentIndex: state.currentIndex,
       isCurrentSongLiked:
           state.currentSong != null && _isSongLiked(state.currentSong!),
+      isFloatingLyricsEnabled: _isFloatingLyricsEnabled(),
       isPlaying: state.isPlaying,
       position: state.position,
       duration: state.duration,
@@ -1632,9 +1647,16 @@ final playerProvider = StateNotifierProvider<PlayerNotifier, PlayerState>((
         .any((liked) => liked.id == song.id && liked.platform == song.platform),
     toggleSongLike: (song) =>
         ref.read(likesProvider.notifier).toggleLike(song).then((_) {}),
+    toggleFloatingLyrics: () =>
+        ref.read(floatingLyricsProvider.notifier).toggleEnabled(),
+    isFloatingLyricsEnabled: () => ref.read(floatingLyricsProvider).enabled,
   );
   ref.listen<List<Song>>(
     likesProvider.select((state) => state.songs),
+    (_, _) => notifier.refreshNotificationState(),
+  );
+  ref.listen<bool>(
+    floatingLyricsProvider.select((state) => state.enabled),
     (_, _) => notifier.refreshNotificationState(),
   );
   return notifier;

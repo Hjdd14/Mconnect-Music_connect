@@ -203,7 +203,7 @@ void main() {
   });
 
   test(
-    'sync skips repeated native updates while the same lyric remains active',
+    'sync keeps the same lyric line while only the played progress advances',
     () async {
       const channel = MethodChannel('com.mconnect.mconnect/floating_lyrics');
       final calls = <MethodCall>[];
@@ -247,11 +247,27 @@ void main() {
       await pumpEventQueue();
 
       final updates = calls.where((call) => call.method == 'update').toList();
-      expect(updates, hasLength(1));
+      expect(updates, isNotEmpty);
+      // Only the highlight advances; the line itself never re-sends.
+      for (final call in updates) {
+        expect(
+          (call.arguments as Map<Object?, Object?>)['text'],
+          document.lines.first.text,
+        );
+      }
       expect(
-        (updates.single.arguments as Map<Object?, Object?>)['text'],
-        document.lines.first.text,
+        updates.map(
+          (call) =>
+              (call.arguments as Map<Object?, Object?>)['highlightProgress'],
+        ),
+        [0.0, closeTo(0.3, 0.001), closeTo(0.6, 0.001)],
       );
+
+      // Repeating the same position must not produce another update.
+      final applied = updates.length;
+      player.setPosition(const Duration(seconds: 6));
+      await pumpEventQueue();
+      expect(calls.where((call) => call.method == 'update').length, applied);
     },
   );
 
@@ -432,6 +448,519 @@ void main() {
       expect(calls.map((call) => call.method), isNot(contains('update')));
     },
   );
+
+  test('native style changes persist the lyric color and font size', () async {
+    const channel = MethodChannel('com.mconnect.mconnect/floating_lyrics');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async => null);
+    final container = ProviderContainer();
+    container.read(floatingLyricsSyncProvider);
+
+    await _sendNativeFloatingLyricsCall('styleChanged', {
+      'highlightColor': 0xFF4AA8FF,
+      'fontSize': 30.0,
+    });
+    await pumpEventQueue();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(
+      container.read(floatingLyricsProvider).highlightColor,
+      const Color(0xFF4AA8FF),
+    );
+    expect(container.read(floatingLyricsProvider).fontSize, 30.0);
+    container.dispose();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    final restored = FloatingLyricsNotifier();
+    addTearDown(restored.dispose);
+    await restored.ready;
+    expect(restored.state.highlightColor, const Color(0xFF4AA8FF));
+    expect(restored.state.fontSize, 30.0);
+  });
+
+  test(
+    'native style changes clamp the font size like the settings page',
+    () async {
+      const channel = MethodChannel('com.mconnect.mconnect/floating_lyrics');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async => null);
+      final container = ProviderContainer();
+      container.read(floatingLyricsSyncProvider);
+
+      await _sendNativeFloatingLyricsCall('styleChanged', {
+        'highlightColor': 0xFF4AA8FF,
+        'fontSize': 99.0,
+      });
+      await pumpEventQueue();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(container.read(floatingLyricsProvider).fontSize, 48.0);
+      container.dispose();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    },
+  );
+
+  test('native transport taps drive the player notifier', () async {
+    final player = _FloatingLyricsTestPlayerNotifier();
+    final container = ProviderContainer(
+      overrides: [playerProvider.overrideWith((ref) => player)],
+    );
+    addTearDown(container.dispose);
+    container.read(floatingLyricsSyncProvider);
+
+    await _sendNativeFloatingLyricsCall('controlRequested', {
+      'action': 'playPause',
+    });
+    await _sendNativeFloatingLyricsCall('controlRequested', {
+      'action': 'previous',
+    });
+    await _sendNativeFloatingLyricsCall('controlRequested', {
+      'action': 'next',
+    });
+    await pumpEventQueue();
+
+    expect(player.controlCalls, ['playPause', 'previous', 'next']);
+  });
+
+  test('sync forwards play state changes to the overlay', () async {
+    const channel = MethodChannel('com.mconnect.mconnect/floating_lyrics');
+    final calls = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          calls.add(call);
+          return switch (call.method) {
+            'canDrawOverlays' => true,
+            'hide' => true,
+            'update' => true,
+            _ => null,
+          };
+        });
+
+    const document = LyricsDocument(
+      lines: [LyricsLine(timestamp: Duration.zero, text: 'Playing lyric')],
+    );
+    final player = _FloatingLyricsTestPlayerNotifier();
+    final container = ProviderContainer(
+      overrides: [
+        playerProvider.overrideWith((ref) => player),
+        lyricsProvider.overrideWith((ref) async => document),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(lyricsProvider.future);
+    container.read(floatingLyricsSyncProvider);
+
+    await container.read(floatingLyricsProvider.notifier).setEnabled(true);
+    await pumpEventQueue();
+    player.setPlaying(true);
+    await pumpEventQueue();
+
+    final updates = calls.where((call) => call.method == 'update').toList();
+    expect(updates, hasLength(2));
+    expect(
+      (updates.last.arguments as Map<Object?, Object?>)['isPlaying'],
+      isTrue,
+    );
+  });
+
+  test(
+    'native drag end persists the vertical offset without a native update',
+    () async {
+      const channel = MethodChannel('com.mconnect.mconnect/floating_lyrics');
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call);
+            return switch (call.method) {
+              'canDrawOverlays' => true,
+              'hide' => true,
+              'update' => true,
+              _ => null,
+            };
+          });
+
+      const document = LyricsDocument(
+        lines: [LyricsLine(timestamp: Duration.zero, text: 'Dragged lyric')],
+      );
+      final player = _FloatingLyricsTestPlayerNotifier();
+      final container = ProviderContainer(
+        overrides: [
+          playerProvider.overrideWith((ref) => player),
+          lyricsProvider.overrideWith((ref) async => document),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(lyricsProvider.future);
+      container.read(floatingLyricsSyncProvider);
+
+      await container.read(floatingLyricsProvider.notifier).setEnabled(true);
+      await pumpEventQueue();
+      calls.clear();
+
+      await _sendNativeFloatingLyricsCall('positionChanged', 512.0);
+      await pumpEventQueue();
+
+      expect(container.read(floatingLyricsProvider).positionY, 512.0);
+      expect(calls.where((call) => call.method == 'update'), isEmpty);
+    },
+  );
+
+  test(
+    'toggleEnabled asks for overlay permission and persists the switch',
+    () async {
+      const channel = MethodChannel('com.mconnect.mconnect/floating_lyrics');
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call);
+            return switch (call.method) {
+              'canDrawOverlays' => true,
+              'openOverlaySettings' => true,
+              'hide' => true,
+              _ => null,
+            };
+          });
+
+      final notifier = FloatingLyricsNotifier();
+      addTearDown(notifier.dispose);
+      await notifier.ready;
+
+      await notifier.toggleEnabled();
+      expect(notifier.state.enabled, isTrue);
+      expect(calls.map((call) => call.method), ['canDrawOverlays']);
+
+      await notifier.toggleEnabled();
+      expect(notifier.state.enabled, isFalse);
+      expect(calls.map((call) => call.method), ['canDrawOverlays', 'hide']);
+    },
+  );
+
+  test(
+    'toggleEnabled opens the overlay settings when permission is missing',
+    () async {
+      const channel = MethodChannel('com.mconnect.mconnect/floating_lyrics');
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call);
+            return switch (call.method) {
+              'canDrawOverlays' => false,
+              'openOverlaySettings' => true,
+              _ => null,
+            };
+          });
+
+      final notifier = FloatingLyricsNotifier();
+      addTearDown(notifier.dispose);
+      await notifier.ready;
+
+      await notifier.toggleEnabled();
+
+      expect(notifier.state.enabled, isTrue);
+      expect(calls.map((call) => call.method), [
+        'canDrawOverlays',
+        'openOverlaySettings',
+      ]);
+    },
+  );
+
+  test('payloadForPosition returns the next visible lyric line', () {
+    const document = LyricsDocument(
+      lines: [
+        LyricsLine(timestamp: Duration(seconds: 3), text: 'First'),
+        LyricsLine(timestamp: Duration(seconds: 8), text: '   '),
+        LyricsLine(timestamp: Duration(seconds: 12), text: 'Third'),
+      ],
+    );
+
+    final payload = FloatingLyricsSyncController.payloadForPosition(
+      document,
+      const Duration(seconds: 9),
+    );
+
+    expect(payload.text, 'First');
+    expect(payload.nextText, 'Third');
+  });
+
+  test('payloadForPosition leaves the next line empty on the last lyric', () {
+    const document = LyricsDocument(
+      lines: [
+        LyricsLine(timestamp: Duration(seconds: 3), text: 'First'),
+        LyricsLine(timestamp: Duration(seconds: 12), text: 'Third'),
+      ],
+    );
+
+    final payload = FloatingLyricsSyncController.payloadForPosition(
+      document,
+      const Duration(seconds: 13),
+    );
+
+    expect(payload.text, 'Third');
+    expect(payload.nextText, '');
+  });
+
+  test('highlightCharactersFor follows word timings', () {
+    const line = LyricsLine(
+      timestamp: Duration(seconds: 10),
+      text: 'ABCD EF',
+      words: [
+        WordTiming(
+          word: 'ABCD',
+          start: Duration(seconds: 10),
+          duration: Duration(seconds: 1),
+        ),
+        WordTiming(
+          word: ' EF',
+          start: Duration(seconds: 11),
+          duration: Duration(seconds: 1),
+        ),
+      ],
+    );
+
+    expect(
+      FloatingLyricsSyncController.highlightCharactersFor(
+        line,
+        const Duration(seconds: 10),
+        null,
+      ),
+      0,
+    );
+    expect(
+      FloatingLyricsSyncController.highlightCharactersFor(
+        line,
+        const Duration(milliseconds: 10500),
+        null,
+      ),
+      2,
+    );
+    expect(
+      FloatingLyricsSyncController.highlightCharactersFor(
+        line,
+        const Duration(milliseconds: 11500),
+        null,
+      ),
+      6,
+    );
+    expect(
+      FloatingLyricsSyncController.highlightCharactersFor(
+        line,
+        const Duration(seconds: 12),
+        null,
+      ),
+      7,
+    );
+  });
+
+  test('highlightCharactersFor sweeps plain lines between timestamps', () {
+    const line = LyricsLine(
+      timestamp: Duration(seconds: 5),
+      text: '1234567890',
+    );
+
+    expect(
+      FloatingLyricsSyncController.highlightCharactersFor(
+        line,
+        const Duration(seconds: 5),
+        const Duration(seconds: 10),
+      ),
+      0,
+    );
+    expect(
+      FloatingLyricsSyncController.highlightCharactersFor(
+        line,
+        const Duration(milliseconds: 7500),
+        const Duration(seconds: 10),
+      ),
+      5,
+    );
+    expect(
+      FloatingLyricsSyncController.highlightCharactersFor(
+        line,
+        const Duration(seconds: 10),
+        const Duration(seconds: 10),
+      ),
+      10,
+    );
+    // Without a following line the sweep falls back to a four second line.
+    expect(
+      FloatingLyricsSyncController.highlightCharactersFor(
+        line,
+        const Duration(seconds: 8),
+        null,
+      ),
+      7,
+    );
+  });
+
+  test('highlightCharactersFor never exceeds the lyric length', () {
+    const line = LyricsLine(
+      timestamp: Duration(seconds: 5),
+      text: 'short',
+      words: [
+        WordTiming(
+          word: 'a much longer word stream than the text',
+          start: Duration(seconds: 5),
+          duration: Duration(seconds: 1),
+        ),
+      ],
+    );
+
+    final characters = FloatingLyricsSyncController.highlightCharactersFor(
+      line,
+      const Duration(seconds: 30),
+      null,
+    );
+
+    expect(characters, line.text.length);
+  });
+
+  test('sync sends an update when the played progress advances', () async {
+    const channel = MethodChannel('com.mconnect.mconnect/floating_lyrics');
+    final calls = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          calls.add(call);
+          return switch (call.method) {
+            'canDrawOverlays' => true,
+            'hide' => true,
+            'update' => true,
+            _ => null,
+          };
+        });
+
+    const document = LyricsDocument(
+      lines: [
+        LyricsLine(timestamp: Duration.zero, text: 'Played lyric'),
+        LyricsLine(timestamp: Duration(seconds: 10), text: 'Next lyric'),
+      ],
+    );
+    final player = _FloatingLyricsTestPlayerNotifier();
+    final container = ProviderContainer(
+      overrides: [
+        playerProvider.overrideWith((ref) => player),
+        lyricsProvider.overrideWith((ref) async => document),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(lyricsProvider.future);
+    container.read(floatingLyricsSyncProvider);
+
+    await container.read(floatingLyricsProvider.notifier).setEnabled(true);
+    await pumpEventQueue();
+    player.setPosition(const Duration(seconds: 5));
+    await pumpEventQueue();
+
+    final updates = calls.where((call) => call.method == 'update').toList();
+    expect(updates, hasLength(2));
+    final latest = updates.last.arguments as Map<Object?, Object?>;
+    expect(latest['highlightProgress'], closeTo(0.5, 0.001));
+    expect(latest['nextText'], 'Next lyric');
+  });
+
+  test('sync reports a positive sweep rate while the player is playing', () async {
+    const channel = MethodChannel('com.mconnect.mconnect/floating_lyrics');
+    final calls = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          calls.add(call);
+          return switch (call.method) {
+            'canDrawOverlays' => true,
+            'hide' => true,
+            'update' => true,
+            _ => null,
+          };
+        });
+
+    const document = LyricsDocument(
+      lines: [
+        LyricsLine(timestamp: Duration.zero, text: 'Played lyric'),
+        LyricsLine(timestamp: Duration(seconds: 10), text: 'Next lyric'),
+      ],
+    );
+    final player = _FloatingLyricsTestPlayerNotifier()..setPlaying(true);
+    final container = ProviderContainer(
+      overrides: [
+        playerProvider.overrideWith((ref) => player),
+        lyricsProvider.overrideWith((ref) async => document),
+      ],
+    );
+    addTearDown(container.dispose);
+    await container.read(lyricsProvider.future);
+    container.read(floatingLyricsSyncProvider);
+
+    await container.read(floatingLyricsProvider.notifier).setEnabled(true);
+    await pumpEventQueue();
+    // The 200ms sweep driver advances the interpolated position.
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+
+    final updates = calls.where((call) => call.method == 'update').toList();
+    expect(updates, isNotEmpty);
+    expect(
+      (updates.last.arguments as Map<Object?, Object?>)['highlightRate'],
+      greaterThan(0),
+    );
+  });
+
+  test(
+    'the sweep timer interpolates progress while the player is playing',
+    () async {
+      const channel = MethodChannel('com.mconnect.mconnect/floating_lyrics');
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call);
+            return switch (call.method) {
+              'canDrawOverlays' => true,
+              'hide' => true,
+              'update' => true,
+              _ => null,
+            };
+          });
+
+      const document = LyricsDocument(
+        lines: [
+          LyricsLine(timestamp: Duration.zero, text: 'ABCDEFGHIJ'),
+          LyricsLine(timestamp: Duration(seconds: 1), text: 'Next'),
+        ],
+      );
+      final player = _FloatingLyricsTestPlayerNotifier()..setPlaying(true);
+      final container = ProviderContainer(
+        overrides: [
+          playerProvider.overrideWith((ref) => player),
+          lyricsProvider.overrideWith((ref) async => document),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(lyricsProvider.future);
+      container.read(floatingLyricsSyncProvider);
+
+      await container.read(floatingLyricsProvider.notifier).setEnabled(true);
+      await pumpEventQueue();
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+
+      final updates = calls.where((call) => call.method == 'update').toList();
+      expect(updates.length, greaterThan(1));
+      expect(
+        (updates.last.arguments
+            as Map<Object?, Object?>)['highlightProgress'],
+        greaterThan(0),
+      );
+    },
+  );
+
+  test('disabling floating lyrics releases the lock', () async {
+    final notifier = FloatingLyricsNotifier();
+    addTearDown(notifier.dispose);
+    await notifier.ready;
+
+    await notifier.setEnabled(true);
+    await notifier.setLocked(true);
+    expect(notifier.state.isLocked, isTrue);
+
+    await notifier.setEnabled(false);
+
+    expect(notifier.state.isLocked, isFalse);
+  });
 }
 
 Future<void> _sendNativeFloatingLyricsCall(String method, [Object? arguments]) {
@@ -466,8 +995,29 @@ class _FloatingLyricsTestPlayerNotifier extends PlayerNotifier {
     );
   }
 
+  final List<String> controlCalls = [];
+
   void setPosition(Duration position) {
     state = state.copyWith(position: position);
+  }
+
+  void setPlaying(bool isPlaying) {
+    state = state.copyWith(isPlaying: isPlaying);
+  }
+
+  @override
+  Future<void> togglePlay() async {
+    controlCalls.add('playPause');
+  }
+
+  @override
+  Future<void> skipToPrevious() async {
+    controlCalls.add('previous');
+  }
+
+  @override
+  Future<void> skipToNext() async {
+    controlCalls.add('next');
   }
 }
 

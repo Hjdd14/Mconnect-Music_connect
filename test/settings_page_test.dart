@@ -53,7 +53,7 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
 
-    expect(find.text('v1.2.5'), findsOneWidget);
+    expect(find.text('v1.3.1'), findsOneWidget);
   });
 
   testWidgets(
@@ -101,10 +101,20 @@ void main() {
         ),
       );
 
-      for (final label in const ['桌面悬浮歌词', '歌词颜色', '高亮颜色', '字号']) {
+      for (final label in const [
+        '桌面悬浮歌词',
+        '锁定位置',
+        '歌词底色',
+        '已播放高亮色',
+        '字号',
+      ]) {
         await _dragUntilTextVisible(tester, label);
         expect(find.text(label), findsOneWidget);
       }
+      expect(
+        find.byKey(const Key('floating-lyrics-lock-tile')),
+        findsOneWidget,
+      );
     },
   );
 

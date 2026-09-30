@@ -90,6 +90,97 @@ void main() {
 
     expect(find.text('你好'), findsOneWidget);
   });
+
+  testWidgets('word timing lyrics split the played prefix from the rest', (
+    tester,
+  ) async {
+    const line = LyricsLine(
+      timestamp: Duration(seconds: 1),
+      text: 'Hello world',
+      words: [
+        WordTiming(
+          word: 'Hello',
+          start: Duration(seconds: 1),
+          duration: Duration(milliseconds: 500),
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: WordByWordLine(
+            line: line,
+            currentPosition: Duration(milliseconds: 1400),
+            playedCharacters: 3,
+            isCurrentLine: true,
+          ),
+        ),
+      ),
+    );
+
+    final richText = tester.widget<RichText>(
+      find.text('Hello world', findRichText: true),
+    );
+    final leaves = _leafTextSpans(richText.text);
+
+    expect(leaves.map((span) => span.text), ['Hel', 'lo world']);
+    expect(leaves[0].style?.color, isNot(leaves[1].style?.color));
+  });
+
+  testWidgets('a fully played line collapses into a single colored run', (
+    tester,
+  ) async {
+    const line = LyricsLine(
+      timestamp: Duration(seconds: 1),
+      text: 'Hello',
+      words: [
+        WordTiming(
+          word: 'Hello',
+          start: Duration(seconds: 1),
+          duration: Duration(milliseconds: 500),
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: WordByWordLine(
+            line: line,
+            currentPosition: Duration(seconds: 2),
+            playedCharacters: 5,
+            isCurrentLine: true,
+          ),
+        ),
+      ),
+    );
+
+    final richText = tester.widget<RichText>(
+      find.text('Hello', findRichText: true),
+    );
+    final leaves = _leafTextSpans(richText.text);
+
+    expect(leaves, hasLength(1));
+    expect(leaves.single.text, 'Hello');
+  });
+}
+
+/// Flattens a [Text]'s span tree down to its leaf spans (one per colored run).
+List<TextSpan> _leafTextSpans(InlineSpan span) {
+  final leaves = <TextSpan>[];
+  void visit(InlineSpan node) {
+    if (node is! TextSpan) return;
+    if (node.text != null && node.text!.isNotEmpty) {
+      leaves.add(node);
+    }
+    for (final child in node.children ?? const <InlineSpan>[]) {
+      visit(child);
+    }
+  }
+
+  visit(span);
+  return leaves;
 }
 
 String _encodeKrc(String raw) {

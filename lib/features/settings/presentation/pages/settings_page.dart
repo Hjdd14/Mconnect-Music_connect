@@ -391,19 +391,29 @@ class SettingsFloatingLyricsPage extends ConsumerWidget {
               await floatingLyricsNotifier.setEnabled(value);
             },
           ),
+          SwitchListTile(
+            secondary: const Icon(Icons.lock_outline),
+            title: const Text('锁定位置'),
+            subtitle: const Text('锁定后悬浮歌词不可移动、不可点击，触摸会直接落到下面的应用；关闭悬浮歌词会自动解锁'),
+            key: const Key('floating-lyrics-lock-tile'),
+            value: floatingLyrics.isLocked,
+            onChanged: floatingLyrics.enabled
+                ? floatingLyricsNotifier.setLocked
+                : null,
+          ),
           _ColorPresetTile(
-            title: '歌词颜色',
-            subtitle: '透明背景下的主歌词颜色',
+            title: '歌词底色',
+            subtitle: '未播放部分的文字颜色，默认白色',
             key: const Key('floating-lyrics-text-color-tile'),
             icon: Icons.format_color_text,
             selectedColor: floatingLyrics.textColor,
             presets: const [],
-            fallbackColor: const Color(0xFFFFF4F8),
+            fallbackColor: const Color(0xFFFFFFFF),
             onSelected: floatingLyricsNotifier.setTextColor,
           ),
           _ColorPresetTile(
-            title: '高亮颜色',
-            subtitle: '逐字歌词和当前播放片段的颜色',
+            title: '已播放高亮色',
+            subtitle: '唱到的部分变为该颜色，悬浮窗里的圆点也调它',
             key: const Key('floating-lyrics-highlight-color-tile'),
             icon: Icons.border_color_outlined,
             selectedColor: floatingLyrics.highlightColor,

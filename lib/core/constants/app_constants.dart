@@ -2,7 +2,7 @@ class AppConstants {
   AppConstants._();
 
   static const String appName = 'Mconnect';
-  static const String appVersion = 'v1.2.5';
+  static const String appVersion = 'v1.3.1';
 
   static const int searchPageSize = 30;
   static const int maxDownloadRetries = 3;

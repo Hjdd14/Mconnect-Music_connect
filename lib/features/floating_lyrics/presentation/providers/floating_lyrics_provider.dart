@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
+import '../../../../lyrics/lyrics_progress.dart';
 import '../../../../lyrics/models/lyrics_line.dart';
 import '../../../player/presentation/providers/lyrics_provider.dart';
 import '../../../player/presentation/providers/player_provider.dart';
@@ -48,7 +49,14 @@ class FloatingLyricsNotifier extends StateNotifier<FloatingLyricsSettings> {
   }
 
   Future<void> setEnabled(bool enabled) async {
-    await _save(state.copyWith(enabled: enabled));
+    await _save(
+      state.copyWith(
+        enabled: enabled,
+        // Turning the overlay off releases the lock: a locked overlay ignores
+        // every touch, so a stale lock would strand the user outside the app.
+        isLocked: enabled ? state.isLocked : false,
+      ),
+    );
   }
 
   Future<void> setTextColor(Color color) async {
@@ -84,6 +92,37 @@ class FloatingLyricsNotifier extends StateNotifier<FloatingLyricsSettings> {
     await _save(state.copyWith(isLocked: isLocked));
   }
 
+  Future<void> setPositionY(double positionY) async {
+    if (positionY < 0) return;
+    await _save(state.copyWith(positionY: positionY));
+  }
+
+  /// Toggles the switch from outside the settings page — currently the
+  /// playback notification's lyrics button. Mirrors the settings page flow and
+  /// asks for the overlay permission on the first enable.
+  Future<void> toggleEnabled() async {
+    if (state.enabled) {
+      await setEnabled(false);
+      try {
+        await FloatingLyricsService.instance.hide();
+      } catch (e, s) {
+        debugPrint('FloatingLyricsNotifier toggleEnabled hide failed: $e');
+        debugPrint('$s');
+      }
+      return;
+    }
+    try {
+      final allowed = await FloatingLyricsService.instance.canDrawOverlays();
+      if (!allowed) {
+        await FloatingLyricsService.instance.openOverlaySettings();
+      }
+    } catch (e, s) {
+      debugPrint('FloatingLyricsNotifier toggleEnabled permission failed: $e');
+      debugPrint('$s');
+    }
+    await setEnabled(true);
+  }
+
   Future<void> _save(FloatingLyricsSettings settings) async {
     state = settings;
     try {
@@ -99,14 +138,24 @@ class FloatingLyricsNotifier extends StateNotifier<FloatingLyricsSettings> {
 class FloatingLyricsSyncController {
   final Ref _ref;
   final FloatingLyricsService _service;
+  final DateTime Function() _now;
   final List<ProviderSubscription> _subscriptions = [];
   final List<StreamSubscription> _nativeSubscriptions = [];
   FloatingLyricsPayload? _lastPayload;
   String? _lastNativeSignature;
   int _syncGeneration = 0;
+  Timer? _sweepTimer;
+  late final LyricsProgressEstimator _positionEstimator;
+  late final PlayedProgressRate _progressRate;
 
-  FloatingLyricsSyncController(this._ref, {FloatingLyricsService? service})
-    : _service = service ?? FloatingLyricsService.instance {
+  FloatingLyricsSyncController(
+    this._ref, {
+    FloatingLyricsService? service,
+    DateTime Function()? now,
+  }) : _service = service ?? FloatingLyricsService.instance,
+       _now = now ?? DateTime.now {
+    _positionEstimator = LyricsProgressEstimator(now: _now);
+    _progressRate = PlayedProgressRate();
     _subscriptions.add(
       _ref.listen<FloatingLyricsSettings>(
         floatingLyricsProvider,
@@ -116,6 +165,14 @@ class FloatingLyricsSyncController {
     _subscriptions.add(
       _ref.listen<Duration>(
         playerProvider.select((state) => state.position),
+        (previous, next) => unawaited(sync()),
+      ),
+    );
+    // The overlay draws its own play/pause button, so it needs the playing
+    // state even when the position is not ticking (paused, ended, ...).
+    _subscriptions.add(
+      _ref.listen<bool>(
+        playerProvider.select((state) => state.isPlaying),
         (previous, next) => unawaited(sync()),
       ),
     );
@@ -146,33 +203,101 @@ class FloatingLyricsSyncController {
         await _ref.read(floatingLyricsProvider.notifier).setLocked(isLocked);
       }),
     );
+    _nativeSubscriptions.add(
+      _service.styleChangedStream.listen((style) async {
+        final notifier = _ref.read(floatingLyricsProvider.notifier);
+        await notifier.setHighlightColor(style.highlightColor);
+        await notifier.setFontSize(style.fontSize);
+      }),
+    );
+    _nativeSubscriptions.add(
+      _service.controlRequestedStream.listen((control) async {
+        final player = _ref.read(playerProvider.notifier);
+        switch (control) {
+          case FloatingLyricsControl.playPause:
+            await player.togglePlay();
+            break;
+          case FloatingLyricsControl.previous:
+            await player.skipToPrevious();
+            break;
+          case FloatingLyricsControl.next:
+            await player.skipToNext();
+            break;
+        }
+      }),
+    );
+    _nativeSubscriptions.add(
+      _service.positionChangedStream.listen((positionY) async {
+        await _ref
+            .read(floatingLyricsProvider.notifier)
+            .setPositionY(positionY);
+      }),
+    );
   }
 
+  /// Builds the two-line overlay payload for [position].
+  ///
+  /// [highlightPosition] is the (usually interpolated) position used only for
+  /// the played-progress highlight; line selection always follows [position] so
+  /// a lyric line can never advance ahead of the player state.
   static FloatingLyricsPayload payloadForPosition(
     LyricsDocument? document,
-    Duration position,
-  ) {
+    Duration position, {
+    Duration? highlightPosition,
+  }) {
     if (document == null || document.lines.isEmpty) {
       return const FloatingLyricsPayload(text: '');
     }
 
-    LyricsLine? active;
-    LyricsLine? firstVisible;
-    for (final line in document.lines) {
+    final lines = document.lines;
+    var activeIndex = -1;
+    var firstVisibleIndex = -1;
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
       if (!_hasVisibleText(line)) continue;
-      firstVisible ??= line;
+      if (firstVisibleIndex < 0) firstVisibleIndex = i;
       if (line.timestamp > position) break;
-      active = line;
+      activeIndex = i;
     }
-    active ??= firstVisible;
-    if (active == null) {
+    if (activeIndex < 0) activeIndex = firstVisibleIndex;
+    if (activeIndex < 0) {
       return const FloatingLyricsPayload(text: '');
     }
+
+    final active = lines[activeIndex];
+    final nextIndex = _nextVisibleIndex(lines, activeIndex);
+    final next = nextIndex >= 0 ? lines[nextIndex] : null;
 
     return FloatingLyricsPayload(
       text: active.text,
       translation: active.translation,
+      nextText: next?.text ?? '',
+      highlightProgress: playedFraction(
+        active,
+        highlightPosition ?? position,
+        nextTimestamp: next?.timestamp,
+      ),
     );
+  }
+
+  /// How many leading characters of [line] playback has already reached.
+  ///
+  /// Thin delegate to the shared helper so the overlay and the in-app player
+  /// lyrics always agree. The overlay itself animates from [playedFraction],
+  /// which keeps the fraction of the character being sung.
+  static int highlightCharactersFor(
+    LyricsLine line,
+    Duration position,
+    Duration? nextTimestamp,
+  ) {
+    return playedCharacterCount(line, position, nextTimestamp: nextTimestamp);
+  }
+
+  static int _nextVisibleIndex(List<LyricsLine> lines, int fromIndex) {
+    for (var i = fromIndex + 1; i < lines.length; i++) {
+      if (_hasVisibleText(lines[i])) return i;
+    }
+    return -1;
   }
 
   static bool _hasVisibleText(LyricsLine line) {
@@ -180,10 +305,35 @@ class FloatingLyricsSyncController {
         (line.translation?.trim().isNotEmpty ?? false);
   }
 
+  /// Player state only reports the position about once per second, so the
+  /// played highlight would step coarsely. The estimator extrapolates from the
+  /// last state change while playing; line selection keeps the raw value.
+  Duration _estimatedPosition(PlayerState playerState) {
+    return _positionEstimator.estimate(
+      playerState.position,
+      isPlaying: playerState.isPlaying,
+      duration: playerState.duration,
+    );
+  }
+
+  void _updateSweepTimer({required bool running}) {
+    if (running && _sweepTimer == null) {
+      _sweepTimer = Timer.periodic(
+        _sweepInterval,
+        (_) => unawaited(sync()),
+      );
+    } else if (!running && _sweepTimer != null) {
+      _sweepTimer!.cancel();
+      _sweepTimer = null;
+    }
+  }
+
   Future<void> sync() async {
     final syncGeneration = ++_syncGeneration;
     final settings = _ref.read(floatingLyricsProvider);
     if (!settings.enabled) {
+      _updateSweepTimer(running: false);
+      _progressRate.reset();
       _lastPayload = null;
       _lastNativeSignature = null;
       await _service.hide();
@@ -192,16 +342,36 @@ class FloatingLyricsSyncController {
 
     final lyrics = _ref.read(lyricsProvider).valueOrNull;
     if (lyrics == null || lyrics.lines.isEmpty) {
+      _updateSweepTimer(running: false);
+      _progressRate.reset();
       _lastNativeSignature = null;
       return;
     }
-    final position = _ref.read(playerProvider).position;
-    final payload = payloadForPosition(lyrics, position);
-    if (payload.text.trim().isEmpty &&
-        (payload.translation?.trim().isEmpty ?? true)) {
+    final playerState = _ref.read(playerProvider);
+    _updateSweepTimer(
+      running: playerState.isPlaying && playerState.currentSong != null,
+    );
+    final basePayload = payloadForPosition(
+      lyrics,
+      playerState.position,
+      highlightPosition: _estimatedPosition(playerState),
+    );
+    if (basePayload.text.trim().isEmpty &&
+        (basePayload.translation?.trim().isEmpty ?? true)) {
       _lastNativeSignature = null;
       return;
     }
+    final payload = basePayload.copyWith(
+      // Rate lets the native overlay keep sweeping between two ~200ms anchors
+      // instead of stepping. It drops to zero while paused or in a vocal gap.
+      highlightRate: _progressRate.update(
+        basePayload.highlightProgress,
+        _now(),
+        isPlaying: playerState.isPlaying,
+      ),
+      isPlaying: playerState.isPlaying,
+      hasSong: playerState.currentSong != null,
+    );
     _lastPayload = payload;
     final signature = _nativeSignature(payload, settings);
     if (_lastNativeSignature == signature) return;
@@ -211,6 +381,7 @@ class FloatingLyricsSyncController {
     if (!hasPermission) return;
     final latestSettings = _ref.read(floatingLyricsProvider);
     if (!latestSettings.enabled) {
+      _updateSweepTimer(running: false);
       _lastPayload = null;
       await _service.hide();
       return;
@@ -224,6 +395,7 @@ class FloatingLyricsSyncController {
   FloatingLyricsPayload? get lastPayloadForTest => _lastPayload;
 
   void dispose() {
+    _updateSweepTimer(running: false);
     for (final sub in _subscriptions) {
       sub.close();
     }
@@ -240,6 +412,11 @@ class FloatingLyricsSyncController {
       payload.text,
       payload.translation ?? '',
       payload.progress.clamp(0, 1),
+      payload.nextText,
+      payload.highlightProgress,
+      payload.highlightRate,
+      payload.isPlaying,
+      payload.hasSong,
       settings.textColor.toARGB32(),
       settings.highlightColor.toARGB32(),
       settings.backgroundColor.toARGB32(),
@@ -249,6 +426,14 @@ class FloatingLyricsSyncController {
       settings.width,
       settings.height,
       settings.isLocked,
+      // `positionY` is deliberately excluded: the native window owns the live
+      // vertical offset and only reads the persisted value when it (re)creates
+      // the overlay, so persisting a drag must not trigger another update.
     ].join('\u001f');
   }
 }
+
+/// How often the played-progress highlight is re-evaluated while playing. The
+/// player state itself only advances once per second, so this driver keeps the
+/// sweep smooth using [LyricsProgressEstimator].
+const _sweepInterval = Duration(milliseconds: 200);

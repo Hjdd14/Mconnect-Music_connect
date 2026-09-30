@@ -496,6 +496,29 @@ void main() {
     expect(notification.updates.last.currentSong?.id, 'background-reassert');
   });
 
+  test(
+    'notification lyrics action invokes the injected floating lyrics toggle',
+    () async {
+      final notification = _FakePlaybackNotificationController();
+      var toggleCalls = 0;
+      final notifier = PlayerNotifier(
+        audioController: _FakeAudioController(),
+        platformResolver: (_) => _FakeMusicPlatform(),
+        audioControllerFactory: () => _FakeAudioController(),
+        notificationController: notification,
+        keepAliveController: _FakePlaybackKeepAliveController(),
+        toggleFloatingLyrics: () async => toggleCalls++,
+      );
+      addTearDown(notifier.dispose);
+
+      final actions = notification.actions;
+      expect(actions, isNotNull);
+      await actions!.toggleFloatingLyrics();
+
+      expect(toggleCalls, 1);
+    },
+  );
+
   test('dispose detaches notification and releases playback keep alive', () {
     final notification = _FakePlaybackNotificationController();
     final keepAlive = _FakePlaybackKeepAliveController();
@@ -1454,6 +1477,7 @@ class _FakePlaybackNotificationController
   final List<_PlaybackNotificationUpdate> updates = [];
   bool attached = false;
   bool detached = false;
+  PlaybackNotificationActions? actions;
 
   @override
   Future<void> initialize({DiagnosticsService? diagnostics}) async {}
@@ -1461,6 +1485,7 @@ class _FakePlaybackNotificationController
   @override
   void attach(PlaybackNotificationActions actions) {
     attached = true;
+    this.actions = actions;
   }
 
   @override
@@ -1474,6 +1499,7 @@ class _FakePlaybackNotificationController
     required List<Song> playlist,
     required int currentIndex,
     required bool isCurrentSongLiked,
+    required bool isFloatingLyricsEnabled,
     required bool isPlaying,
     required Duration position,
     required Duration duration,

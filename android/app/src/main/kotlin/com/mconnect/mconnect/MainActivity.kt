@@ -3,6 +3,7 @@ package com.mconnect.mconnect
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.StrictMode
 import android.webkit.MimeTypeMap
@@ -83,6 +84,13 @@ class MainActivity : AudioServiceActivity() {
         playbackKeepAliveController?.release()
         playbackKeepAliveController = null
         super.onDestroy()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // The floating lyrics window spans the full screen width, so a rotation
+        // has to re-measure it and pull it back into the visible area.
+        floatingLyricsController?.onConfigurationChanged(newConfig)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {

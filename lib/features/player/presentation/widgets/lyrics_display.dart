@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../../lyrics/lyrics_progress.dart';
 import '../../../../lyrics/models/lyrics_line.dart';
 import '../providers/lyrics_provider.dart';
 import '../providers/player_provider.dart';
@@ -16,19 +19,27 @@ class LyricsDisplay extends ConsumerStatefulWidget {
   ConsumerState<LyricsDisplay> createState() => _LyricsDisplayState();
 }
 
-class _LyricsDisplayState extends ConsumerState<LyricsDisplay> {
+class _LyricsDisplayState extends ConsumerState<LyricsDisplay>
+    with SingleTickerProviderStateMixin {
   static const double _listVerticalPadding = 80;
   static const double _estimatedLineExtent = 48;
 
   final ScrollController _scrollController = ScrollController();
   final List<GlobalKey> _itemKeys = [];
   final List<GlobalKey> _lineAnchorKeys = [];
+  final LyricsProgressEstimator _progressEstimator = LyricsProgressEstimator();
+
+  /// Played character count of the current line, written every frame while
+  /// playing so only that one line repaints instead of the whole list.
+  final ValueNotifier<int> _playedCharacters = ValueNotifier<int>(0);
+  late final Ticker _progressTicker;
   int _currentLineIndex = -1;
   bool _userScrolling = false;
   Timer? _scrollTimer;
   Timer? _positionTimer;
   Duration _position = Duration.zero;
   String? _lastSongId;
+  String? _progressSongId;
   LyricsDocument? _lastDocument;
 
   @override
@@ -45,19 +56,60 @@ class _LyricsDisplayState extends ConsumerState<LyricsDisplay> {
   @override
   void initState() {
     super.initState();
-    _positionTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+    _progressTicker = createTicker(_onProgressFrame);
+    _positionTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
       if (!mounted) return;
-      final next = ref.read(playerProvider).position;
+      final player = ref.read(playerProvider);
+      final next = player.position;
+      final songId = player.currentSong?.id;
+      if (songId != _progressSongId) {
+        _progressSongId = songId;
+        _progressEstimator.reset();
+        _playedCharacters.value = 0;
+      }
       if (next != _position) {
         setState(() => _position = next);
       }
+      final shouldAnimate = player.isPlaying && widget.isVisible;
+      if (shouldAnimate && !_progressTicker.isTicking) {
+        _progressTicker.start();
+      } else if (!shouldAnimate && _progressTicker.isTicking) {
+        _progressTicker.stop();
+      }
     });
+  }
+
+  void _onProgressFrame(Duration _) {
+    if (!mounted) return;
+    final player = ref.read(playerProvider);
+    if (!player.isPlaying) return;
+    final position = _progressEstimator.estimate(
+      player.position,
+      isPlaying: true,
+      duration: player.duration,
+    );
+    _playedCharacters.value = _playedCharactersFor(_currentLineIndex, position);
+  }
+
+  /// Played character count of the line the UI currently shows.
+  int _playedCharactersFor(int index, Duration position) {
+    final doc = _lastDocument;
+    if (doc == null || index < 0 || index >= doc.lines.length) return 0;
+    return playedCharacterCount(
+      doc.lines[index],
+      position,
+      nextTimestamp: index + 1 < doc.lines.length
+          ? doc.lines[index + 1].timestamp
+          : null,
+    );
   }
 
   @override
   void dispose() {
     _scrollTimer?.cancel();
     _positionTimer?.cancel();
+    _progressTicker.dispose();
+    _playedCharacters.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -235,6 +287,7 @@ class _LyricsDisplayState extends ConsumerState<LyricsDisplay> {
     final currentSongId = ref.watch(
       playerProvider.select((s) => s.currentSong?.id),
     );
+    final isPlaying = ref.watch(playerProvider.select((s) => s.isPlaying));
 
     return lyricsAsync.when(
       loading: () =>
@@ -290,6 +343,7 @@ class _LyricsDisplayState extends ConsumerState<LyricsDisplay> {
           _currentLineIndex = newIndex;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
+            _playedCharacters.value = _playedCharactersFor(newIndex, _position);
             _scrollToLine(_currentLineIndex);
           });
         }
@@ -309,6 +363,9 @@ class _LyricsDisplayState extends ConsumerState<LyricsDisplay> {
             itemBuilder: (context, index) {
               final line = doc.lines[index];
               final isCurrent = index == _currentLineIndex;
+              final playedCharacters = isCurrent
+                  ? _playedCharactersFor(index, position)
+                  : 0;
 
               return Padding(
                 key: _itemKeys[index],
@@ -320,6 +377,10 @@ class _LyricsDisplayState extends ConsumerState<LyricsDisplay> {
                     ? WordByWordLine(
                         line: line,
                         currentPosition: position,
+                        playedCharacters: playedCharacters,
+                        progressListenable: isCurrent && isPlaying
+                            ? _playedCharacters
+                            : null,
                         isCurrentLine: isCurrent,
                         primaryKey: _lineAnchorKeys[index],
                         onTap: () => _seekToLine(line),
@@ -327,6 +388,10 @@ class _LyricsDisplayState extends ConsumerState<LyricsDisplay> {
                     : _PlainLyricsLine(
                         line: line,
                         isCurrentLine: isCurrent,
+                        playedCharacters: playedCharacters,
+                        progressListenable: isCurrent && isPlaying
+                            ? _playedCharacters
+                            : null,
                         primaryKey: _lineAnchorKeys[index],
                         onTap: () => _seekToLine(line),
                       ),
@@ -353,6 +418,8 @@ class _LineMetric {
 class _PlainLyricsLine extends StatelessWidget {
   final LyricsLine line;
   final bool isCurrentLine;
+  final int playedCharacters;
+  final ValueListenable<int>? progressListenable;
   final Key primaryKey;
   final VoidCallback? onTap;
 
@@ -360,11 +427,14 @@ class _PlainLyricsLine extends StatelessWidget {
     required this.line,
     required this.isCurrentLine,
     required this.primaryKey,
+    this.playedCharacters = 0,
+    this.progressListenable,
     this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedDefaultTextStyle(
@@ -372,19 +442,27 @@ class _PlainLyricsLine extends StatelessWidget {
         style: TextStyle(
           fontSize: isCurrentLine ? 20 : 16,
           fontWeight: isCurrentLine ? FontWeight.bold : FontWeight.normal,
-          color: isCurrentLine
-              ? Theme.of(context).colorScheme.primary
-              : Theme.of(context).colorScheme.outline,
+          color: isCurrentLine ? colors.primary : colors.outline,
           height: 1.5,
         ),
         textAlign: TextAlign.center,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              line.text,
-              key: line.text.trim().isNotEmpty ? primaryKey : null,
-            ),
+            if (isCurrentLine)
+              PlayedLyricsText(
+                text: line.text,
+                playedCharacters: playedCharacters,
+                progressListenable: progressListenable,
+                playedColor: colors.primary,
+                baseColor: colors.onSurface,
+                primaryKey: line.text.trim().isNotEmpty ? primaryKey : null,
+              )
+            else
+              Text(
+                line.text,
+                key: line.text.trim().isNotEmpty ? primaryKey : null,
+              ),
             if (line.hasTranslation)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
@@ -394,7 +472,7 @@ class _PlainLyricsLine extends StatelessWidget {
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: isCurrentLine ? 14 : 12,
-                    color: Theme.of(context).colorScheme.outline,
+                    color: colors.outline,
                     height: 1.4,
                   ),
                 ),

@@ -47,6 +47,11 @@ void main() {
       text: 'Everything that kills me makes me feel alive',
       translation: '凡是击垮我的一切，都让我感到自己仍然鲜活',
       progress: 0.45,
+      nextText: 'Next line of the song',
+      highlightProgress: 0.5,
+      highlightRate: 0.002,
+      isPlaying: true,
+      hasSong: true,
     );
 
     await FloatingLyricsService.instance.show(payload, settings);
@@ -55,9 +60,21 @@ void main() {
     final args = calls.single.arguments as Map<Object?, Object?>;
     expect(args['text'], payload.text);
     expect(args['translation'], payload.translation);
+    expect(args['nextText'], payload.nextText);
+    expect(args['highlightProgress'], 0.5);
+    expect(args['highlightRate'], 0.002);
     expect(args['backgroundColor'], Colors.transparent.toARGB32());
     expect(args['textColor'], settings.textColor.toARGB32());
     expect(args['highlightColor'], settings.highlightColor.toARGB32());
+    expect(args['positionY'], settings.positionY);
+    expect(args['isPlaying'], isTrue);
+    expect(args['hasSong'], isTrue);
+  });
+
+  test('floating lyrics defaults to a white base color', () {
+    const settings = FloatingLyricsSettings();
+
+    expect(settings.textColor, const Color(0xFFFFFFFF));
   });
 
   test('update and hide call native overlay methods', () async {
@@ -125,6 +142,79 @@ void main() {
     },
   );
 
+  test('Android native overlay only drags vertically and stays full width', () {
+    final source = File(
+      'android/app/src/main/kotlin/com/mconnect/mconnect/FloatingLyricsController.kt',
+    ).readAsStringSync();
+
+    // Full width comes from MATCH_PARENT so a rotation re-measures the window
+    // without any display-metric math.
+    expect(source, contains('WindowManager.LayoutParams.MATCH_PARENT'));
+    expect(source, isNot(contains('screenWidthPx')));
+    expect(source, contains('FLAG_NOT_TOUCH_MODAL'));
+    // Horizontal drag is gone: only the vertical offset is ever written.
+    expect(source, isNot(contains('params.x = startX')));
+    expect(source, isNot(contains('resizeHandle')));
+    // The overlay drives the new native events the Dart side listens to.
+    expect(source, contains('styleChanged'));
+    expect(source, contains('controlRequested'));
+    expect(source, contains('positionChanged'));
+    expect(source, contains('isLocked'));
+  });
+
+  test('Android overlay colors the played part inside the lyric text itself', () {
+    final source = File(
+      'android/app/src/main/kotlin/com/mconnect/mconnect/FloatingLyricsController.kt',
+    ).readAsStringSync();
+
+    // The highlight is a color span on the same TextView that draws the line,
+    // so it can never detach from the glyphs and there is no second view whose
+    // visibility/clip/scroll state could go stale.
+    expect(source, contains('ForegroundColorSpan'));
+    expect(source, contains('applyProgressSpans'));
+    expect(source, contains('blendColor'));
+    expect(source, contains('TextView.BufferType.SPANNABLE'));
+    expect(source, contains('highlightProgress'));
+    expect(source, contains('highlightRate'));
+    // Frames fill the gaps between the ~200ms Dart anchors.
+    expect(source, contains('runFrame'));
+    expect(source, contains('FRAME_INTERVAL_MS'));
+  });
+
+  test('Android overlay does not stack a second highlighted lyric view', () {
+    final source = File(
+      'android/app/src/main/kotlin/com/mconnect/mconnect/FloatingLyricsController.kt',
+    ).readAsStringSync();
+
+    // Regression guards for the machinery that made the current line render
+    // blank until a layout pass: a clipped overlay copy, a paint shader, and
+    // the controller owning the line's scroll offset.
+    expect(source, isNot(contains('progressText')));
+    expect(source, isNot(contains('clipBounds')));
+    expect(source, isNot(contains('paint.shader = ')));
+    expect(source, isNot(contains('configureScrollingLine')));
+    expect(source, isNot(contains('scrollTo(')));
+    expect(source, contains('configureMarquee'));
+  });
+
+  test('Android overlay is click-through while locked', () {
+    final source = File(
+      'android/app/src/main/kotlin/com/mconnect/mconnect/FloatingLyricsController.kt',
+    ).readAsStringSync();
+
+    expect(source, contains('FLAG_NOT_TOUCHABLE'));
+    expect(source, contains('LOCKED_LOCK_ALPHA'));
+    expect(source, contains('BUTTON_ALPHA'));
+  });
+
+  test('Android overlay reports unsigned 32 bit ARGB colors', () {
+    final source = File(
+      'android/app/src/main/kotlin/com/mconnect/mconnect/FloatingLyricsController.kt',
+    ).readAsStringSync();
+
+    expect(source, contains('and 0xFFFFFFFFL'));
+  });
+
   test('native window resize events are exposed as a typed stream', () async {
     final events = <({int width, int height})>[];
     final sub = FloatingLyricsService.instance.windowResizedStream.listen(
@@ -152,6 +242,82 @@ void main() {
     await pumpEventQueue();
 
     expect(closedCount, 1);
+  });
+
+  test('native style changes are exposed as a typed stream', () async {
+    final events = <({Color highlightColor, double fontSize})>[];
+    final sub = FloatingLyricsService.instance.styleChangedStream.listen(
+      events.add,
+    );
+    addTearDown(sub.cancel);
+
+    await _sendNativeFloatingLyricsCall('styleChanged', {
+      'highlightColor': 0xFF4AA8FF,
+      'fontSize': 27.0,
+    });
+    await pumpEventQueue();
+
+    expect(events, [
+      (highlightColor: const Color(0xFF4AA8FF), fontSize: 27.0),
+    ]);
+  });
+
+  test('native style changes tolerate signed 32 bit colors', () async {
+    final events = <({Color highlightColor, double fontSize})>[];
+    final sub = FloatingLyricsService.instance.styleChangedStream.listen(
+      events.add,
+    );
+    addTearDown(sub.cancel);
+
+    // 0xFF4AA8FF truncated into a signed 32 bit integer by a native caller.
+    await _sendNativeFloatingLyricsCall('styleChanged', {
+      'highlightColor': -11884289,
+      'fontSize': 24.0,
+    });
+    await pumpEventQueue();
+
+    expect(events, [
+      (highlightColor: const Color(0xFF4AA8FF), fontSize: 24.0),
+    ]);
+  });
+
+  test('native transport taps are exposed as a typed stream', () async {
+    final events = <FloatingLyricsControl>[];
+    final sub = FloatingLyricsService.instance.controlRequestedStream.listen(
+      events.add,
+    );
+    addTearDown(sub.cancel);
+
+    await _sendNativeFloatingLyricsCall('controlRequested', {
+      'action': 'playPause',
+    });
+    await _sendNativeFloatingLyricsCall('controlRequested', {
+      'action': 'previous',
+    });
+    await _sendNativeFloatingLyricsCall('controlRequested', {'action': 'next'});
+    await _sendNativeFloatingLyricsCall('controlRequested', {
+      'action': 'unsupported',
+    });
+    await pumpEventQueue();
+
+    expect(events, [
+      FloatingLyricsControl.playPause,
+      FloatingLyricsControl.previous,
+      FloatingLyricsControl.next,
+    ]);
+  });
+
+  test('native drag positions are exposed as a stream', () async {
+    final events = <double>[];
+    final sub = FloatingLyricsService.instance.positionChangedStream.listen(
+      events.add,
+    );
+    addTearDown(sub.cancel);
+
+    await _sendNativeFloatingLyricsCall('positionChanged', 512.0);
+    await pumpEventQueue();
+
+    expect(events, [512.0]);
   });
 }
 

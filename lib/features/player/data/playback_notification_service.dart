@@ -15,6 +15,7 @@ typedef PlaybackCommand = Future<void> Function();
 typedef PlaybackSeekCommand = Future<void> Function(Duration position);
 
 const playbackNotificationLikeAction = 'like_current_song';
+const playbackNotificationLyricsAction = 'toggle_floating_lyrics';
 
 class PlaybackNotificationActions {
   final PlaybackCommand play;
@@ -23,6 +24,7 @@ class PlaybackNotificationActions {
   final PlaybackCommand skipToPrevious;
   final PlaybackSeekCommand seek;
   final PlaybackCommand toggleLikeCurrentSong;
+  final PlaybackCommand toggleFloatingLyrics;
 
   const PlaybackNotificationActions({
     required this.play,
@@ -31,6 +33,7 @@ class PlaybackNotificationActions {
     required this.skipToPrevious,
     required this.seek,
     required this.toggleLikeCurrentSong,
+    required this.toggleFloatingLyrics,
   });
 }
 
@@ -46,6 +49,7 @@ abstract class PlaybackNotificationController {
     required List<Song> playlist,
     required int currentIndex,
     required bool isCurrentSongLiked,
+    required bool isFloatingLyricsEnabled,
     required bool isPlaying,
     required Duration position,
     required Duration duration,
@@ -71,6 +75,7 @@ class NoopPlaybackNotificationController
     required List<Song> playlist,
     required int currentIndex,
     required bool isCurrentSongLiked,
+    required bool isFloatingLyricsEnabled,
     required bool isPlaying,
     required Duration position,
     required Duration duration,
@@ -146,6 +151,7 @@ class AudioServicePlayerController
     required List<Song> playlist,
     required int currentIndex,
     required bool isCurrentSongLiked,
+    required bool isFloatingLyricsEnabled,
     required bool isPlaying,
     required Duration position,
     required Duration duration,
@@ -155,6 +161,7 @@ class AudioServicePlayerController
       playlist: playlist,
       currentIndex: currentIndex,
       isCurrentSongLiked: isCurrentSongLiked,
+      isFloatingLyricsEnabled: isFloatingLyricsEnabled,
       isPlaying: isPlaying,
       position: position,
       duration: duration,
@@ -237,6 +244,7 @@ class MconnectAudioHandler extends BaseAudioHandler with SeekHandler {
   bool _hasCurrentSong = false;
   bool _playing = false;
   bool _isCurrentSongLiked = false;
+  bool _isFloatingLyricsEnabled = false;
   just_audio.ProcessingState _processingState = just_audio.ProcessingState.idle;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
@@ -295,12 +303,14 @@ class MconnectAudioHandler extends BaseAudioHandler with SeekHandler {
     required List<Song> playlist,
     required int currentIndex,
     required bool isCurrentSongLiked,
+    required bool isFloatingLyricsEnabled,
     required bool isPlaying,
     required Duration position,
     required Duration duration,
   }) {
     final song = currentSong;
     _hasCurrentSong = song != null;
+    _isFloatingLyricsEnabled = isFloatingLyricsEnabled;
     final List<Song> effectivePlaylist;
     final int effectiveIndex;
     if (song == null) {
@@ -338,6 +348,7 @@ class MconnectAudioHandler extends BaseAudioHandler with SeekHandler {
         hasCurrentSong: _hasCurrentSong,
         isPlaying: _playing,
         isCurrentSongLiked: _isCurrentSongLiked,
+        isFloatingLyricsEnabled: _isFloatingLyricsEnabled,
         position: _position,
         duration: _duration,
         queueIndex: _queueIndex,
@@ -383,6 +394,10 @@ class MconnectAudioHandler extends BaseAudioHandler with SeekHandler {
       await _actions?.toggleLikeCurrentSong();
       return null;
     }
+    if (name == playbackNotificationLyricsAction) {
+      await _actions?.toggleFloatingLyrics();
+      return null;
+    }
     return super.customAction(name, extras);
   }
 
@@ -407,6 +422,7 @@ List<MediaItem> buildPlaybackNotificationQueue(List<Song> playlist) {
 PlaybackState buildPlaybackNotificationState({
   required bool hasCurrentSong,
   required bool isCurrentSongLiked,
+  required bool isFloatingLyricsEnabled,
   required bool isPlaying,
   required Duration position,
   required Duration duration,
@@ -420,6 +436,7 @@ PlaybackState buildPlaybackNotificationState({
           primaryControl,
           MediaControl.skipToNext,
           _favoriteControl(isCurrentSongLiked),
+          _lyricsControl(isFloatingLyricsEnabled),
         ]
       : <MediaControl>[primaryControl];
 
@@ -448,6 +465,19 @@ MediaControl _favoriteControl(bool isCurrentSongLiked) {
         : 'drawable/audio_service_favorite_outline',
     label: isCurrentSongLiked ? '已喜欢' : '喜欢',
     name: playbackNotificationLikeAction,
+  );
+}
+
+/// Fourth action on the media notification: toggles the floating lyrics
+/// overlay. Required because a locked overlay cannot be closed from the
+/// overlay itself, so the notification shade is the second exit.
+MediaControl _lyricsControl(bool isFloatingLyricsEnabled) {
+  return MediaControl.custom(
+    androidIcon: isFloatingLyricsEnabled
+        ? 'drawable/audio_service_lyrics_on'
+        : 'drawable/audio_service_lyrics_off',
+    label: isFloatingLyricsEnabled ? '关闭歌词' : '歌词',
+    name: playbackNotificationLyricsAction,
   );
 }
 

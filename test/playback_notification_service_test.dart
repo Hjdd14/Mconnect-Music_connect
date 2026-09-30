@@ -18,6 +18,7 @@ void main() {
     final playing = buildPlaybackNotificationState(
       hasCurrentSong: true,
       isCurrentSongLiked: false,
+      isFloatingLyricsEnabled: false,
       isPlaying: true,
       position: const Duration(seconds: 12),
       duration: const Duration(minutes: 3),
@@ -39,6 +40,17 @@ void main() {
             'icon',
             'drawable/audio_service_favorite_outline',
           ),
+      isA<MediaControl>()
+          .having(
+            (control) => control.customAction?.name,
+            'name',
+            'toggle_floating_lyrics',
+          )
+          .having(
+            (control) => control.androidIcon,
+            'icon',
+            'drawable/audio_service_lyrics_off',
+          ),
     ]);
     expect(playing.androidCompactActionIndices, [0, 1, 2]);
     expect(playing.systemActions, contains(MediaAction.seek));
@@ -48,6 +60,7 @@ void main() {
     final paused = buildPlaybackNotificationState(
       hasCurrentSong: true,
       isCurrentSongLiked: false,
+      isFloatingLyricsEnabled: false,
       isPlaying: false,
       position: const Duration(seconds: 12),
       duration: const Duration(minutes: 3),
@@ -62,22 +75,23 @@ void main() {
     final liked = buildPlaybackNotificationState(
       hasCurrentSong: true,
       isCurrentSongLiked: true,
+      isFloatingLyricsEnabled: false,
       isPlaying: false,
       position: const Duration(seconds: 12),
       duration: const Duration(minutes: 3),
       queueIndex: 0,
     );
 
-    expect(liked.controls.last.customAction?.name, 'like_current_song');
-    expect(
-      liked.controls.last.androidIcon,
-      'drawable/audio_service_favorite_filled',
+    final favorite = liked.controls.firstWhere(
+      (control) => control.customAction?.name == 'like_current_song',
     );
+    expect(favorite.androidIcon, 'drawable/audio_service_favorite_filled');
     expect(liked.androidCompactActionIndices, [0, 1, 2]);
 
     final noSong = buildPlaybackNotificationState(
       hasCurrentSong: false,
       isCurrentSongLiked: false,
+      isFloatingLyricsEnabled: false,
       isPlaying: false,
       position: Duration.zero,
       duration: Duration.zero,
@@ -90,7 +104,45 @@ void main() {
       ),
       isFalse,
     );
+    expect(
+      noSong.controls.any(
+        (control) => control.customAction?.name == 'toggle_floating_lyrics',
+      ),
+      isFalse,
+    );
     expect(noSong.androidCompactActionIndices, [0]);
+  });
+
+  test('lyrics control mirrors the floating lyrics switch', () {
+    final off = buildPlaybackNotificationState(
+      hasCurrentSong: true,
+      isCurrentSongLiked: false,
+      isFloatingLyricsEnabled: false,
+      isPlaying: true,
+      position: Duration.zero,
+      duration: const Duration(minutes: 3),
+      queueIndex: 0,
+    );
+    final offControl = off.controls.firstWhere(
+      (control) => control.customAction?.name == 'toggle_floating_lyrics',
+    );
+    expect(offControl.androidIcon, 'drawable/audio_service_lyrics_off');
+    expect(offControl.label, '歌词');
+
+    final on = buildPlaybackNotificationState(
+      hasCurrentSong: true,
+      isCurrentSongLiked: false,
+      isFloatingLyricsEnabled: true,
+      isPlaying: true,
+      position: Duration.zero,
+      duration: const Duration(minutes: 3),
+      queueIndex: 0,
+    );
+    final onControl = on.controls.firstWhere(
+      (control) => control.customAction?.name == 'toggle_floating_lyrics',
+    );
+    expect(onControl.androidIcon, 'drawable/audio_service_lyrics_on');
+    expect(onControl.label, '关闭歌词');
   });
 
   test('maps playlist songs to media items for system queue', () {
@@ -112,6 +164,7 @@ void main() {
     var nextCalls = 0;
     var previousCalls = 0;
     var likeCalls = 0;
+    var lyricsCalls = 0;
     Duration? seekPosition;
     final handler = MconnectAudioHandler();
 
@@ -123,6 +176,7 @@ void main() {
         skipToPrevious: () async => previousCalls++,
         seek: (position) async => seekPosition = position,
         toggleLikeCurrentSong: () async => likeCalls++,
+        toggleFloatingLyrics: () async => lyricsCalls++,
       ),
     );
 
@@ -132,6 +186,7 @@ void main() {
     await handler.skipToPrevious();
     await handler.seek(const Duration(seconds: 25));
     await handler.customAction('like_current_song');
+    await handler.customAction('toggle_floating_lyrics');
 
     expect(playCalls, 1);
     expect(pauseCalls, 1);
@@ -139,6 +194,7 @@ void main() {
     expect(previousCalls, 1);
     expect(seekPosition, const Duration(seconds: 25));
     expect(likeCalls, 1);
+    expect(lyricsCalls, 1);
   });
 
   test('handler publishes queue, media item and playback state', () {
@@ -150,6 +206,7 @@ void main() {
       playlist: songs,
       currentIndex: 1,
       isCurrentSongLiked: false,
+      isFloatingLyricsEnabled: true,
       isPlaying: true,
       position: const Duration(seconds: 8),
       duration: const Duration(minutes: 4),
@@ -175,6 +232,17 @@ void main() {
             'icon',
             'drawable/audio_service_favorite_outline',
           ),
+      isA<MediaControl>()
+          .having(
+            (control) => control.customAction?.name,
+            'name',
+            'toggle_floating_lyrics',
+          )
+          .having(
+            (control) => control.androidIcon,
+            'icon',
+            'drawable/audio_service_lyrics_on',
+          ),
     ]);
     expect(handler.playbackState.value.queueIndex, 1);
   });
@@ -192,6 +260,7 @@ void main() {
         playlist: songs,
         currentIndex: 1,
         isCurrentSongLiked: true,
+        isFloatingLyricsEnabled: false,
         isPlaying: false,
         position: Duration.zero,
         duration: const Duration(minutes: 4),
@@ -221,6 +290,7 @@ void main() {
         playlist: songs,
         currentIndex: 1,
         isCurrentSongLiked: true,
+        isFloatingLyricsEnabled: false,
         isPlaying: false,
         position: Duration.zero,
         duration: const Duration(minutes: 4),
@@ -247,6 +317,7 @@ void main() {
         playlist: [song],
         currentIndex: 0,
         isCurrentSongLiked: false,
+        isFloatingLyricsEnabled: false,
         isPlaying: true,
         position: const Duration(seconds: 12),
         duration: const Duration(minutes: 3),
@@ -267,6 +338,7 @@ void main() {
         playlist: [song],
         currentIndex: 0,
         isCurrentSongLiked: false,
+        isFloatingLyricsEnabled: false,
         isPlaying: true,
         position: const Duration(seconds: 12),
         duration: const Duration(minutes: 3),

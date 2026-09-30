@@ -13,6 +13,116 @@ import 'package:mconnect/models/platform_type.dart';
 import 'package:mconnect/models/song.dart';
 
 void main() {
+  testWidgets('lyrics display splits the current line at the played boundary', (
+    tester,
+  ) async {
+    final notifier = _LyricsTestPlayerNotifier();
+    const document = LyricsDocument(
+      lines: [
+        LyricsLine(timestamp: Duration.zero, text: '1234567890'),
+        LyricsLine(timestamp: Duration(seconds: 4), text: 'Next line'),
+      ],
+      format: LyricsFormat.lrc,
+    );
+
+    await _pumpLyricsDisplay(tester, notifier, document);
+    notifier.setProgress(const Duration(seconds: 2));
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pumpAndSettle();
+
+    final richText = tester.widget<RichText>(
+      find.text('1234567890', findRichText: true),
+    );
+    final leaves = _leafTextSpans(richText.text);
+
+    expect(leaves, hasLength(2));
+    // Half of the four second line has been played.
+    expect(leaves[0].text, '12345');
+    expect(leaves[1].text, '67890');
+    expect(leaves[0].style?.color, isNotNull);
+    expect(leaves[0].style?.color, isNot(leaves[1].style?.color));
+  });
+
+  testWidgets('lyrics display leaves unplayed lines in a single color', (
+    tester,
+  ) async {
+    final notifier = _LyricsTestPlayerNotifier();
+    const document = LyricsDocument(
+      lines: [
+        LyricsLine(timestamp: Duration.zero, text: '1234567890'),
+        LyricsLine(timestamp: Duration(seconds: 4), text: 'Next line'),
+      ],
+      format: LyricsFormat.lrc,
+    );
+
+    await _pumpLyricsDisplay(tester, notifier, document);
+
+    // Nothing played yet: the current line stays one unbroken span, so a line
+    // that wraps onto several rows can never colour every row at once.
+    final richText = tester.widget<RichText>(
+      find.text('1234567890', findRichText: true),
+    );
+    final leaves = _leafTextSpans(richText.text);
+
+    expect(leaves, hasLength(1));
+    expect(leaves.single.text, '1234567890');
+  });
+
+  testWidgets('a wrapped current line colours row by row, not all at once', (
+    tester,
+  ) async {
+    final notifier = _LyricsTestPlayerNotifier();
+    const text =
+        '我会买下所有难得一见的笑脸让所有可怜的孩子不再胆怯勇敢的向前';
+    const document = LyricsDocument(
+      lines: [
+        LyricsLine(timestamp: Duration.zero, text: text),
+        LyricsLine(timestamp: Duration(seconds: 8), text: 'Next line'),
+      ],
+      format: LyricsFormat.lrc,
+    );
+
+    // Narrow width forces the line to wrap onto several rows.
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          playerProvider.overrideWith((ref) => notifier),
+          lyricsProvider.overrideWith((ref) async => document),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 200,
+                height: 400,
+                child: LyricsDisplay(),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    notifier.setProgress(const Duration(seconds: 4));
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pumpAndSettle();
+
+    final richText = tester.widget<RichText>(
+      find.text(text, findRichText: true),
+    );
+    final leaves = _leafTextSpans(richText.text);
+
+    // The played run is a strict prefix of the line, so the rows after the
+    // boundary stay in the base colour instead of lighting up together.
+    expect(leaves, hasLength(2));
+    expect(leaves.first.text, text.substring(0, leaves.first.text!.length));
+    expect(leaves.first.text!.length, greaterThan(0));
+    expect(leaves.first.text!.length, lessThan(text.length));
+    expect(leaves.last.text, text.substring(leaves.first.text!.length));
+    expect(leaves.first.style?.color, isNot(leaves.last.style?.color));
+  });
+
   testWidgets('lyrics display scrolls down when playback reaches later lines', (
     tester,
   ) async {
@@ -296,11 +406,30 @@ void _expectTextCenteredInScrollable(WidgetTester tester, String text) {
   expect((textCenter.dy - scrollableCenter.dy).abs(), lessThanOrEqualTo(16));
 }
 
+/// Flattens a [Text]'s span tree down to its leaf spans (one per colored run).
+List<TextSpan> _leafTextSpans(InlineSpan span) {
+  final leaves = <TextSpan>[];
+  void visit(InlineSpan node) {
+    if (node is! TextSpan) return;
+    if (node.text != null && node.text!.isNotEmpty) {
+      leaves.add(node);
+    }
+    for (final child in node.children ?? const <InlineSpan>[]) {
+      visit(child);
+    }
+  }
+
+  visit(span);
+  return leaves;
+}
+
 AnimatedDefaultTextStyle _nearestAnimatedTextStyle(
   WidgetTester tester,
   String text,
 ) {
-  final textElement = tester.element(find.text(text));
+  // The current line renders as rich text once part of it has been played, so
+  // match either a plain Text or a RichText node.
+  final textElement = tester.element(find.text(text, findRichText: true));
   AnimatedDefaultTextStyle? style;
   textElement.visitAncestorElements((element) {
     final widget = element.widget;
