@@ -4,6 +4,9 @@ import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+// Only for `_RenderIntrinsicOpaqueBox`, the pass-through box that lets the
+// dialog's preview answer the intrinsic query `AlertDialog` makes.
+import 'package:flutter/rendering.dart' show RenderProxyBox;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -709,6 +712,61 @@ class _BackgroundEditorDialogState extends State<BackgroundEditorDialog> {
     super.dispose();
   }
 
+  /// Seeds the controller from the stored settings, in preview pixels.
+  ///
+  /// The stored offsets are relative to the viewport the picture was cropped in,
+  /// which is not the preview's viewport, so they are rescaled here — the same
+  /// relationship `appBackgroundImageGeometry` applies when it paints them at
+  /// full size. Runs once: re-seeding on every layout would throw away a drag
+  /// whenever the window is resized.
+  void _seedController(Size previewSize) {
+    if (_initializedForPreview) return;
+    _initializedForPreview = true;
+    final referenceWidth = widget.settings.cropViewportWidth > 0
+        ? widget.settings.cropViewportWidth
+        : previewSize.width;
+    final referenceHeight = widget.settings.cropViewportHeight > 0
+        ? widget.settings.cropViewportHeight
+        : previewSize.height;
+    _controller.value = appBackgroundMatrixFromTransform(
+      scale: widget.settings.scale,
+      offset: Offset(
+        referenceWidth > 0
+            ? widget.settings.offsetX * previewSize.width / referenceWidth
+            : widget.settings.offsetX,
+        referenceHeight > 0
+            ? widget.settings.offsetY * previewSize.height / referenceHeight
+            : widget.settings.offsetY,
+      ),
+    );
+  }
+
+  /// Paints the preview with the same widget the app-level shell uses.
+  ///
+  /// Passing the matrix through [appBackgroundTransformFromMatrix] is the whole
+  /// point: the preview must scale about the viewport centre, exactly as
+  /// `AppBackgroundImageCanvas` does everywhere else. Letting `InteractiveViewer`
+  /// render its own matrix anchored the scale at the child's top-left instead,
+  /// which put the real background down-right of what the preview showed.
+  Widget _previewCanvas({
+    required AppBackgroundSettings settings,
+    required Size previewSize,
+    required String imagePath,
+    required Matrix4 matrix,
+  }) {
+    final placement = appBackgroundTransformFromMatrix(matrix);
+    return AppBackgroundImageCanvas(
+      settings: settings.copyWith(
+        scale: placement.scale,
+        offsetX: placement.offset.dx,
+        offsetY: placement.offset.dy,
+      ),
+      viewportSize: previewSize,
+      file: File(imagePath),
+      imageBuilder: widget.imageBuilder,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -747,81 +805,71 @@ class _BackgroundEditorDialogState extends State<BackgroundEditorDialog> {
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final previewSize = Size(
-                          constraints.maxWidth,
-                          constraints.maxHeight,
-                        );
-                        final previewSettings = widget.settings.copyWith(
-                          scale: 1,
-                          offsetX: 0,
-                          offsetY: 0,
-                          cropViewportWidth: previewSize.width,
-                          cropViewportHeight: previewSize.height,
-                        );
-                        final geometry = appBackgroundImageGeometry(
-                          settings: previewSettings,
-                          viewportSize: previewSize,
-                        );
-                        final horizontalBoundary = math.max(
-                          previewSize.width,
-                          geometry.canvasSize.width,
-                        );
-                        final verticalBoundary = math.max(
-                          previewSize.height,
-                          geometry.canvasSize.height,
-                        );
-                        _lastPreviewSize = previewSize;
-                        if (!_initializedForPreview) {
-                          _initializedForPreview = true;
-                          final referenceWidth =
-                              widget.settings.cropViewportWidth > 0
-                              ? widget.settings.cropViewportWidth
-                              : previewSize.width;
-                          final referenceHeight =
-                              widget.settings.cropViewportHeight > 0
-                              ? widget.settings.cropViewportHeight
-                              : previewSize.height;
-                          final offsetX = referenceWidth > 0
-                              ? widget.settings.offsetX *
-                                    previewSize.width /
-                                    referenceWidth
-                              : widget.settings.offsetX;
-                          final offsetY = referenceHeight > 0
-                              ? widget.settings.offsetY *
-                                    previewSize.height /
-                                    referenceHeight
-                              : widget.settings.offsetY;
-                          _controller.value = Matrix4.identity()
-                            ..translateByDouble(offsetX, offsetY, 0, 1)
-                            ..scaleByDouble(
-                              widget.settings.scale,
-                              widget.settings.scale,
-                              1,
-                              1,
-                            );
-                        }
-                        return InteractiveViewer(
-                          boundaryMargin: EdgeInsets.symmetric(
-                            horizontal: horizontalBoundary,
-                            vertical: verticalBoundary,
-                          ),
-                          minScale: 1,
-                          maxScale: 4,
-                          transformationController: _controller,
-                          child: SizedBox(
-                            width: previewSize.width,
-                            height: previewSize.height,
-                            child: AppBackgroundImageCanvas(
-                              settings: previewSettings,
-                              viewportSize: previewSize,
-                              file: File(imagePath),
-                              imageBuilder: widget.imageBuilder,
-                            ),
-                          ),
-                        );
-                      },
+                    child: _IntrinsicOpaqueBox(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final previewSize = Size(
+                            constraints.maxWidth,
+                            constraints.maxHeight,
+                          );
+                          final previewSettings = widget.settings.copyWith(
+                            scale: 1,
+                            offsetX: 0,
+                            offsetY: 0,
+                            cropViewportWidth: previewSize.width,
+                            cropViewportHeight: previewSize.height,
+                          );
+                          final geometry = appBackgroundImageGeometry(
+                            settings: previewSettings,
+                            viewportSize: previewSize,
+                          );
+                          final horizontalBoundary = math.max(
+                            previewSize.width,
+                            geometry.canvasSize.width,
+                          );
+                          final verticalBoundary = math.max(
+                            previewSize.height,
+                            geometry.canvasSize.height,
+                          );
+                          _lastPreviewSize = previewSize;
+                          _seedController(previewSize);
+
+                          return Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              IgnorePointer(
+                                child: ValueListenableBuilder<Matrix4>(
+                                  valueListenable: _controller,
+                                  builder: (context, matrix, _) =>
+                                      _previewCanvas(
+                                        settings: previewSettings,
+                                        previewSize: previewSize,
+                                        imagePath: imagePath,
+                                        matrix: matrix,
+                                      ),
+                                ),
+                              ),
+                              // A pure gesture surface: it paints nothing, and it
+                              // must stay the top-most layer — the canvas below
+                              // is hit-test opaque, so with the order reversed it
+                              // swallows the pointer and dragging stops working.
+                              InteractiveViewer(
+                                boundaryMargin: EdgeInsets.symmetric(
+                                  horizontal: horizontalBoundary,
+                                  vertical: verticalBoundary,
+                                ),
+                                minScale: 1,
+                                maxScale: 4,
+                                transformationController: _controller,
+                                child: SizedBox(
+                                  width: previewSize.width,
+                                  height: previewSize.height,
+                                ),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
                     ),
                   ),
                 ),
@@ -846,15 +894,18 @@ class _BackgroundEditorDialogState extends State<BackgroundEditorDialog> {
         ),
         FilledButton(
           onPressed: () {
-            final matrix = _controller.value;
-            final scale = matrix.getMaxScaleOnAxis().clamp(1, 4).toDouble();
+            // Read through the same function the preview renders through, so what
+            // is saved is what the user just looked at.
+            final placement = appBackgroundTransformFromMatrix(
+              _controller.value,
+            );
             final previewSize = _lastPreviewSize ?? cropViewportSize;
             Navigator.pop(
               context,
               widget.settings.copyWith(
-                scale: scale,
-                offsetX: matrix.storage[12],
-                offsetY: matrix.storage[13],
+                scale: placement.scale,
+                offsetX: placement.offset.dx,
+                offsetY: placement.offset.dy,
                 cropViewportWidth: previewSize.width,
                 cropViewportHeight: previewSize.height,
               ),
@@ -865,6 +916,44 @@ class _BackgroundEditorDialogState extends State<BackgroundEditorDialog> {
       ],
     );
   }
+}
+
+/// Lays its child out normally, but answers intrinsic-size queries with zero
+/// instead of measuring it.
+///
+/// **Why this is here.** `AlertDialog` wraps its content in an `IntrinsicWidth`
+/// to decide how wide the dialog should be, and the preview below is a
+/// `LayoutBuilder` — which cannot answer an intrinsic query, because that would
+/// mean running its builder speculatively. In a **debug** build that query
+/// throws, and because the throw aborts the whole intrinsic pass the dialog's
+/// body is never laid out at all: the editor opens with an empty preview area and
+/// a rendering exception in the log. In a **release** build `LayoutBuilder`
+/// answers `0.0` for every intrinsic query, so returning zero here is exactly
+/// what release already does — this only makes debug match it.
+///
+/// Layout, painting and hit testing are untouched: it is a pass-through box. It
+/// must stay above the `LayoutBuilder` (or anything else that cannot answer
+/// intrinsics) for the dialog to lay out in debug.
+class _IntrinsicOpaqueBox extends SingleChildRenderObjectWidget {
+  const _IntrinsicOpaqueBox({super.child});
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderIntrinsicOpaqueBox();
+}
+
+class _RenderIntrinsicOpaqueBox extends RenderProxyBox {
+  @override
+  double computeMinIntrinsicWidth(double height) => 0;
+
+  @override
+  double computeMaxIntrinsicWidth(double height) => 0;
+
+  @override
+  double computeMinIntrinsicHeight(double width) => 0;
+
+  @override
+  double computeMaxIntrinsicHeight(double width) => 0;
 }
 
 class _ColorPresetTile extends StatelessWidget {

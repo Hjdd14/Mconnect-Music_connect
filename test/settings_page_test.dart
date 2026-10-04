@@ -5,16 +5,23 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:mconnect/core/diagnostics/diagnostics_service.dart';
+import 'package:mconnect/core/theme/app_background.dart';
+import 'package:mconnect/core/theme/app_background_provider.dart';
 import 'package:mconnect/features/settings/presentation/pages/settings_page.dart';
 
 void main() {
   late Directory tempDir;
+  late File imageFile;
 
   setUp(() async {
     tempDir = await Directory.systemTemp.createTemp('mconnect_settings_test_');
     Hive.init(tempDir.path);
     await Hive.openBox('settings');
     await DiagnosticsService.instance.initializeForTest(tempDir);
+    // `AppBackgroundImageLayer` skips a missing file before it ever asks the
+    // injected `imageBuilder` for pixels, so the shell needs a real path.
+    imageFile = File('${tempDir.path}${Platform.pathSeparator}background.png');
+    await imageFile.writeAsBytes(_transparentPng);
   });
 
   tearDown(() async {
@@ -284,7 +291,259 @@ void main() {
       isTrue,
     );
   });
+
+  // The editor preview and the app background are two different widget trees,
+  // but they must place the image in the same place. These tests pin that by
+  // comparing the preview against the app-level shell at one window size, both
+  // untouched and after a drag. The shell scales about the *viewport centre*
+  // (Flutter's `Transform.scale` default alignment); the editor used to scale
+  // about the child's top-left through `InteractiveViewer`, which offset every
+  // saved position by `(1 - scale) * centre` — the "actual background sits
+  // down-right of the preview" report.
+  group('background editor preview matches the app background', () {
+    testWidgets('the preview places the image exactly where the shell does', (
+      tester,
+    ) async {
+      _useTestWindow(tester);
+      final settings = _editorSettings(imageFile.path);
+
+      await tester.pumpWidget(_appBackgroundShellWith(settings));
+      final shellRel = _backgroundCanvasOrigin(tester);
+      final shellSize = _backgroundFrameSize(tester);
+
+      // The app-level invariant both paths must reproduce: a 200x400 image in a
+      // 400x700 viewport is canvased at (25, 0) and, at scale 2, lands at
+      // centre + 2 * (canvasOffset - centre) = (-150, -350).
+      expect(shellRel.dx, closeTo(-150, 0.5));
+      expect(shellRel.dy, closeTo(-350, 0.5));
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: BackgroundEditorDialog(
+            settings: settings,
+            imageBuilder: _stubBackgroundImage,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final previewRel = _backgroundCanvasOrigin(tester);
+      final previewSize = _backgroundFrameSize(tester);
+
+      expect(
+        previewRel.dx,
+        closeTo(shellRel.dx * previewSize.width / shellSize.width, 0.01),
+        reason: 'the preview must be the app background, scaled to the dialog',
+      );
+      expect(
+        previewRel.dy,
+        closeTo(shellRel.dy * previewSize.height / shellSize.height, 0.01),
+        reason: 'the preview must be the app background, scaled to the dialog',
+      );
+    });
+
+    testWidgets('saving the editor reproduces what the preview showed', (
+      tester,
+    ) async {
+      _useTestWindow(tester);
+      final settings = _editorSettings(imageFile.path);
+      AppBackgroundSettings? saved;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Center(
+              child: ElevatedButton(
+                onPressed: () async {
+                  saved = await showDialog<AppBackgroundSettings>(
+                    context: context,
+                    builder: (_) => BackgroundEditorDialog(
+                      settings: settings,
+                      imageBuilder: _stubBackgroundImage,
+                    ),
+                  );
+                },
+                child: const Text('打开背景编辑器'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('打开背景编辑器'));
+      await tester.pumpAndSettle();
+
+      final before = _backgroundCanvasOrigin(tester);
+      await tester.drag(
+        find.byKey(const Key('app-background-editor-preview')),
+        const Offset(-40, -60),
+      );
+      await tester.pumpAndSettle();
+
+      final previewRel = _backgroundCanvasOrigin(tester);
+      final previewSize = _backgroundFrameSize(tester);
+      // The drag has to reach the preview at all: the gesture surface must be the
+      // top-most layer, or the rendered canvas below swallows the pointer.
+      expect(previewRel.dx, closeTo(before.dx - 40, 0.5));
+      expect(previewRel.dy, closeTo(before.dy - 60, 0.5));
+
+      await tester.tap(find.text('保存'));
+      await tester.pumpAndSettle();
+      expect(saved, isNotNull);
+
+      await tester.pumpWidget(_appBackgroundShellWith(saved!));
+      final shellRel = _backgroundCanvasOrigin(tester);
+      final shellSize = _backgroundFrameSize(tester);
+
+      expect(
+        previewRel.dx,
+        closeTo(shellRel.dx * previewSize.width / shellSize.width, 0.01),
+        reason: 'saving must produce exactly the picture the user dragged',
+      );
+      expect(
+        previewRel.dy,
+        closeTo(shellRel.dy * previewSize.height / shellSize.height, 0.01),
+        reason: 'saving must produce exactly the picture the user dragged',
+      );
+    });
+  });
 }
+
+/// Runs the test on the window size these expectations are derived from.
+void _useTestWindow(WidgetTester tester) {
+  tester.view.physicalSize = const Size(400, 700);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+}
+
+/// The zoomed-in background a 400x700 window and a 200x400 picture produce.
+AppBackgroundSettings _editorSettings(String imagePath) {
+  return AppBackgroundSettings(
+    imagePath: imagePath,
+    imageWidth: 200,
+    imageHeight: 400,
+    scale: 2,
+    cropViewportWidth: 400,
+    cropViewportHeight: 700,
+  );
+}
+
+Widget _appBackgroundShellWith(AppBackgroundSettings settings) {
+  return ProviderScope(
+    overrides: [
+      appBackgroundSettingsProvider.overrideWith(
+        (ref) => _FixedBackgroundNotifier(settings),
+      ),
+    ],
+    child: MaterialApp(
+      home: AppBackgroundShell(
+        imageBuilder: _stubBackgroundImage,
+        child: const SizedBox.expand(),
+      ),
+    ),
+  );
+}
+
+/// Where the image canvas origin sits relative to the frame that clips it.
+///
+/// Both trees expose the same two keys, so comparing this offset — scaled by the
+/// viewport ratio — is the whole "preview equals the real background" contract.
+Offset _backgroundCanvasOrigin(WidgetTester tester) {
+  final frame = tester.getTopLeft(
+    find.byKey(const Key('app-background-image-frame')),
+  );
+  final canvas = tester.getTopLeft(
+    find.byKey(const Key('app-background-image-canvas')),
+  );
+  return canvas - frame;
+}
+
+Size _backgroundFrameSize(WidgetTester tester) =>
+    tester.getSize(find.byKey(const Key('app-background-image-frame')));
+
+Widget _stubBackgroundImage(File file) {
+  return const ColoredBox(
+    key: Key('stub-background-image'),
+    color: Colors.red,
+    child: SizedBox.expand(),
+  );
+}
+
+class _FixedBackgroundNotifier extends AppBackgroundSettingsNotifier {
+  _FixedBackgroundNotifier(AppBackgroundSettings settings) {
+    state = settings;
+  }
+}
+
+const _transparentPng = <int>[
+  0x89,
+  0x50,
+  0x4E,
+  0x47,
+  0x0D,
+  0x0A,
+  0x1A,
+  0x0A,
+  0x00,
+  0x00,
+  0x00,
+  0x0D,
+  0x49,
+  0x48,
+  0x44,
+  0x52,
+  0x00,
+  0x00,
+  0x00,
+  0x01,
+  0x00,
+  0x00,
+  0x00,
+  0x01,
+  0x08,
+  0x06,
+  0x00,
+  0x00,
+  0x00,
+  0x1F,
+  0x15,
+  0xC4,
+  0x89,
+  0x00,
+  0x00,
+  0x00,
+  0x0A,
+  0x49,
+  0x44,
+  0x41,
+  0x54,
+  0x78,
+  0x9C,
+  0x63,
+  0x00,
+  0x01,
+  0x00,
+  0x00,
+  0x05,
+  0x00,
+  0x01,
+  0x0D,
+  0x0A,
+  0x2D,
+  0xB4,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x49,
+  0x45,
+  0x4E,
+  0x44,
+  0xAE,
+  0x42,
+  0x60,
+  0x82,
+];
 
 Future<void> _dragUntilTextVisible(WidgetTester tester, String label) async {
   for (var i = 0; i < 10; i++) {

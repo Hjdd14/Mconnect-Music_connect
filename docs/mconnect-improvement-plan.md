@@ -2495,4 +2495,85 @@ baseOpacity: routeBackingOpacityFor(state.uri.path),   // 始终用分级值
 
 ---
 
+## 24. 阶段 Q · 背景编辑器预览与实际背景不一致（缩放锚点不同）（已完成）
+
+来源：用户第十四次反馈——「调整背景」弹窗里预览框的画面，和真正铺出来的背景不一致：**实际截取到的部分比预览偏右下，必须手动往左上拖**。
+
+### Q.1 根因：同一个变换被两处独立实现，锚点不同【已核对 + 已实测】
+
+背景图只由 `AppBackgroundImageCanvas`（`app_background.dart`）绘制，它的变换是：
+
+```
+p' = t + c + s·(p − c)        c = 视口中心
+```
+
+因为 `Transform.scale` 的 Flutter 默认 `alignment` 就是 `Alignment.center`（SDK `widgets/basic.dart:1706`）。而编辑器预览当时让 `InteractiveViewer` 渲染**它自己的**矩阵：
+
+```
+p' = t + s·p                  锚点在子节点左上角
+```
+
+`InteractiveViewer.alignment` 默认 `null`（SDK `interactive_viewer.dart:87,131,152-153`），而 `RenderTransform` 在 `origin`/`alignment` 都为 null 时直接返回矩阵（SDK `rendering/proxy_box.dart:2689-2701`）。
+
+两者相差 **`(1 − s) · c`**：`s > 1` 时实际背景比预览偏左上 `(s−1)·c`，等效于"实际截取到的画面偏右下"——与用户描述一致；`s = 1`（没放大）时两者相同，所以只有缩放后才暴露。
+
+**实测数字**（窗口/视口 400×700、图片 200×400、`s = 2`、`offset = 0`）【已实测】：
+
+| | 画布左上角（相对视口） |
+|---|---|
+| 实际背景（中心锚点） | `c + 2(canvasOffset − c) = (−150, −350)` |
+| 修复前的预览（左上锚点） | `2 × canvasOffset = (+32.06, 0)`（预览视口内） |
+| 修复后（测试量到） | `k × (−150, −350)`，`k` = 预览视口/窗口 |
+
+差距约半个视口，所以用户必须手动往左上拖——这不是"拖拽精度"问题，是锚点不同。
+
+### Q.2 修复：预览改为复用产品渲染路径，矩阵语义只留一处定义
+
+1. `app_background.dart` 新增一对互逆纯函数：`appBackgroundTransformFromMatrix`（矩阵 → `(scale, offset)`，scale 按 `[1,4]` 收敛）与 `appBackgroundMatrixFromTransform`。
+2. 弹窗预览不再让 `InteractiveViewer` 画自己：`InteractiveViewer` 降级为**纯手势层**（`child` 是同尺寸空 `SizedBox`，自身不绘制），渲染交给 `ValueListenableBuilder` → **`AppBackgroundImageCanvas`**（首页/二级页/播放页用的同一个 widget），设置由控制器矩阵经上函数换算。
+   - Stack 顺序是硬要求：手势层必须在最上层（画布是 hit-test opaque，顺序反了就会吃掉指针）——由拖拽断言守住。
+3. 「保存」按钮改用**同一个** `appBackgroundTransformFromMatrix`，于是"预览所见"和"保存所得"不可能再分歧。
+4. 控制器播种抽成 `_seedController`（逻辑不变，仍按 `previewSize/reference` 换算存储偏移）。
+
+**没有改动的东西**（重要）：`appBackgroundImageGeometry`、`AppBackgroundImageCanvas`、实际背景渲染、`AppBackgroundSettings` 字段与 hive key **一律未动** → 首页/二级页/播放页画面与今天逐像素相同，**无需数据迁移**；本轮唯一会变的用户可见行为就是弹窗预览。
+
+### Q.3 顺带修掉一个既有缺陷：debug 下弹窗正文从未布局【已实测】
+
+写测试时发现的**既有**缺陷（与本轮锚点问题无关，但会让本轮修复无法在 debug 下验证）：
+
+- `AlertDialog` 会用 `IntrinsicWidth` 测量 content 的固有尺寸（`material/dialog.dart:925`）；
+- 预览里有 `LayoutBuilder`，而它**无法回答固有尺寸查询**；
+- 在 **debug** 构建里该查询直接 `throw`（`widgets/layout_builder.dart:474-487`），异常中止整轮固有尺寸测量 → **弹窗正文完全没有布局**（`app-background-image-frame` 这个 element 根本不存在，日志里是 `LayoutBuilder does not support returning intrinsic dimensions`）；
+- 在 **release** 构建里 `LayoutBuilder` 对固有尺寸返回 `0.0`，布局正常 → 用户看到的一直是 release 的表现。
+
+修复：加一个 pass-through 的 `_IntrinsicOpaqueBox`（`RenderProxyBox`，四个固有尺寸方法返回 0）包在 `LayoutBuilder` 外。**release 行为逐位不变**（`LayoutBuilder` 在 release 本来就返回 0.0），只是让 debug 与 release 一致——UI 从此在 debug 下也能真机验证。
+
+### Q.4 阶段 Q 门禁【已实测】
+
+| 门禁 | 结果 |
+|---|---|
+| `flutter analyze --no-pub` | ✅ **No issues found!**（0 error / 0 warning / 0 info） |
+| `flutter test --no-pub -j 1` | ✅ **429/429 全部通过** |
+| 断言有效性（红→绿） | ✅ 临时恢复"左上锚点"渲染后，测试 1 报 `Expected −96.19 / Actual +32.06`（正是 `2 × canvasOffset`），确认断言不是空转 |
+
+### Q.5 新增断言（5 条）
+
+1. `the preview places the image exactly where the shell does`：同一窗口尺寸下，**先量首页背景壳**的画布相对位置（并断言它就是中心锚点的 `(−150, −350)`），再量弹窗预览；断言 `预览 = 壳 × (预览视口/窗口)`。
+2. `saving the editor reproduces what the preview showed`：`showDialog` 打开 → 拖拽 `(−40, −60)` → 断言预览确实被拖动（守住 Stack 顺序）→ 点「保存」→ 用返回的设置渲染首页壳 → 断言两者仍同比例一致。
+3. `a matrix round-trips through the transform`、4. `a translation is read back unscaled`、5. `the scale is clamped exactly as the stored settings are`：矩阵 ↔ 变换互逆、平移不被缩放（`storage[12]/[13]`）、scale 收敛与存储层同规则。
+
+### Q.6 风险与回退（明示）
+
+- 若真机上仍见偏差（例如播放页视口与窗口比例不同），说明还有第二个尺寸来源，按"只保留一处渲染"继续收口（播放页已复用同一 canvas）。
+- 「预览每帧重建画布」的代价：图片解码走 `imageCache` + `cacheWidth/cacheHeight`，可接受。
+- **回退**：本轮只动两个源码文件，`git checkout -- lib/core/theme/app_background.dart lib/features/settings/presentation/pages/settings_page.dart` 即整轮回退（*stage Q 的 `_IntrinsicOpaqueBox` 属于 debug 修复，回退后 debug 下弹窗正文会重新变成空*）。
+
+### Q.7 教训
+
+1. **同一个变换被两处独立实现，迟早漂移。** 上一轮把"预览"和"实际渲染"写成两套数学（`InteractiveViewer` vs `Transform.scale`），差异 `(1−s)·c` 恰好只在缩放后出现，于是被当成"拖拽手感"。根治方式不是把公式抄一份对齐，而是**让预览走产品渲染路径**。
+2. **"能跑"和"能验证"是两回事。** 这个功能长久以来只在 release 下可用（debug 下弹窗正文根本没布局），因为 release 关掉了断言。只看 release 表现，这个缺陷永远不会被发现——写测试恰好把它暴露了出来。
+3. **用户描述的方向（偏右下 / 要往左上拖）直接给出了差值的符号**，配合 SDK 默认值即可定位到锚点；先算量级再看代码，比在 UI 里试拖快得多。
+
+---
+
 *本文档为只读审计产出，除本文档外未修改任何文件（审计期间的临时探针测试已删除，`git status` 仅显示 `?? docs/`）。执行需用户确认 §9 决策点。*

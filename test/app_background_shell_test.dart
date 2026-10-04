@@ -113,6 +113,47 @@ void main() {
     expect(geometry.canvasOffset.dy, 75);
   });
 
+  // The editor preview reads the gesture matrix through this pair, and so does
+  // the dialog's save action. One definition, so the preview cannot show one
+  // placement while another one is saved and painted.
+  group('the editor matrix and the settings transform agree', () {
+    test('a matrix round-trips through the transform', () {
+      const offset = Offset(-40, 60);
+      final matrix = appBackgroundMatrixFromTransform(
+        scale: 2.5,
+        offset: offset,
+      );
+
+      final transform = appBackgroundTransformFromMatrix(matrix);
+
+      expect(transform.scale, 2.5);
+      expect(transform.offset, offset);
+    });
+
+    test('a translation is read back unscaled', () {
+      // The shape `InteractiveViewer` produces: translation first, then scale,
+      // so the translation lives in storage[12]/[13] and carries no scale.
+      final matrix = Matrix4.identity()
+        ..translateByDouble(12, -8, 0, 1)
+        ..scaleByDouble(1.75, 1.75, 1, 1);
+
+      final transform = appBackgroundTransformFromMatrix(matrix);
+
+      expect(transform.scale, 1.75);
+      expect(transform.offset.dx, 12);
+      expect(transform.offset.dy, -8);
+    });
+
+    test('the scale is clamped exactly as the stored settings are', () {
+      final matrix = appBackgroundMatrixFromTransform(
+        scale: 9,
+        offset: Offset.zero,
+      );
+
+      expect(appBackgroundTransformFromMatrix(matrix).scale, 4);
+    });
+  });
+
   testWidgets('background image canvas paints black behind padded images', (
     tester,
   ) async {

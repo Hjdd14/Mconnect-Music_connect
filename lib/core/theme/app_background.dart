@@ -95,6 +95,43 @@ AppBackgroundImageGeometry appBackgroundImageGeometry({
   );
 }
 
+/// The scale and offset an editor `TransformationController` matrix encodes.
+///
+/// ## Why this exists
+///
+/// The editor used to let `InteractiveViewer` render its own matrix, and that is
+/// **not** how this file renders a background: `Transform.scale` in
+/// [AppBackgroundImageCanvas] anchors at the viewport *centre* — that is its
+/// Flutter default `alignment` — while `InteractiveViewer` passes a null
+/// alignment and therefore anchors at the child's top-left. The two differ by
+/// `(1 - scale) * centre`, so a zoomed preview sat up-left of the picture the app
+/// actually painted: the user had to drag up-left to compensate, and the saved
+/// position then stayed wrong by that same amount.
+///
+/// The editor preview and the dialog's 保存 action both read the matrix through
+/// this function, and the preview renders it with [AppBackgroundImageCanvas] —
+/// the widget the app shell itself uses — so the two cannot drift apart again.
+///
+/// Read it as the inverse of [appBackgroundMatrixFromTransform].
+({double scale, Offset offset}) appBackgroundTransformFromMatrix(
+  Matrix4 matrix,
+) {
+  return (
+    scale: matrix.getMaxScaleOnAxis().clamp(1, 4).toDouble(),
+    offset: Offset(matrix.storage[12], matrix.storage[13]),
+  );
+}
+
+/// Builds the matrix that [appBackgroundTransformFromMatrix] reads back.
+Matrix4 appBackgroundMatrixFromTransform({
+  required double scale,
+  required Offset offset,
+}) {
+  return Matrix4.identity()
+    ..translateByDouble(offset.dx, offset.dy, 0, 1)
+    ..scaleByDouble(scale, scale, 1, 1);
+}
+
 class AppBackgroundShell extends ConsumerWidget {
   final Widget child;
   final Widget Function(File file)? imageBuilder;
