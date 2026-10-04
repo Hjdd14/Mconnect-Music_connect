@@ -1,6 +1,4 @@
 import 'dart:io';
-import 'dart:ui' show ImageFilter;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -198,8 +196,21 @@ void main() {
     });
   });
 
-  group('the background image is painted once', () {
-    testWidgets('no route plate paints its own copy', (tester) async {
+  group('the background image is painted once per visible layer', () {
+    testWidgets('only the app shell and the frosted sheet paint a copy', (
+      tester,
+    ) async {
+      // This used to assert "exactly one layer may paint the background image". The
+      // reason was the "重复 / 缩小 / 黑边" defect: two copies at two different
+      // *scales* composited over each other.
+      //
+      // The frosted sheet now paints a copy on purpose — it has to, because its
+      // floor must be opaque to mask the page below while still showing the picture.
+      // That is only safe because the copy is pinned to `AppBackgroundViewport`, so
+      // the two are laid out from identical inputs. The scale invariant is asserted
+      // by `test/secondary_plate_geometry_test.dart` (rect equality); here we pin the
+      // *count and routing*: exactly one `AppBackgroundShell` paints the picture, and
+      // no route plate does.
       tester.view.devicePixelRatio = 1.0;
       tester.view.physicalSize = const Size(400, 800);
       addTearDown(tester.view.resetPhysicalSize);
@@ -211,7 +222,9 @@ void main() {
         ProviderScope(
           overrides: [
             uiStyleProvider.overrideWith((ref) => _Style()),
-            appBackgroundSettingsProvider.overrideWith((ref) => _Bg()),
+            appBackgroundSettingsProvider.overrideWith(
+              (ref) => _Bg(path: _realImageFile.path),
+            ),
             playerProvider.overrideWith(
               (ref) => PlayerNotifier(
                 audioController: _Idle(),
@@ -237,13 +250,13 @@ void main() {
       expect(
         withImage,
         1,
-        reason: 'exactly one layer may paint the background image',
+        reason: 'exactly one ImageFiltered-free shell paints the sharp picture',
       );
       expect(without, greaterThanOrEqualTo(1));
     });
   });
 
-  group('the secondary sheet is acrylic, not liquid glass', () {
+  group('the secondary sheet is self-contained, not a live backdrop filter', () {
     test('blurs with a near-clear fill and no outline machinery', () {
       // The liquid-glass outline could not be removed through the package API: the
       // rim comes from `GlassEffect`'s own `rimThickness` / `rimSmoothing` /
@@ -251,7 +264,8 @@ void main() {
       // not exposed by `GlassContainer` either. Zeroing `lightIntensity`,
       // `fresnelStrength` and `glowIntensity` therefore left the outline intact.
       //
-      // Acrylic removes it by construction: there is no edge-drawing code at all.
+      // Acrylic removed it by construction (no edge-drawing code at all), and the
+      // sheet is now self-contained as well — see the next test for why.
       expect(AcrylicSettings.sigma, greaterThan(0));
       expect(
         AcrylicSettings.sigma,
@@ -265,8 +279,74 @@ void main() {
       );
     });
 
-    testWidgets('renders a BackdropFilter and no GlassContainer', (tester) async {
-      // The crux of the fix: nothing that can paint a rim is in the tree.
+    testWidgets('no BackdropFilter and no GlassContainer anywhere in the sheet', (
+      tester,
+    ) async {
+      // THE regression guard for the "白影" (a blurred ghost of the previous page's
+      // text seen *through* the panel).
+      //
+      // A `BackdropFilter` filters the already-composited scene at its paint
+      // position, and `TransitionRoute._handleStatusChanged` keeps the outgoing
+      // route painted (`overlayEntries.first.opaque = false`) for the whole
+      // forward/reverse window. So any backdrop filter here necessarily samples the
+      // previous page — which is exactly how its white text got smeared into the
+      // panel. `ImageFiltered` filters only its own child, so it cannot.
+      //
+      // This assertion is therefore not cosmetic: "no BackdropFilter in this
+      // subtree" *is* the proof that no other route can reach the sheet.
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            appBackgroundSettingsProvider.overrideWith(
+              (ref) => _Bg(path: _realImageFile.path),
+            ),
+          ],
+          child: MaterialApp(
+            home: SecondaryGlassSurface(
+              imageBuilder: (_) => const ColoredBox(
+                key: Key('fake-frosted-image'),
+                color: Colors.red,
+                child: SizedBox.expand(),
+              ),
+              child: const Text('page'),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('page'), findsOneWidget);
+      expect(
+        find.byType(BackdropFilter),
+        findsNothing,
+        reason:
+            'a backdrop filter samples the live scene, which during a transition '
+            'still contains the outgoing route — that is the ghost',
+      );
+      expect(
+        find.byType(GlassContainer),
+        findsNothing,
+        reason: 'a GlassContainer would paint the rim again',
+      );
+
+      // The blur now runs over the sheet's own copy of the picture.
+      final frosted = tester.widget<ImageFiltered>(
+        find.byKey(const Key('secondary-acrylic-frosted-image')),
+      );
+      expect(frosted.imageFilter.toString(), contains('20.0'));
+      expect(find.byKey(const Key('fake-frosted-image')), findsOneWidget);
+
+      // The fill must stay light so the picture reads through.
+      final fill = tester.widget<ColoredBox>(
+        find.byKey(const Key('secondary-acrylic-surface')),
+      );
+      expect(fill.color.a, lessThanOrEqualTo(0.2));
+    });
+
+    testWidgets('the masking floor is opaque', (tester) async {
+      // Masking is structural now: an opaque floor plus a picture the sheet paints
+      // itself. Because that floor *is* the (blurred) background, "opaque" no longer
+      // costs the user their background — which is what made the old fill-only
+      // approach unsolvable.
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
@@ -280,34 +360,43 @@ void main() {
         ),
       );
 
-      expect(find.text('page'), findsOneWidget);
-      expect(find.byType(BackdropFilter), findsWidgets);
+      final base = tester.widget<ColoredBox>(
+        find.byKey(const Key('secondary-acrylic-base')),
+      );
       expect(
-        find.byType(GlassContainer),
+        base.color.a,
+        1.0,
+        reason:
+            'a translucent floor would let the outgoing route composite through, '
+            'which is the ghost',
+      );
+    });
+
+    testWidgets('still opaque with no background configured', (tester) async {
+      // The two cases used to diverge, and "no background configured" was the only
+      // configuration where a page could still show through during a transition.
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            appBackgroundSettingsProvider.overrideWith((ref) => _Bg()),
+          ],
+          child: const MaterialApp(
+            home: SecondaryGlassSurface(child: Text('page')),
+          ),
+        ),
+      );
+
+      expect(find.text('page'), findsOneWidget);
+      final base = tester.widget<ColoredBox>(
+        find.byKey(const Key('secondary-acrylic-base')),
+      );
+      expect(base.color.a, 1.0);
+      expect(
+        find.byKey(const Key('secondary-acrylic-frosted-image')),
         findsNothing,
-        reason: 'a GlassContainer here would paint the rim again',
+        reason: 'nothing to blur when the user has not chosen a picture',
       );
-
-      final blur = tester.widget<BackdropFilter>(
-        find.ancestor(
-          of: find.text('page'),
-          matching: find.byType(BackdropFilter),
-        ).first,
-      );
-      final filter = blur.filter;
-      expect(filter, isA<ImageFilter>());
-      expect(filter.toString(), contains('20.0'));
-
-      // The fill must stay light so the picture reads through.
-      final fill = tester.widget<ColoredBox>(
-        find
-            .ancestor(
-              of: find.text('page'),
-              matching: find.byType(ColoredBox),
-            )
-            .first,
-      );
-      expect(fill.color.a, lessThanOrEqualTo(0.2));
+      expect(find.byType(BackdropFilter), findsNothing);
     });
 
     testWidgets('the player route keeps its liquid glass (not touched)', (
@@ -337,55 +426,23 @@ void main() {
         reason: 'the player surface must keep its liquid glass',
       );
     });
-
-    testWidgets('applies even with no background configured', (tester) async {
-      // The two cases used to diverge, and "no background configured" was the only
-      // configuration where a page could still show through during a transition.
-      // One path means one behaviour to reason about.
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            appBackgroundSettingsProvider.overrideWith((ref) => _Bg()),
-          ],
-          child: const MaterialApp(
-            home: SecondaryGlassSurface(child: Text('page')),
-          ),
-        ),
-      );
-
-      expect(find.text('page'), findsOneWidget);
-      expect(find.byKey(const Key('secondary-acrylic-surface')), findsOneWidget);
-      expect(find.byType(BackdropFilter), findsWidgets);
-
-      final fill = tester.widget<ColoredBox>(
-        find
-            .ancestor(
-              of: find.text('page'),
-              matching: find.byType(ColoredBox),
-            )
-            .first,
-      );
-      expect(
-        fill.color.a,
-        lessThanOrEqualTo(0.2),
-        reason: 'the fill must stay light; blur is what does the work',
-      );
-    });
   });
 
-  group('a transition is masked by the acrylic, not by an opaque plate', () {
+  group('a transition is masked by the frosted sheet, not by a flat plate', () {
     testWidgets('the plate stays at its resting value for the whole transition', (
       tester,
     ) async {
-      // The plate used to go opaque mid-transition to hide the strip the incoming
-      // page had not covered yet. That stopped the leftover but introduced a worse
-      // artefact: an opaque plate is a *flat colour*, so it blanked the background
-      // for the whole animation and then released it — a solid-colour flash when
-      // entering a page.
+      // The *route backing plate* used to go opaque mid-transition to hide the strip
+      // the incoming page had not covered yet. That stopped the leftover but
+      // introduced a worse artefact: an opaque plate is a *flat colour*, so it
+      // blanked the background for the whole animation and then released it — a
+      // solid-colour flash when entering a page.
       //
-      // The masking is now the acrylic sheet's job, and it is on the whole time. So
-      // this test asserts the plate NEVER goes opaque, and that the acrylic is
-      // present throughout instead. Weakening either one brings the leftover back.
+      // Masking is now the frosted sheet's job: it is opaque, always on, and its
+      // floor is the user's own (blurred) picture rather than a flat colour, so
+      // being opaque costs nothing visually. This test asserts the *plate* still
+      // never goes opaque, and that the sheet's opaque floor and tint are both
+      // present throughout.
       tester.view.devicePixelRatio = 1.0;
       tester.view.physicalSize = const Size(414, 820);
       addTearDown(tester.view.resetPhysicalSize);
@@ -425,8 +482,21 @@ void main() {
           plates().where((a) => a >= 1.0),
           isEmpty,
           reason:
-              'at $tag no plate may be opaque: a flat opaque plate blanks the '
+              'at $tag no *plate* may be opaque: a flat opaque plate blanks the '
               'background and flashes',
+        );
+      }
+
+      void expectMaskedThroughout(String tag) {
+        expect(
+          find.byKey(const Key('secondary-acrylic-base')),
+          findsWidgets,
+          reason: 'the opaque floor must be present throughout at $tag',
+        );
+        expect(
+          find.byKey(const Key('secondary-acrylic-surface')),
+          findsWidgets,
+          reason: 'the frosted sheet must be present throughout at $tag',
         );
       }
 
@@ -437,13 +507,7 @@ void main() {
       for (final step in [60, 120, 180, 240]) {
         await tester.pump(const Duration(milliseconds: 60));
         expectNoOpaquePlate('t=${step}ms');
-        // The masking layer must be in the tree for the entire transition, because
-        // it is what hides the page below while the new one slides in.
-        expect(
-          find.byKey(const Key('secondary-acrylic-surface')),
-          findsWidgets,
-          reason: 'the acrylic sheet must be present throughout at t=${step}ms',
-        );
+        expectMaskedThroughout('t=${step}ms');
       }
 
       await tester.pump(const Duration(milliseconds: 400));
@@ -453,16 +517,22 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 90));
       expectNoOpaquePlate('mid-pop');
+      expectMaskedThroughout('mid-pop');
 
       await tester.pump(const Duration(milliseconds: 400));
       expect(plates().every((a) => a <= 0.15), isTrue);
     });
   });
 
-  testWidgets('falls back to a scrim when motion is reduced', (tester) async {
-    // Reduced motion is now the only thing that skips the acrylic sheet: a live
-    // backdrop filter is real per-frame work, and a user who asked for less motion
-    // does not need it.
+  testWidgets('the sheet masks whether or not motion is reduced', (tester) async {
+    // This used to be the only branch that skipped the sheet: it fell back to a
+    // `surface` scrim at alpha 0.6. That scrim is translucent, so for the whole
+    // route animation (280 ms forward / 220 ms reverse) the outgoing route still
+    // composited through it at 40 % — a double exposure for users who asked for
+    // less motion.
+    //
+    // The blur is static work, not motion, so the motion preference no longer
+    // changes the material at all. One path means one behaviour to reason about.
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -476,17 +546,17 @@ void main() {
     );
 
     expect(find.text('page'), findsOneWidget);
-    expect(find.byKey(const Key('secondary-acrylic-surface')), findsNothing);
-    final fallback = tester.widget<ColoredBox>(
-      find
-          .ancestor(of: find.text('page'), matching: find.byType(ColoredBox))
-          .first,
-    );
+    expect(find.byKey(const Key('secondary-acrylic-base')), findsOneWidget);
     expect(
-      fallback.color.a,
-      greaterThanOrEqualTo(0.5),
-      reason: 'the degraded path must still dim enough to read text',
+      find.byKey(const Key('secondary-glass-surface-fallback')),
+      findsNothing,
+      reason: 'the translucent scrim fallback is what leaked the page below',
     );
+    final base = tester.widget<ColoredBox>(
+      find.byKey(const Key('secondary-acrylic-base')),
+    );
+    expect(base.color.a, 1.0);
+    expect(find.byType(BackdropFilter), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }

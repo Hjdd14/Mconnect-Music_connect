@@ -386,7 +386,57 @@ void main() {
       final playerRect = tester.getRect(find.byType(MiniPlayerBar));
       expect(playerRect.height, 0);
     });
+
+    testWidgets('insetChild decides whether the child reserves the clearance', (
+      tester,
+    ) async {
+      // `AppRouteShell` passes `false`, because its child is go_router's nested
+      // Navigator: a `Padding` around a Navigator is a band no route inside it can
+      // paint into, and the routed frosted sheet then cannot reach the bottom edge —
+      // the sharp strip the user saw while a page was leaving.
+      //
+      // The clearance has not disappeared; it moved inside each route
+      // (`RouteBottomInset`). So this pins both directions of the flag, measured on
+      // the child's own box.
+      useTallSurface(tester);
+      final childKey = GlobalKey();
+
+      await tester.pumpWidget(
+        host(
+          child: MiuixBottomStack(
+            child: SizedBox.expand(key: childKey),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(
+        tester.getSize(find.byKey(childKey)).height,
+        800 - MiuixBottomLayout.contentInset(hostContext(tester)),
+        reason: 'the default must keep reserving the clearance for direct content',
+      );
+
+      await tester.pumpWidget(
+        host(
+          child: MiuixBottomStack(
+            insetChild: false,
+            child: SizedBox.expand(key: childKey),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(
+        tester.getSize(find.byKey(childKey)).height,
+        800,
+        reason:
+            'a nested Navigator must be allowed to paint to the bottom edge, or a '
+            'frosted page cannot cover the capsule area',
+      );
+    });
   });
 }
+
+/// The element under test, for resolving the style-dependent inset in an assertion.
+BuildContext hostContext(WidgetTester tester) =>
+    tester.element(find.byType(MiuixBottomStack));
 
 void _noop(int _) {}

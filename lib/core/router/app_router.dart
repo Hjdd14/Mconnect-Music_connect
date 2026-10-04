@@ -47,7 +47,7 @@ final appRouter = GoRouter(
       ),
     ),
     ShellRoute(
-      pageBuilder: (context, state, child) => _transparentAppPage(
+      pageBuilder: (context, state, child) => _appShellPage(
         state,
         AppRouteShell(path: state.uri.path, child: child),
       ),
@@ -55,61 +55,61 @@ final appRouter = GoRouter(
         GoRoute(
           path: '/',
           pageBuilder: (context, state) =>
-              _transparentAppPage(state, const HomeScreen()),
+              _appLeafPage(state, const HomeScreen()),
         ),
         GoRoute(
           path: '/recommendations',
           pageBuilder: (context, state) =>
-              _transparentAppPage(state, const RecommendationsPage()),
+              _appLeafPage(state, const RecommendationsPage()),
         ),
         GoRoute(
           path: '/rankings',
           pageBuilder: (context, state) =>
-              _transparentAppPage(state, const RankingsPage()),
+              _appLeafPage(state, const RankingsPage()),
         ),
         GoRoute(
           path: '/likes',
           pageBuilder: (context, state) =>
-              _transparentAppPage(state, const LikesPage()),
+              _appLeafPage(state, const LikesPage()),
         ),
         GoRoute(
           path: '/history',
           pageBuilder: (context, state) =>
-              _transparentAppPage(state, const HistoryPage()),
+              _appLeafPage(state, const HistoryPage()),
         ),
         GoRoute(
           path: '/import-playlist',
           pageBuilder: (context, state) =>
-              _transparentAppPage(state, const ImportPlaylistPage()),
+              _appLeafPage(state, const ImportPlaylistPage()),
         ),
         GoRoute(
           path: '/platform-playlists',
           pageBuilder: (context, state) =>
-              _transparentAppPage(state, const PlatformPlaylistsPage()),
+              _appLeafPage(state, const PlatformPlaylistsPage()),
         ),
         GoRoute(
           path: '/local-music',
           pageBuilder: (context, state) =>
-              _transparentAppPage(state, const LocalMusicPage()),
+              _appLeafPage(state, const LocalMusicPage()),
         ),
         GoRoute(
           path: '/offline-cache',
           pageBuilder: (context, state) =>
-              _transparentAppPage(state, const OfflineCachePage()),
+              _appLeafPage(state, const OfflineCachePage()),
         ),
         GoRoute(
           path: '/listening-stats',
           pageBuilder: (context, state) =>
-              _transparentAppPage(state, const ListeningStatsPage()),
+              _appLeafPage(state, const ListeningStatsPage()),
         ),
         GoRoute(
           path: '/smart-playlists',
           pageBuilder: (context, state) =>
-              _transparentAppPage(state, const SmartPlaylistsPage()),
+              _appLeafPage(state, const SmartPlaylistsPage()),
         ),
         GoRoute(
           path: '/smart-playlists/editor',
-          pageBuilder: (context, state) => _transparentAppPage(
+          pageBuilder: (context, state) => _appLeafPage(
             state,
             SmartPlaylistEditorPage(ruleId: state.uri.queryParameters['id']),
           ),
@@ -122,7 +122,7 @@ final appRouter = GoRouter(
               (p) => p.name == platformStr,
               orElse: () => PlatformType.netease,
             );
-            return _transparentAppPage(
+            return _appLeafPage(
               state,
               PlaylistDetailPage(
                 platform: platform,
@@ -136,32 +136,32 @@ final appRouter = GoRouter(
         GoRoute(
           path: '/settings',
           pageBuilder: (context, state) =>
-              _transparentAppPage(state, const SettingsPage()),
+              _appLeafPage(state, const SettingsPage()),
         ),
         GoRoute(
           path: '/settings/accounts',
           pageBuilder: (context, state) =>
-              _transparentAppPage(state, const SettingsAccountsPage()),
+              _appLeafPage(state, const SettingsAccountsPage()),
         ),
         GoRoute(
           path: '/settings/appearance',
           pageBuilder: (context, state) =>
-              _transparentAppPage(state, const SettingsAppearancePage()),
+              _appLeafPage(state, const SettingsAppearancePage()),
         ),
         GoRoute(
           path: '/settings/floating-lyrics',
           pageBuilder: (context, state) =>
-              _transparentAppPage(state, const SettingsFloatingLyricsPage()),
+              _appLeafPage(state, const SettingsFloatingLyricsPage()),
         ),
         GoRoute(
           path: '/settings/audio',
           pageBuilder: (context, state) =>
-              _transparentAppPage(state, const SettingsAudioPage()),
+              _appLeafPage(state, const SettingsAudioPage()),
         ),
         GoRoute(
           path: '/settings/diagnostics',
           pageBuilder: (context, state) =>
-              _transparentAppPage(state, const SettingsDiagnosticsPage()),
+              _appLeafPage(state, const SettingsDiagnosticsPage()),
         ),
         GoRoute(
           path: '/login/:platform',
@@ -171,7 +171,7 @@ final appRouter = GoRouter(
               (p) => p.name == platformStr,
               orElse: () => PlatformType.netease,
             );
-            return _transparentAppPage(state, LoginPage(platform: platform));
+            return _appLeafPage(state, LoginPage(platform: platform));
           },
         ),
       ],
@@ -188,9 +188,9 @@ final appRouter = GoRouter(
 /// * the **home** screen keeps a whisper of dim so light-on-dark text stays legible
 ///   over a bright image;
 /// * a **secondary** page paints no plate at all. Its readability comes from the
-///   liquid-glass sheet in `app_background.dart`, which blurs the background
-///   instead of flattening it — so the picture stays visible, which is the whole
-///   point of setting a custom background.
+///   frosted sheet in `app_background.dart`, whose own opaque floor is what masks
+///   the page below — the picture stays visible because that floor *is* the
+///   picture, blurred, not a flat colour.
 ///
 /// A plate of `0` is only safe because the transition no longer depends on it: the
 /// incoming page is opaque and covers the page below (`app_page_transition.dart`).
@@ -203,10 +203,35 @@ const double secondaryBackingOpacity = 0;
 double routeBackingOpacityFor(String location) =>
     location == '/' ? homeBackingOpacity : secondaryBackingOpacity;
 
-CustomTransitionPage<void> _transparentAppPage(
+/// Builds one of the app's transparent-backed pages.
+///
+/// ## Two kinds of page, and why they are no longer one function
+///
+/// This used to be a single `_transparentAppPage` that decided everything from
+/// `state.uri.path == '/'` — including whether to wrap the page in the frosted
+/// sheet. Because the same function also built the **shell** page (whose child is
+/// `AppRouteShell`, i.e. the capsule layer plus the nested navigator), the shell
+/// page got a sheet on every non-home location, and that sheet was the only thing
+/// covering the bottom `contentInset` — the band the nested navigator cannot reach
+/// (see `MiuixBottomStack.insetChild`).
+///
+/// `state.uri.path` flips to `/` the instant a `pop` starts, so that patch
+/// vanished on the transition's first frame while the page sliding away kept its
+/// own sheet for the rest of the animation: a sharp band under a frosted page.
+///
+/// The two roles are now separate ([appShellPage] / [appLeafPage]) and the bottom
+/// clearance is applied to the *route's content* ([RouteBottomInset]) instead of
+/// around the navigator, so no band needs patching at all.
+CustomTransitionPage<void> _appPage(
   GoRouterState state,
-  Widget child,
-) {
+  Widget child, {
+  /// Wrap the page in the frosted sheet. False for the shell page, which paints
+  /// the capsules and must stay transparent above the app background.
+  required bool frost,
+
+  /// Reserve the floating bottom stack's clearance inside the route.
+  required bool insetContent,
+}) {
   return CustomTransitionPage<void>(
     key: state.pageKey,
     name: state.name ?? state.path,
@@ -229,17 +254,25 @@ CustomTransitionPage<void> _transparentAppPage(
       // background for the whole animation and then released it, which reads as a
       // solid-colour flash on entering a page.
       //
-      // The masking that the opaque plate was doing is already provided by the
-      // acrylic sheet (`SecondaryGlassSurface`) that sits above this plate on every
-      // secondary page: it blurs and lightly fills whatever is behind it, for the
-      // whole transition and after it. One mechanism, always on, instead of two that
-      // fight. **Lowering the acrylic's fill or removing it will bring the leftover
-      // back.**
+      // The masking the opaque plate was doing is now done **structurally** by the
+      // frosted sheet (`SecondaryGlassSurface`) on every secondary page. It has an
+      // opaque floor and paints its own copy of the picture, so the page below
+      // cannot composite through it — and because the floor *is* the (blurred)
+      // picture, "opaque" no longer means "the background disappears".
+      //
+      // That sheet is also why no `BackdropFilter` appears in this file any more:
+      // a backdrop filter samples the live scene, which during a transition still
+      // contains the outgoing route, which is how the previous page's text ended up
+      // smeared into a visible ghost inside the panel. **Reintroducing one brings
+      // the ghost back.** See `SecondaryGlassSurface`'s doc comment.
+      //
       // `drawImage: false` is still essential: this plate must never paint its own
       // copy of the background. The geometry scales the image to the viewport it is
-      // handed, and a second copy would double the background — the
-      // "重复 / 缩小 / 黑边" that was reported earlier.
-      final isHome = state.uri.path == '/';
+      // handed, and a second copy here would double the background — the
+      // "重复 / 缩小 / 黑边" that was reported earlier. (The frosted sheet *may*
+      // paint a copy, but only because it is pinned to `AppBackgroundViewport` and
+      // asserted pixel-equal by `test/secondary_plate_geometry_test.dart`.)
+      final content = insetContent ? RouteBottomInset(child: child) : child;
       return buildAppPageTransition(
         animation: animation,
         secondaryAnimation: secondaryAnimation,
@@ -250,7 +283,7 @@ CustomTransitionPage<void> _transparentAppPage(
           baseOpacity: routeBackingOpacityFor(state.uri.path),
           child: SizedBox.expand(
             key: const Key('app-route-background-surface'),
-            child: isHome ? child : SecondaryGlassSurface(child: child),
+            child: frost ? SecondaryGlassSurface(child: content) : content,
           ),
         ),
       );
@@ -258,6 +291,27 @@ CustomTransitionPage<void> _transparentAppPage(
     child: child,
   );
 }
+
+/// The page that hosts `AppRouteShell`: the bottom capsules plus go_router's
+/// nested `Navigator`.
+///
+/// It gets no frosted sheet and no content inset. The sheet belongs to the routed
+/// pages (which the nested navigator holds) and the inset belongs inside them —
+/// both for the reason spelled out on [_appPage].
+CustomTransitionPage<void> _appShellPage(GoRouterState state, Widget child) =>
+    _appPage(state, child, frost: false, insetContent: false);
+
+/// A routed page inside the shell, or a top-level page outside it.
+///
+/// Frosted unless it is the home tab host, and always carrying its own bottom
+/// clearance.
+CustomTransitionPage<void> _appLeafPage(GoRouterState state, Widget child) =>
+    _appPage(
+      state,
+      child,
+      frost: state.uri.path != '/',
+      insetContent: true,
+    );
 
 /// Hands the shell's live tab index to the home screen.
 ///
@@ -358,6 +412,11 @@ class _AppRouteShellState extends ConsumerState<AppRouteShell> {
         child: MiuixBottomStack(
           style: style,
           navBar: navBar,
+          // The nested navigator must fill the screen: a `Padding` around it is a
+          // band no route inside it can paint into, which is what made the bottom of
+          // the screen stay sharp while a frosted page slid away. Each routed page
+          // reserves the clearance itself (`RouteBottomInset`).
+          insetChild: false,
           // The player is drawn AFTER the nav bar inside the stack, so the bar can
           // never paint over it. That ordering, plus the per-style inset, is what
           // keeps the player fully visible.

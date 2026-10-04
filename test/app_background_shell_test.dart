@@ -263,7 +263,7 @@ void main() {
     expect(find.byType(Image), findsNothing);
   });
 
-  group('the background image is painted exactly once', () {
+  group('the background image layer', () {
     testWidgets('a shell with drawImage: false contributes no image', (
       tester,
     ) async {
@@ -347,6 +347,112 @@ void main() {
       );
       expect(find.byKey(const Key('app-copy-image')), findsOneWidget);
     });
+
+  group('the app-level viewport is published once and cannot be shadowed', () {
+    // `SecondaryGlassSurface` paints its own copy of the picture so its opaque floor
+    // can mask the page below without losing the user's background. That copy must be
+    // laid out at the *app-level* size, not at the routed box's — `MiuixBottomStack`
+    // insets the routed content for the player capsule, so a routed measurement would
+    // shrink the picture (the "重复 / 缩小 / 黑边" defect).
+    //
+    // These two tests pin the wiring that prevents it: only `drawImage: true`
+    // publishes, so a nested route shell cannot overwrite the value with its own
+    // (smaller) box.
+    testWidgets('drawImage: true publishes its own measured size', (
+      tester,
+    ) async {
+      Size? published;
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            appBackgroundSettingsProvider.overrideWith(
+              (ref) => _FixedBackgroundNotifier(_backgroundSettings(imageFile)),
+            ),
+          ],
+          child: MaterialApp(
+            // `Center` first: a route lays `home` out with *tight* full-screen
+            // constraints, and `BoxConstraints.enforce` would clamp a smaller
+            // `SizedBox` straight back up to the window — so the shell would never
+            // actually see 300x400. `Center` loosens them, then `SizedBox` hands the
+            // shell tight 300x400.
+            home: Center(
+              child: SizedBox(
+                width: 300,
+                height: 400,
+                child: AppBackgroundShell(
+                  imageBuilder: (_) => const ColoredBox(
+                    color: Colors.red,
+                    child: SizedBox.expand(),
+                  ),
+                  child: Builder(
+                    builder: (context) {
+                      published = AppBackgroundViewport.maybeOf(context);
+                      return const Text('content');
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(published, const Size(300, 400));
+    });
+
+    testWidgets('a nested route shell does not overwrite it', (tester) async {
+      Size? published;
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            appBackgroundSettingsProvider.overrideWith(
+              (ref) => _FixedBackgroundNotifier(_backgroundSettings(imageFile)),
+            ),
+          ],
+          child: MaterialApp(
+            // See the note in the previous test: `Center` + `SizedBox` is what
+            // actually gives the shell a box smaller than the window.
+            home: Center(
+              child: SizedBox(
+                width: 300,
+                height: 400,
+                child: AppBackgroundShell(
+                  imageBuilder: (_) => const ColoredBox(
+                    color: Colors.red,
+                    child: SizedBox.expand(),
+                  ),
+                  child: SizedBox(
+                    // Stands in for the routed content's bottom-inset box.
+                    width: 300,
+                    height: 300,
+                    child: AppBackgroundShell(
+                      drawImage: false,
+                      child: Builder(
+                        builder: (context) {
+                          published = AppBackgroundViewport.maybeOf(context);
+                          return const Text('content');
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(
+        published,
+        const Size(300, 400),
+        reason:
+            'the routed box is shorter than the screen; if it republished, every '
+            'frosted plate would scale the picture down to the routed content area',
+      );
+    });
+  });
 
     testWidgets('the image frame is not painted on a black plate', (
       tester,

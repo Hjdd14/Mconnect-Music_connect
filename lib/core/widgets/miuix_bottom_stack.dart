@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../theme/ui_style_provider.dart';
 import 'miuix_bottom_layout.dart';
@@ -30,10 +31,43 @@ import '../../features/player/presentation/widgets/mini_player_bar.dart';
 /// [ mini-player capsule ]                bottom: playerBottomInset (~96 dp)
 /// [ nav capsule, when supplied ]         bottom: 0
 /// ```
+///
+/// ## [insetChild] and why a Navigator must not be inset here
+///
+/// The bottom clearance used to be applied to whatever `child` was — including
+/// `AppRouteShell`'s nested `Navigator`. That created a band **no route can paint
+/// into**: the nested `Navigator`'s `Overlay` sits inside this `Padding`, and
+/// `_RenderTheater.paint` clips to its own bounds
+/// (`packages/flutter/lib/src/widgets/overlay.dart`, `pushClipRect`). A routed
+/// page therefore stops at `H − inset` and can never cover the bottom 144 dp.
+///
+/// Something has to cover it, and the only thing outside the nested navigator
+/// that can is the *root shell page* — whose backing is gated on the current
+/// location. So the patch appeared and vanished the instant a navigation started,
+/// while the page that was sliding away kept its own frosted sheet for another
+/// 220 ms: the screen showed a **sharp band under a frosted page**, briefly, in
+/// both directions.
+///
+/// The fix is to stop punching the hole: `AppRouteShell` passes `insetChild:
+/// false`, so the nested navigator fills the screen, and each routed page
+/// reserves the clearance *inside itself* instead ([RouteBottomInset]). One
+/// mechanism, and the sheet that frosts the page now frosts the whole screen
+/// with it.
+///
+/// Keep the default `true` for a stack that hosts page content directly — that
+/// is what `HomeScreen` does when no `ShellRoute` is above it.
 class MiuixBottomStack extends StatelessWidget {
   /// The page content. Receives bottom padding sized to the capsules in play, so
   /// it is never covered.
   final Widget child;
+
+  /// Whether this stack reserves the bottom clearance for [child] itself.
+  ///
+  /// `true` (the default) is right when [child] *is* the page content, as in
+  /// `HomeScreen`'s standalone shape. `AppRouteShell` passes `false`: its child is
+  /// a nested `Navigator`, and a `Padding` around one hides the bottom of the
+  /// screen from every route inside it — see the class doc.
+  final bool insetChild;
 
   /// The bottom navigation capsule, when the current route shows one.
   final Widget? navBar;
@@ -59,6 +93,7 @@ class MiuixBottomStack extends StatelessWidget {
     this.navBar,
     this.showPlayer = true,
     this.style = UiStyle.miuix,
+    this.insetChild = true,
   });
 
   @override
@@ -80,10 +115,14 @@ class MiuixBottomStack extends StatelessWidget {
     return Stack(
       children: [
         Positioned.fill(
-          child: Padding(
-            padding: EdgeInsets.only(bottom: inset),
-            child: child,
-          ),
+          child: insetChild
+              ? Padding(
+                  padding: EdgeInsets.only(bottom: inset),
+                  child: child,
+                )
+              // A nested `Navigator` (see [insetChild]): it must be able to paint
+              // to the bottom edge, so the clearance moves into each route.
+              : child,
         ),
         // PAINT ORDER MATTERS: the nav bar is added BEFORE the player so the
         // player is painted last, i.e. on top. The reverse order let an opaque nav
@@ -100,6 +139,43 @@ class MiuixBottomStack extends StatelessWidget {
             child: const MiniPlayerBar(floating: true),
           ),
       ],
+    );
+  }
+}
+
+/// Reserves the floating bottom stack's clearance **inside a route**.
+///
+/// This is the counterpart to `MiuixBottomStack(insetChild: false)`. Once the
+/// nested `Navigator` is allowed to fill the screen — so a routed page can paint a
+/// frosted sheet across the whole of it — the clearance has to be applied per
+/// route instead, and it has to sit *below* the sheet in the tree so the sheet
+/// still covers the bottom edge.
+///
+/// The effective constraints are identical to the old `Padding` around the
+/// navigator: the page's widget is laid out in `(W, H − inset)` with its top-left
+/// at the screen's top-left either way. Only *where* the hole is punched changes —
+/// and that is the whole point, because a hole around a `Navigator` is a hole no
+/// route can paint into.
+///
+/// It reads the UI style itself rather than taking it as a parameter, so every
+/// route gets one definition of the clearance.
+class RouteBottomInset extends ConsumerWidget {
+  final Widget child;
+
+  const RouteBottomInset({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final style = ref.watch(uiStyleProvider).style;
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MiuixBottomLayout.contentInsetFor(
+          context,
+          style,
+          hasNavBar: false,
+        ),
+      ),
+      child: child,
     );
   }
 }

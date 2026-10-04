@@ -32,6 +32,9 @@ class DownloadPage extends ConsumerWidget {
 
     await showModalBottomSheet<void>(
       context: context,
+      // See `DownloadButton._showQualityPicker`: the shell's nested navigator fills
+      // the screen now, so a sheet pushed on it would sit under the floating chrome.
+      useRootNavigator: true,
       showDragHandle: true,
       builder: (sheetContext) {
         var displayedPath = currentPath;

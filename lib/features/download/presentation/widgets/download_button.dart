@@ -84,6 +84,12 @@ class DownloadButton extends ConsumerWidget {
   void _showQualityPicker(BuildContext context, WidgetRef ref) {
     showModalBottomSheet(
       context: context,
+      // The nearest navigator is the shell's nested one, which is now full-screen so
+      // routed pages can paint to the bottom edge. A sheet pushed there would be
+      // laid out under the floating chrome (the mini player, and the nav capsule on
+      // the home tabs). The root navigator puts it above the whole shell, which is
+      // what a modal sheet should cover.
+      useRootNavigator: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),

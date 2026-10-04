@@ -132,6 +132,57 @@ Matrix4 appBackgroundMatrixFromTransform({
     ..scaleByDouble(scale, scale, 1, 1);
 }
 
+/// The one viewport every layer that paints the user's picture must agree on.
+///
+/// ## Why this exists
+///
+/// The app-level shell paints the picture once, full screen. A secondary page
+/// paints its own **frosted** copy of that same picture (see
+/// [SecondaryGlassSurface]) and the two must land on exactly the same pixels —
+/// otherwise the background visibly shrinks or grows black bars the moment a
+/// page is pushed, which is the "重复 / 缩小 / 黑边" defect reported twice before.
+///
+/// They cannot be allowed to each measure themselves and hope they agree: a
+/// routed page's box has historically been **smaller than the screen**
+/// (`MiuixBottomStack` used to inset the routed content by the mini-player
+/// clearance), and `appBackgroundImageGeometry` scales the picture to whichever
+/// viewport it is handed — so a route-level measurement would silently shrink the
+/// picture. That was the "重复 / 缩小 / 黑边" defect, reported twice.
+///
+/// So the app-level shell measures itself once and publishes it here, and every
+/// other painter lays itself out at **this** size instead of at its own — see the
+/// `OverflowBox` in [SecondaryGlassSurface]. One measurement, one geometry, so the
+/// two copies cannot drift. Same principle 阶段 Q applied to the editor preview:
+/// make it impossible to have two implementations of one transform.
+///
+/// The two sizes coincide today (the bottom clearance moved inside the routes —
+/// `RouteBottomInset`), which makes the `OverflowBox` an identity. It stays as a
+/// guard: the cheap thing to do is publish a measurement, the expensive thing is to
+/// re-discover why an inset around a navigator breaks the background.
+///
+/// Only [AppBackgroundShell] with `drawImage: true` installs this. A route-level
+/// shell wraps *inside* the app-level one, so if it published its own (inset)
+/// measurements it would shrink every frosted plate to the routed content area.
+class AppBackgroundViewport extends InheritedWidget {
+  final Size size;
+
+  const AppBackgroundViewport({
+    super.key,
+    required this.size,
+    required super.child,
+  });
+
+  /// The published viewport, or `null` when there is no app-level shell above.
+  static Size? maybeOf(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<AppBackgroundViewport>()
+          ?.size;
+
+  @override
+  bool updateShouldNotify(AppBackgroundViewport oldWidget) =>
+      oldWidget.size != size;
+}
+
 class AppBackgroundShell extends ConsumerWidget {
   final Widget child;
   final Widget Function(File file)? imageBuilder;
@@ -183,131 +234,235 @@ class AppBackgroundShell extends ConsumerWidget {
         : theme.colorScheme.surface.withValues(alpha: 0.72);
     final showImage = drawImage && settings.enabled;
 
+    final stack = Stack(
+      children: [
+        if (drawImage)
+          AppBackgroundImageLayer(
+            settings: settings,
+            imageBuilder: imageBuilder,
+          ),
+        if (showImage && drawScrim)
+          Positioned.fill(
+            child: IgnorePointer(child: ColoredBox(color: scrim)),
+          ),
+        child,
+      ],
+    );
+
     return ColoredBox(
       // The base is what masks the page below during a transition. With
       // `drawImage: false` there is no image layer on top of it, so it must be
       // semi-transparent for the app-level image to remain visible.
       color: theme.colorScheme.surface.withValues(alpha: baseOpacity),
-      child: Stack(
-        children: [
-          if (drawImage)
-            AppBackgroundImageLayer(
-              settings: settings,
-              imageBuilder: imageBuilder,
-            ),
-          if (showImage && drawScrim)
-            Positioned.fill(
-              child: IgnorePointer(child: ColoredBox(color: scrim)),
-            ),
-          child,
-        ],
-      ),
+      child: drawImage
+          // Only the app-level shell publishes the viewport — see
+          // [AppBackgroundViewport] for why a route-level shell must not.
+          ? LayoutBuilder(
+              builder: (context, constraints) {
+                // Defensive: an unbounded shell (an unusual embedding, or a test
+                // harness) has no meaningful "biggest", so fall back to the
+                // window rather than publishing infinity to every plate.
+                final size =
+                    constraints.hasBoundedWidth &&
+                        constraints.hasBoundedHeight
+                    ? constraints.biggest
+                    : MediaQuery.sizeOf(context);
+                return AppBackgroundViewport(size: size, child: stack);
+              },
+            )
+          : stack,
     );
   }
 }
 
-/// Acrylic parameters for [SecondaryGlassSurface], as constants so a test can
-/// assert them without reaching into a private widget.
+/// Frosted-sheet parameters for [SecondaryGlassSurface], as constants so a test
+/// can assert them without reaching into a private widget.
 ///
-/// ## Why acrylic rather than liquid glass
+/// ## The name describes the look, not the mechanism
 ///
-/// The liquid-glass outline on this surface could **not** be removed through the
-/// package's public API. Traced through `liquid_glass_widgets` 1.7.2:
-///
-/// * the rim is drawn from `GlassEffect`'s own fields — `rimThickness` (default
-///   `0.5`), `rimSmoothing` (default `1.5`) and `edgeAlphaMultiplier` (default
-///   `0.4`) — see `glass_effect.dart`, and for `GlassQuality.standard` the rim is
-///   *forced* to `rimThickness * 0.35`;
-/// * none of those are fields of `LiquidGlassSettings`, and `GlassContainer` does
-///   not expose them either (no `rimThickness` anywhere in `glass_container.dart`);
-///   neither does `LightweightLiquidGlass`.
-///
-/// So zeroing `lightIntensity`, `fresnelStrength` and `glowIntensity` — which is
-/// what an earlier attempt did — leaves the rim untouched, because the rim is not
-/// painted by those uniforms.
-///
-/// Acrylic removes the problem by construction: a [BackdropFilter] only blurs and
-/// tints. There is **no edge-drawing code**, so there is nothing to disable.
-///
-/// Bonus: it needs no shader, so Windows behaves exactly like Android instead of
-/// falling back.
+/// This used to be a real acrylic: a `BackdropFilter` blurring the live scene.
+/// It is not any more, and the name is kept only because "acrylic" is the visual
+/// idiom the user asked for. The mechanism is now **self-contained** — see
+/// [SecondaryGlassSurface]. Do not "restore" a `BackdropFilter` here without
+/// re-reading that doc comment: it is exactly what caused the ghost.
 abstract final class AcrylicSettings {
-  /// Blur radius. This, not the tint, is what keeps text legible over the picture.
+  /// Blur radius applied to the sheet's *own* copy of the picture.
+  ///
+  /// This, not the tint, is what keeps text legible over the picture.
   static const double sigma = 20;
 
   /// Fill opacity. Deliberately light so the user's background reads through —
-  /// the previous 0.9 fill was what made it invisible.
+  /// a heavy fill hides it, which is the whole point of setting one.
+  ///
+  /// No longer load-bearing for masking: masking is structural now (the sheet
+  /// paints an opaque floor), so this can stay purely cosmetic. It used to be
+  /// the only thing standing between the user and the previous page's text,
+  /// which is why it could never be lowered.
   static const double fillAlpha = 0.13;
 }
 
-/// An acrylic sheet laid over the background on secondary pages.
+/// The frosted sheet laid over the background on secondary pages.
 ///
 /// Sits **below** the page content, which works because the app's `Scaffold`s are
 /// transparent (`app_theme.dart` sets `scaffoldBackgroundColor` to
 /// `Colors.transparent`) — so the sheet reads as something the content sits on,
 /// rather than something painted over it.
 ///
-/// It blurs what is behind it. With a custom background that is the user's picture;
-/// with a plain colour it is the app's opaque base layer, where the blur is a no-op
-/// and the sheet is effectively a light scrim. **It is applied either way on
-/// purpose**: the two cases used to diverge, and "no background configured" was the
-/// only configuration where a page could still show through during a transition.
-/// One path means one behaviour to reason about.
+/// ## Why it is self-contained, and not a `BackdropFilter`
 ///
-/// ## It also does the masking during a route transition
+/// A `BackdropFilter` filters *the existing painted content* — "if there's no
+/// clip, the filter will be applied to the full screen" — so its input is not
+/// "the page underneath" but **the whole composited scene at that point in the
+/// paint order**. During a route transition the outgoing route is still painted:
+/// `TransitionRoute._handleStatusChanged` forces
+/// `overlayEntries.first.opaque = false` for the entire `forward`/`reverse`
+/// window and only restores it on `completed`, so the page below is
+/// *deliberately* still in the scene while the new page slides in.
 ///
-/// Because it sits above the route backing and is always on, whatever is left
-/// un-covered while a page slides in is blurred and dimmed by this sheet rather than
-/// showing the previous page. That is why the route backing does **not** need to
-/// turn opaque mid-transition — and why an opaque backing was a mistake: being a flat
-/// colour, it blanked the user's background for the whole animation and produced a
-/// solid-colour flash.
+/// The result was the "白影": the previous page's white text landed inside the
+/// blur and got smeared into a ghost that could be seen *through* the sheet. The
+/// tint could not remove it — alpha compositing is linear, so one fill scales the
+/// text's contrast and the picture's contrast by the same factor. Raising it far
+/// enough to erase white text also flattens the picture. That is why the two
+/// requirements were unsolvable while the sheet read the live scene.
 ///
-/// **So this layer carries two jobs.** Weakening it — a smaller `fillAlpha`, a
-/// smaller `sigma`, or making it conditional again — brings the leftover content
-/// back. Change it with that in mind.
+/// So the sheet no longer reads the scene at all. It paints **its own copy of the
+/// user's picture**, blurred, over an **opaque floor**:
 ///
-/// When there is nothing useful to blur — reduced motion — the layer falls back to a
-/// plain scrim. Returning the child bare would leave text sitting directly on the
-/// picture.
+/// ```text
+/// ColoredBox(surface)                     <- opaque floor: nothing below can show
+///   Stack
+///     ClipRect > OverflowBox(appViewport) <- clip to this route; lay the picture
+///       RepaintBoundary > ImageFiltered     out at the app-level size
+///         AppBackgroundImageLayer
+///     ColoredBox(surface @ fillAlpha)      <- the tint, unchanged
+///     child                                <- page content
+/// ```
+///
+/// Because no filter samples anything the framework painted, **no other route can
+/// reach this sheet** — the ghost is impossible rather than merely faint. And
+/// because the floor is opaque while the picture is still painted, "opaque" no
+/// longer means "the background disappears": the sheet *is* the background.
+///
+/// Related: Flutter's own `FadeForwardsPageTransitionsBuilder` reaches the same
+/// shape from the other side — for an opaque route it hides the outgoing page via
+/// its `secondaryAnimation` and paints a plate behind it while the transition
+/// runs (gated on `ModalRoute.opaqueOf` after flutter/flutter#167032). The plate
+/// there is a flat colour, which is precisely why it loses the wallpaper and why
+/// this sheet paints the picture instead.
+///
+/// ## The geometry is pinned, not hoped for
+///
+/// The sheet takes its size from [AppBackgroundViewport] — measured by the
+/// app-level shell — and `OverflowBox` gives [AppBackgroundImageLayer] exactly
+/// those constraints, so the app-level copy and this one compute identical
+/// [appBackgroundImageGeometry] values from identical inputs.
+///
+/// Today those two sizes coincide: the sheet's own box *is* the screen, because
+/// the bottom clearance now lives inside each route (`RouteBottomInset`) instead
+/// of being a `Padding` around go_router's nested Navigator — see
+/// `MiuixBottomStack.insetChild`. The `OverflowBox` is therefore currently an
+/// identity. **Keep it anyway**: it is what makes the picture immune to a
+/// re-introduced inset, and an inset around a navigator is exactly the bug this
+/// round fixed (a band no route can paint into). The failure it guards against is
+/// the "重复 / 缩小 / 黑边" that has been reported twice.
+///
+/// `test/secondary_plate_geometry_test.dart` asserts both halves: the sheet spans
+/// the whole viewport, and the app-level and sheet copies land on the same `Rect`.
+/// Keep that test green before trusting a change here.
+///
+/// ## Do not
+///
+/// * **Do not reintroduce a `BackdropFilter`** (or a `GlassContainer`, whose rim
+///   could not be removed through the package API — see 阶段 M). Both make the
+///   ghost possible again.
+/// * **Do not drop the opaque floor.** It is what stops the page below from
+///   compositing through, in both the push and the pop direction.
+/// * **Do not weaken the fill expecting the blur to cover for it.** The blur is no
+///   longer a mask; it is a look.
+/// * **Do not put a `Padding` around the navigator that holds these pages.** It
+///   creates a band no route can paint into, so this sheet cannot reach the bottom
+///   edge and the capsule area stays sharp while the page slides away.
 class SecondaryGlassSurface extends ConsumerWidget {
   final Widget child;
 
-  const SecondaryGlassSurface({super.key, required this.child});
+  /// Optional picture override, so tests can render the sheet without a real
+  /// file on disk (`AppBackgroundShell` and `PlayerGlassRouteSurface` take the
+  /// same hook).
+  final Widget Function(File file)? imageBuilder;
+
+  const SecondaryGlassSurface({
+    super.key,
+    required this.child,
+    this.imageBuilder,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final reducedMotion = MediaQuery.disableAnimationsOf(context);
+    final settings = ref.watch(appBackgroundSettingsProvider);
+    final theme = Theme.of(context);
+    final file = settings.enabled ? File(settings.imagePath!) : null;
+    final paintsPicture = file != null && file.existsSync();
+    final viewport =
+        AppBackgroundViewport.maybeOf(context) ?? MediaQuery.sizeOf(context);
 
-    if (reducedMotion) {
-      // Nothing to blur for a user who asked for less motion, and a live backdrop
-      // filter is real per-frame work — so dim instead.
-      return ColoredBox(
-        key: const Key('secondary-glass-surface-fallback'),
-        color: Theme.of(
-          context,
-        ).colorScheme.surface.withValues(alpha: 0.6),
-        child: child,
-      );
-    }
-
-    return ClipRect(
-      key: const Key('secondary-acrylic-surface'),
-      // `ClipRect` is required: an unclipped `BackdropFilter` samples and paints
-      // beyond its parent's bounds.
-      child: BackdropFilter(
-        // The whole point of acrylic: blur and a light tint, and nothing else. No
-        // shader, no rim, no bevel, no shadow.
-        filter: ImageFilter.blur(
-          sigmaX: AcrylicSettings.sigma,
-          sigmaY: AcrylicSettings.sigma,
-        ),
-        child: ColoredBox(
-          color: Theme.of(
-            context,
-          ).colorScheme.surface.withValues(alpha: AcrylicSettings.fillAlpha),
-          child: child,
-        ),
+    return ColoredBox(
+      // The opaque floor. Masking is structural: whatever is painted below this
+      // point — including the outgoing route for the whole push/pop window —
+      // cannot contribute a single pixel to what the user sees.
+      key: const Key('secondary-acrylic-base'),
+      color: theme.colorScheme.surface,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (paintsPicture && !viewport.isEmpty)
+            // `ClipRect` is required twice over: `OverflowBox` does **not** clip
+            // (`RenderConstrainedOverflowBox` has no `clipBehavior`), and the
+            // picture deliberately overflows this route's box because it is laid
+            // out at the app-level viewport.
+            ClipRect(
+              child: OverflowBox(
+                // The routed box starts at the screen's top-left — the player
+                // inset is applied at the bottom only — so top-left alignment
+                // puts the picture exactly where the app-level copy is.
+                alignment: Alignment.topLeft,
+                minWidth: viewport.width,
+                maxWidth: viewport.width,
+                minHeight: viewport.height,
+                maxHeight: viewport.height,
+                child: RepaintBoundary(
+                  child: ImageFiltered(
+                    key: const Key('secondary-acrylic-frosted-image'),
+                    // `ImageFiltered` blurs its *own child's* buffer, so it can
+                    // never sample another route. That is the fix.
+                    //
+                    // `TileMode.clamp` is required: without it the blur samples
+                    // past the picture's edges and leaves a soft fade along the
+                    // screen borders.
+                    imageFilter: ImageFilter.blur(
+                      sigmaX: AcrylicSettings.sigma,
+                      sigmaY: AcrylicSettings.sigma,
+                      tileMode: TileMode.clamp,
+                    ),
+                    child: AppBackgroundImageLayer(
+                      settings: settings,
+                      positioned: false,
+                      imageBuilder: imageBuilder,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          IgnorePointer(
+            child: ColoredBox(
+              key: const Key('secondary-acrylic-surface'),
+              color: theme.colorScheme.surface.withValues(
+                alpha: AcrylicSettings.fillAlpha,
+              ),
+            ),
+          ),
+          child,
+        ],
       ),
     );
   }

@@ -2576,4 +2576,147 @@ p' = t + s·p                  锚点在子节点左上角
 
 ---
 
+## 25. 阶段 R · 二级页亚克力背板透出上一页文字「白影」（已完成）
+
+来源：用户第十五次反馈，附截图（`/likes` 页面）：「点进二级页面还是会有显示上的小问题，背景中的上一个页面的字体会残留，让用户通过亚克力背板看到背后的字的白影，退出二级页面也会这样」，并要求上网大范围调研解法。
+
+### R.1 根因：`BackdropFilter` 的输入不是「下面那一页」，而是**整个已合成的场景**
+
+`SecondaryGlassSurface` 当时是 `ClipRect > BackdropFilter(sigma 20) > ColoredBox(surface α0.13)`。而 `BackdropFilter` 的官方定义是"filters the **existing painted content**"，且"if there's no clip, the filter will be applied to the **full screen**"。
+
+转场期间上一页确实还在画。本地 SDK 3.47.5 源码 `packages/flutter/lib/src/widgets/routes.dart:293-321`：
+
+```dart
+case AnimationStatus.completed:
+  overlayEntries.first.opaque = opaque;      // 只有转场结束才置回
+case AnimationStatus.forward:
+case AnimationStatus.reverse:
+  overlayEntries.first.opaque = false;       // 转场全程为 false
+```
+
+所以 **forward 280ms / reverse 220ms 窗口内**，上一页的白色文字一定落在 backdrop 里，被 `sigma=20` 糊成一团白影。`fillAlpha` 救不了：alpha 合成是线性的，同一个填充会按同一系数 `(1−a)` 同时压低「文字对比度」和「背景图对比度」——两个需求绑在同一个变量上，数学上无解（与模糊涂黑失效的公开研究一致）。
+
+**这不是参数问题，是架构问题。**
+
+### R.2 调研：三条路都试过，只有一条成立
+
+| 方案 | 判定 |
+|---|---|
+| `BackdropGroup` / `BackdropFilter.grouped` + 应用层「锚点」 | **否决**。机制上可行（`dart:ui`：*"When the **first** backdrop filter with a given id is processed … the state of the backdrop is recorded and cached"*；`rendering/layer.dart:2389` 把 `BackdropKey._key` 传成 `backdropId`）。但：① **仅 Impeller 生效**，Skia/Web 忽略 `backdropId`；② 每帧需 ≥2 个同 key 成员才启用缓存（Impeller `canvas.cc` 的 `backdrop_count > 1`）；③ 我们两个背板**大小不同且同滤镜重叠**，正是文档明说 unsupported 的形状，而 3.47.5 恰好带此 bug——[#191838](https://github.com/flutter/flutter/pull/191838)、[#193176](https://github.com/flutter/flutter/pull/193176) 都**未进 3.47.5**。风险不对称，放弃。 |
+| 上调 `fillAlpha` / `sigma` | **否决**。见 R.1 的数学。Fluent 深色 in-app acrylic 的 `TintOpacity` 默认就是 **0.15**（base 变体 **0.0**）——填充从来不是让 acrylic 可读的东西。 |
+| 让被覆盖页淡出（`secondaryAnimation`） | **否决**。pop 方向不对称（`isDismissed` 会把**目的地**藏到转场结束，整页硬闪），且违反既有契约 `test/app_page_transition_test.dart:59`「the covered page is left completely alone」。 |
+| 转场期间加纯色不透明遮罩 | **否决**。阶段 O/P 已实测会闪。 |
+| **背板自包含（本轮采用）** | ✅ 见 R.3。 |
+
+结论与各平台做法一致：成熟平台从不把实时视图合成进 backdrop（Windows DWM 用材质**枚举**、iOS `UIVisualEffectView` 对 **window** 求值、Android `setBlurBehindRadius` 文档直接建议 blur 不可用时 **"use more `#dimAmount`"**）。调研全文另存 `docs/backdrop-ghosting-research.md`。
+
+### R.3 修复：背板不再读场景，改为**自包含的不透明磨砂层**
+
+```
+ColoredBox(surface)                      ← 不透明底：下面的路由一个像素都进不来
+  Stack
+    ClipRect > OverflowBox(应用层视口)     ← 夹到本路由的盒子；图按应用层尺寸排版
+      RepaintBoundary > ImageFiltered(blur 20, TileMode.clamp)
+        AppBackgroundImageLayer
+    ColoredBox(surface @ 0.13)           ← 淡填充，位置不变
+    child
+```
+
+- **`ImageFiltered` 只过滤自己的子节点**，结构上不可能采到别的路由 → 白影**不可能存在**，而不是被压下去。
+- **不透明 ≠ 看不见背景**：底色上面画的就是用户那张图（模糊版）。这正是过去"遮罩"与"背景可见"互斥的死结被解开的地方——它们不再是两件事。
+- 新增 `AppBackgroundViewport`（`InheritedWidget`）：应用层 shell 量一次自己的尺寸发布出去，背板用 `OverflowBox` 按**这个尺寸**排版。因为 `MiuixBottomStack` 的 `Padding(bottom: inset)` 让路由盒比屏幕矮，若按路由自己的盒子排版，背景图会被缩放——就是被报过两次的「重复 / 缩小 / 黑边」。现在两处是**同一处算法 + 同一组输入**（沿用阶段 Q 的教训）。
+- **`TileMode.clamp` 必需**：`ImageFiltered` 对子层缓冲区做模糊，不 clamp 会在屏幕四边留下一圈淡出。
+- `OverflowBox` **默认不裁剪**（`RenderConstrainedOverflowBox` 没有 `clipBehavior`），所以外层 `ClipRect` 不能省。
+- 顺手修掉一个既有缺陷：旧 `reduceMotion` 分支退化为 `surface @ 0.6` 纯色 scrim，转场窗口内上一页会以 40% 透出——**开着「减弱动画」的用户一直在看双曝光**。现在两条路径合一（模糊是静态材质，不是动效），符合阶段 O.5 的「合并分支比修补分支更安全」。
+
+### R.4 阶段 R 门禁【已实测】
+| 门禁 | 结果 |
+|---|---|
+| `flutter analyze --no-pub` | ✅ **No issues found!** |
+| `flutter test --no-pub -j 1` | ✅ **435/435 全部通过** |
+| 断言有效性（红→绿） | ✅ 把 `OverflowBox` 高度临时改成 `viewport.height - 88`（模拟"按路由盒子排版"的旧缺陷）后，`secondary_plate_geometry_test.dart` 报 `Expected (0,310,400,510) / Actual (0,266,400,466)`——正是 88dp 内缩带来的 44px 偏移，确认断言不是空转 |
+
+### R.5 新增/改写断言
+1. **`no BackdropFilter and no GlassContainer anywhere in the sheet`** —— 这是白影消失的**结构性证据**：没有任何 backdrop 采样，就不可能采到别的路由。
+2. `the masking floor is opaque` / `still opaque with no background configured`：底色 `a == 1.0`。
+3. **`secondary_plate_geometry_test.dart`**：在 400×820 视口、图 800×400 下，push 到 `/likes` 后**应用层与每个背板的 `app-background-image-canvas` rect 必须完全相等**；并断言路由盒确实比视口矮（否则用例会空转）。
+4. `app_background_shell_test.dart`：只有 `drawImage: true` 发布 `AppBackgroundViewport`，嵌套的路由 shell **不能**用自己的（更矮的）盒子覆盖它。
+5. `the sheet masks whether or not motion is reduced`：取代旧的 scrim 回退断言。
+6. 转场用例补 `secondary-acrylic-base` 全程在场，并把 reason 从"不透明板会闪"改为"`AppBackgroundShell` 底衬不得变不透明"（新机制下不透明由背板承担，且它不是纯色）。
+
+### R.6 风险与回退
+- **成本**：由"2 次全屏 backdrop capture + 2 次模糊"变为"3 次缓存图片合成 + 2 次模糊（`RepaintBoundary` 进 raster cache）"。官方明确说此场景 `ImageFiltered` 比 `BackdropFilter` "improved dramatically"，且播放页早已在用同一模式。**仍需真机确认帧时间**。
+- **回退**：`git checkout -- lib/core/theme/app_background.dart lib/core/router/app_router.dart` + 三个测试文件。
+
+### R.7 教训
+1. **"效果调不掉"时先找绘制者。** 阶段 M 已经写过这条（描边不是那几个参数画的），本轮又以另一种形式吃了一次：白影不是 `fillAlpha` 太小，而是**背板的输入里本来就有上一页**。先问"这个像素是从哪来的"，再问"参数怎么调"。
+2. **用户给的观察点决定了范围。** 用户说的是"**通过亚克力背板**看到"，这一句把范围锁在"背板采样到了什么"，而不是"页面盖没盖住"——直接排除了整套"遮罩/不透明底衬"的思路。
+3. **"不透明"与"背景可见"之所以对立，是因为我们让同一层同时干两件事。** 一旦底色本身就是用户那张图，对立自行消失。**遇到互斥需求时，先怀疑"是不是我把两件事压在了同一个东西上"**（阶段 O/P 是同一课的另一种形态）。
+4. **另写"两处渲染必须一致"的断言，而不是靠论证。** 背板多画一份图是本轮唯一的真风险；用一个 rect 相等断言把它变成可证伪的事实，并做红→绿验证。
+
+---
+
+## 26. 阶段 S · 退出二级页时底部一条不模糊（已完成）
+
+来源：用户第十六次反馈，附截图（`/local-music`）：「当退出时，会出现下半底边部分没有模糊，上部分模糊得情况，只有一闪而过，持续时间不是很长，但是影响观感」。
+
+### S.1 根因：`Padding` 包在 Navigator 外面，挖出了一个任何路由都画不到的洞
+
+**① 二级页的磨砂背板只画到路由盒子的下边界，而路由盒子比屏幕矮。**
+`MiuixBottomStack` 的结构是 `Stack[ Positioned.fill(Padding(bottom: inset, child: child)), navBar, miniPlayer ]`，而 `AppRouteShell` 传进来的 `child` 正是 go_router 的**嵌套 Navigator**。于是嵌套 Navigator 高度 = `H − inset`，`inset = contentInsetFor(...) = 96 + 48 = 144 dp（Miuix）/ 88 + 48 = 136 dp（Material）`。
+
+**② 路由画不出自己的盒子**：嵌套 Navigator 的 Overlay 就在那个 `Padding` 里，`_RenderTheater.paint` 会 `pushClipRect` 到自身边界（`packages/flutter/lib/src/widgets/overlay.dart:1532-1538`）。所以二级页的 `SecondaryGlassSurface` **最多只能到 `H − 144`**。
+
+**③ 唯一覆盖那 144 dp 的，是「根 Shell 页」的背板——而它在转场第一帧就消失了。**
+`_transparentAppPage` 里 `isHome = state.uri.path == '/'`；非首页时给**根 Shell 页**也套一层背板，它满屏，正是那个洞的补丁。但 go_router 在 `pop()` 一开始就把 location 改成 `/`，根 Shell 页（page 仍匹配、原地更新）立刻变成 `isHome = true` → **补丁第一帧就没了**，而滑出中的二级页背板还要 220ms 才走完。
+
+于是 pop 全程：上半 = 滑出页的磨砂背板；下半那条 = 没背板 → 露出**清晰**的壁纸。144/695 ≈ 20.7%，与截图比例吻合；截图里那排"图标"正是壁纸的高频细节——上面被糊掉、下面没糊，所以认得出来。进入方向是同一瑕疵的镜像（那条**瞬间**变模糊）。阶段 O 的探针也留下过同一事实（`[mid-pop] plates alphas = [0.08, 1.0, 1.0]`，根 Shell 页已是首页值）。
+
+### S.2 已排除的方案
+
+| 方案 | 否决理由 |
+|---|---|
+| 让内层背板**溢出**路由盒子去盖住那条 | **不可行**：嵌套 Navigator 的 Overlay 自己会 `pushClipRect` 到 `H−144`，绘制被硬裁（S.1②）。 |
+| 用 `ShellRoute(observers: [...])` 观测嵌套栈深，把补丁的移除推迟到 pop 结束 | **更糟**：推迟后，pop 结束时**整屏背景**从"磨砂"瞬变"清晰"（目的地首页本就是全屏清晰材质），变成一次全屏闪，比现在一条带闪更明显。 |
+| 加大 `sigma` / `fillAlpha` | 无关——那一块**根本没有背板**。 |
+| 根 Shell 页背板常开 | 首页底部会永久多出一条磨砂带。 |
+
+### S.3 修复：把底部内缩从「Navigator 外面」移到「路由内容里面」
+
+**规则**：`Padding` 不该包在 Navigator 外面。它会在"任何路由都画不到"的地方挖出一个洞，而洞只能靠另一层路由去补，补丁的存亡又只能跟着 location 走——必然有断层。让 Navigator 满屏、把内缩放进**每条路由的内容**里，洞就不存在了。改完只有一个机制：**磨砂背板在路由内、满屏**，随页面一起横向滑走，上下永远是同一层。
+
+1. `miuix_bottom_stack.dart`：新增 `insetChild`（默认 `true`）。`false` 时不加 `Padding`。默认保持 `true` 是为了 `HomeScreen` 无 ShellRoute 时直接用它当容器的既有形态（那一支行为不变，`test/miuix_bottom_layout_test.dart` 原有 10 条几何断言全绿）。
+2. 新增 `RouteBottomInset`（同文件）：读 `uiStyleProvider`，把净空作为 `Padding` 施加在**路由内容**上，位置在磨砂背板**内部**，所以"背板满屏、内容让开胶囊"同时成立。
+3. `app_router.dart`：`AppRouteShell` 传 `insetChild: false`；把原来一个兼管两种页面的 `_transparentAppPage` 拆成 `_appShellPage`（无背板、无内缩）与 `_appLeafPage`（非首页才有背板、总带内缩），共用 `_appPage`。`isHome` 的作用域从"Shell 页 + 叶子页"缩小到"叶子页"，而叶子页的 `state` 在 page 创建时就固定，滑出中的那一页会一直保留自己的背板。
+4. `SecondaryGlassSurface` 的 `AppBackgroundViewport` + `OverflowBox` 现在是**恒等操作**（两个盒子已经相等）。**保留**当护栏，并在注释里写明：它今天不改像素，但一旦有人把内缩搬回 Navigator 外面，它仍能保证图片不被缩放（那正是被报过两次的「重复 / 缩小 / 黑边」）。
+5. 连带修正：嵌套 Navigator 满屏后，`showModalBottomSheet` 默认 `useRootNavigator: false` 会把弹窗交给嵌套 Navigator → 弹窗会被画在其上的胶囊压住。给 shell 内的两处调用加 `useRootNavigator: true`（`download_button.dart` / `download_page.dart`）。这是**有意的行为变化**：弹窗改为盖在悬浮 chrome 之上。
+
+### S.4 阶段 S 门禁【已实测】
+| 门禁 | 结果 |
+|---|---|
+| `flutter analyze --no-pub` | ✅ **No issues found!** |
+| `flutter test --no-pub -j 1` | ✅ **438/438 全部通过** |
+| 行为保持 | ✅ 重构后**只有 1 条**测试失败，且正是那条前提被本轮推翻的用例（"the routed box really is shorter than the viewport"）——其余 434 条（含底部布局几何、迷你播放器、路由）全部原样通过 |
+| 断言有效性（红→绿 ①） | ✅ 把结构临时还原成"内缩减在 Navigator 外面"（`insetChild: true` + `insetContent: false`）后，新用例报 `Expected within <0.5> of <820.0> / Actual <684.0>`——**正好是 136 dp 的清晰带**，精确复现了用户报的瑕疵 |
+| 断言有效性（红→绿 ②） | ✅ 去掉 `useRootNavigator: true` 后，弹窗用例报 `Found 1 widget with type "BottomSheet" descending from MiuixBottomStack`——证明弹窗确实会被画在 chrome 之下 |
+
+### S.5 新增/改写断言
+1. `secondary_plate_geometry_test.dart`：**`the frosted sheet spans the whole viewport`** —— 在 push 与 pop 中途各采样 3 个时间点，断言背板宽高等于整个视口（修复前是 684 vs 820）；并保留"应用层与背板图片 rect 相等"。
+2. 同文件：**`page content still stops short of the floating capsules`** —— 断言内容盒仍按 `contentInsetFor` 让开胶囊，钉住"搬家不是删除"。
+3. `miuix_bottom_layout_test.dart`：**`insetChild decides whether the child reserves the clearance`** —— 量 child 自己的盒子，两个方向都钉死。
+4. `download_page_test.dart`：**`a shell-nested sheet is pushed above the floating chrome`** —— 用 `MiuixBottomStack(insetChild: false) + Navigator` 搭出真实层级，断言弹窗**不在** shell 子树内。（真实取目录路径要走文件 I/O，在 widget test 的 fake-async 里永不完成，故用 `_StubPathDownloadNotifier` 抵掉——这条本身也是一个可复用的经验。）
+
+### S.6 风险与回退
+- **净空搬家导致内容被胶囊压住**：有效约束逐像素相同（`Padding` 在 Navigator 外 vs 在路由内，页面拿到的都是 `(W, H − inset)` 且左上角都在屏幕左上角），由 S.5.2 与 `widget_test.dart` 的滚动可见性用例兜底。
+- **弹窗观感变化**：已明示为有意变化并由断言钉住。
+- **回退**：`git checkout -- lib/core/widgets/miuix_bottom_stack.dart lib/core/router/app_router.dart lib/core/theme/app_background.dart lib/features/download/presentation` + 测试文件。
+
+### S.7 教训
+1. **"某块区域不生效"要先问"这块区域是谁的盒子、谁能画进去"。** 症状是"底下一条不模糊"，但只要问出"嵌套 Navigator 的 Overlay 在 `Padding` 里 → 它裁剪 → 没有路由能画到那里"，根因一次就定位了。**一个 `Padding` 包住 Navigator，等于在屏幕上挖了一个只有另一条路由能补的洞**——这条应作为布局规则记住。
+2. **补丁的存亡不能挂在 location 上。** 补洞的那层背板由 `state.uri.path == '/'` 决定，而 location 在转场**开始**就翻转、页面却还要滑 220ms。**凡是"要覆盖正在做动画的东西"的层，都不能用会立刻翻转的状态来开关**——要么它跟着动画走（本轮做法：让背板和页面是同一个东西），要么它有和动画同步的信号。
+3. **行为保持要拿证据，而不是宣称。** 本轮动了底部净空的施加位置，风险面看起来很大；"重构后只剩 1 条、且正是前提被推翻的那条测试失败"才是可以拿出手的证据。
+4. **改一处要顺手问"还有谁依赖这个盒子"。** Navigator 从 `H−144` 变满屏，只有底部弹窗受影响——不去查一遍 `showModalBottomSheet(useRootNavigator:)` 的默认值，就会留下一个"弹窗被胶囊压住"的新 bug。
+
+---
+
 *本文档为只读审计产出，除本文档外未修改任何文件（审计期间的临时探针测试已删除，`git status` 仅显示 `?? docs/`）。执行需用户确认 §9 决策点。*

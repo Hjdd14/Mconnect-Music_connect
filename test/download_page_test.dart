@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mconnect/core/widgets/miuix_bottom_stack.dart';
 import 'package:mconnect/features/download/data/download_directory_service.dart';
 import 'package:mconnect/features/download/data/download_task_store.dart';
 import 'package:mconnect/features/download/data/repositories/download_manager.dart';
@@ -145,6 +146,75 @@ void main() {
     expect(manager.deleteCalls, 1);
     expect(find.text('已完成 (0)'), findsOneWidget);
   });
+
+  testWidgets('a shell-nested sheet is pushed above the floating chrome', (
+    tester,
+  ) async {
+    // `DownloadPage` is a home tab, so it lives in go_router's *nested* navigator,
+    // inside `AppRouteShell`'s `MiuixBottomStack`. That stack paints the mini player
+    // and the nav capsule **after** (i.e. on top of) its child.
+    //
+    // The nested navigator now fills the screen (it must, or a routed frosted sheet
+    // cannot reach the bottom edge), so a sheet pushed on the *nearest* navigator
+    // would be laid out under the capsule area — the chrome drawn over it. Pushing on
+    // the root navigator puts the sheet above the whole shell, which is what a modal
+    // sheet should cover.
+    //
+    // Asserted structurally rather than by pixels: "the sheet is not inside the shell
+    // subtree" is exactly the property that stops the chrome drawing over it.
+    final manager = DownloadManager(
+      directoryService: DownloadDirectoryService(
+        store: _MemoryDownloadDirectoryStore(),
+        defaultRootProvider: () async => throw UnimplementedError(),
+      ),
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          downloadProvider.overrideWith(
+            (ref) => _StubPathDownloadNotifier(
+              manager: manager,
+              initialState: const DownloadState(tasks: []),
+              taskStore: _MemoryDownloadTaskStore(const []),
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          // Stands in for `AppRouteShell`: a full-bleed stack hosting a nested
+          // navigator, with the chrome painted above it.
+          home: MiuixBottomStack(
+            showPlayer: false,
+            insetChild: false,
+            child: Navigator(
+              onGenerateRoute: (_) =>
+                  MaterialPageRoute<void>(builder: (_) => const DownloadPage()),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.folder_copy_outlined));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byType(BottomSheet),
+      findsOneWidget,
+      reason: 'the download directory sheet must actually open',
+    );
+    expect(
+      find.descendant(
+        of: find.byType(MiuixBottomStack),
+        matching: find.byType(BottomSheet),
+      ),
+      findsNothing,
+      reason:
+          'a sheet pushed on the nested navigator would be painted beneath the mini '
+          'player / nav capsule; it must go on the root navigator',
+    );
+  });
 }
 
 const _song = Song(
@@ -201,4 +271,22 @@ class _DeleteOkDownloadManager extends DownloadManager {
     deleteCalls++;
     return true;
   }
+}
+
+/// Resolves the download root without touching the filesystem.
+///
+/// The real path goes through `Directory.exists()` / `create()`, and real I/O
+/// futures never complete inside a widget test's fake-async zone — the sheet would
+/// simply never open, and the test would fail for a reason unrelated to what it
+/// checks. This test is about paint order, so it stubs the lookup.
+class _StubPathDownloadNotifier extends DownloadNotifier {
+  _StubPathDownloadNotifier({
+    required super.manager,
+    required super.initialState,
+    required super.taskStore,
+  });
+
+  @override
+  Future<String> currentDownloadRootPath() async =>
+      p.join('D:', 'MconnectTestDownloads');
 }
