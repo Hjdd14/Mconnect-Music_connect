@@ -1,34 +1,425 @@
 import 'dart:io';
 
+import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mconnect/core/database/app_database.dart';
+import 'package:mconnect/features/local_music/data/local_lyrics_loader.dart';
+import 'package:mconnect/features/local_music/data/local_lyrics_store.dart';
+import 'package:mconnect/features/local_music/data/local_metadata_reader.dart';
 import 'package:mconnect/features/local_music/data/local_music_repository.dart';
+import 'package:mconnect/features/local_music/data/local_track_store.dart';
 import 'package:mconnect/models/platform_type.dart';
+import 'package:path/path.dart' as p;
+
+import 'local_music_fixtures.dart';
 
 void main() {
+  late Directory root;
+
+  setUp(() async {
+    root = await Directory.systemTemp.createTemp('mconnect_local_music_');
+  });
+
+  tearDown(() async {
+    if (await root.exists()) {
+      await root.delete(recursive: true);
+    }
+  });
+
+  LocalMusicRepository repository({
+    LocalMetadataReader? reader,
+    LocalTrackStore? tracks,
+    LocalLyricsStore? lyrics,
+    bool? scanInIsolate,
+  }) {
+    return LocalMusicRepository(
+      metadataReader: reader,
+      trackStore: tracks ?? MemoryLocalTrackStore(),
+      lyricsStore: lyrics ?? MemoryLocalLyricsStore(),
+      coverDirectoryPath: p.join(root.path, 'covers'),
+      scanInIsolate: scanInIsolate,
+    );
+  }
+
   test('scans mainstream audio files and matches same-name timed lyrics', () async {
-    final root = await Directory.systemTemp.createTemp('mconnect_local_music_');
-    addTearDown(() => root.delete(recursive: true));
+    final songFile = File(p.join(root.path, 'Track One.mp3'));
+    final flacFile = File(p.join(root.path, 'Track Two.flac'));
+    final ignoredFile = File(p.join(root.path, 'cover.jpg'));
+    final lyricsDir = Directory(p.join(root.path, 'lyrics'));
 
-    final songFile = File('${root.path}${Platform.pathSeparator}Track One.mp3');
-    final flacFile = File('${root.path}${Platform.pathSeparator}Track Two.flac');
-    final ignoredFile = File('${root.path}${Platform.pathSeparator}cover.jpg');
-    final lyricsDir = Directory('${root.path}${Platform.pathSeparator}lyrics');
-
+    // Neither file is a real container, so both must fall back to the file name
+    // rather than disappearing from the library.
     await songFile.writeAsString('not real audio');
     await flacFile.writeAsString('not real audio');
     await ignoredFile.writeAsString('image');
     await lyricsDir.create();
-    await File('${root.path}${Platform.pathSeparator}Track One.lrc')
-        .writeAsString('[00:01.00]Hello');
-    await File('${lyricsDir.path}${Platform.pathSeparator}Track Two.qrc')
-        .writeAsString('[00:02.00]World');
+    await File(p.join(root.path, 'Track One.lrc')).writeAsString(
+      '[00:01.00]Hello',
+    );
+    await File(p.join(lyricsDir.path, 'Track Two.qrc')).writeAsString(
+      '<L T="2000" D="900"><P T="100" D="400">World</P></L>',
+    );
 
-    final result = await LocalMusicRepository().scanDirectory(root.path);
+    final result = await repository().scanDirectory(root.path);
 
     expect(result.songs, hasLength(2));
     expect(result.songs.map((s) => s.platform).toSet(), {PlatformType.local});
-    expect(result.songs.map((s) => s.name), containsAll(['Track One', 'Track Two']));
+    expect(
+      result.songs.map((s) => s.name),
+      containsAll(['Track One', 'Track Two']),
+    );
     expect(result.lyricsBySongId[songFile.path], '[00:01.00]Hello');
-    expect(result.lyricsBySongId[flacFile.path], '[00:02.00]World');
+    expect(result.lyricsBySongId[flacFile.path], contains('World'));
+  });
+
+  test('reads real tags, duration, track number and cover art', () async {
+    final reader = CountingMetadataReader(
+      inner: AudioMetadataReader(
+        coverDirectoryPath: p.join(root.path, 'covers'),
+      ),
+    );
+    await writeFlacFixture(
+      root,
+      'tagged.flac',
+      title: '标题',
+      artist: '歌手',
+      album: '专辑',
+      trackNumber: 3,
+      durationMs: 3000,
+      coverBytes: tinyPngBytes(),
+    );
+
+    final result = await repository(reader: reader).scanDirectory(root.path);
+
+    expect(reader.calls, 1);
+    final track = result.tracks.single;
+    expect(track.title, '标题');
+    expect(track.artistName, '歌手');
+    expect(track.albumName, '专辑');
+    expect(track.trackNumber, 3);
+    expect(track.durationMs, closeTo(3000, 60));
+
+    // Cover art is extracted to a real file, and Song.coverUrl stays null: the
+    // app renders covers through CachedNetworkImage, which cannot read a path.
+    expect(track.coverPath, isNotNull);
+    expect(File(track.coverPath!).existsSync(), isTrue);
+    expect(result.songs.single.coverUrl, isNull);
+  });
+
+  test(
+    'the second scan reuses the persisted index and reads zero metadata',
+    () async {
+      for (var i = 0; i < 3; i++) {
+        await writeFlacFixture(
+          root,
+          'track$i.flac',
+          title: '曲目$i',
+          artist: '歌手',
+          album: '专辑',
+          trackNumber: i + 1,
+        );
+      }
+      final tracks = MemoryLocalTrackStore();
+      final reader = CountingMetadataReader();
+      final repo = repository(reader: reader, tracks: tracks);
+
+      final first = await repo.scanDirectory(root.path);
+      expect(first.parsedCount, 3);
+      expect(first.reusedCount, 0);
+      expect(reader.calls, 3);
+      expect(first.songs.map((s) => s.name), contains('曲目1'));
+
+      final second = await repo.scanDirectory(root.path);
+
+      expect(second.parsedCount, 0, reason: '未变文件不得重新读取元数据');
+      expect(second.reusedCount, 3);
+      expect(reader.calls, 3, reason: '第二次扫描读取元数据的次数必须为 0');
+      expect(second.wasFullyIncremental, isTrue);
+      // Tags survive the reuse: they come from the database, not from the file.
+      expect(second.songs.map((s) => s.name), contains('曲目1'));
+      expect(second.tracks.map((t) => t.durationMs), everyElement(3000));
+    },
+  );
+
+  test('only the modified file is re-read on a later scan', () async {
+    final reader = CountingMetadataReader();
+    final repo = repository(reader: reader);
+    await writeFlacFixture(
+      root,
+      'a.flac',
+      title: 'A',
+      artist: '歌手',
+      album: '专辑',
+      durationMs: 3000,
+    );
+    await writeFlacFixture(
+      root,
+      'b.flac',
+      title: 'B',
+      artist: '歌手',
+      album: '专辑',
+      durationMs: 3000,
+    );
+    await repo.scanDirectory(root.path);
+    expect(reader.calls, 2);
+
+    // Same path, different content: `(mtime, size)` no longer matches.
+    await writeFlacFixture(
+      root,
+      'a.flac',
+      title: 'A2',
+      artist: '歌手',
+      album: '专辑',
+      durationMs: 5000,
+      paddingBytes: 8192,
+    );
+
+    final rescan = await repo.scanDirectory(root.path);
+
+    expect(rescan.parsedCount, 1);
+    expect(rescan.reusedCount, 1);
+    expect(reader.calls, 3);
+    expect(rescan.songs.map((s) => s.name), containsAll(['A2', 'B']));
+  });
+
+  test('deleted files are dropped from the index and their lyrics too', () async {
+    final tracks = MemoryLocalTrackStore();
+    final lyrics = MemoryLocalLyricsStore();
+    final repo = repository(tracks: tracks, lyrics: lyrics);
+    await writeFlacFixture(
+      root,
+      'gone.flac',
+      title: 'Gone',
+      artist: '歌手',
+      album: '专辑',
+    );
+    await File(p.join(root.path, 'gone.lrc')).writeAsString('[00:01.00]词');
+
+    final first = await repo.scanDirectory(root.path);
+    expect(first.lyricsBySongId, hasLength(1));
+
+    await File(p.join(root.path, 'gone.flac')).delete();
+    await File(p.join(root.path, 'gone.lrc')).delete();
+    final second = await repo.scanDirectory(root.path);
+
+    expect(second.removedCount, 1);
+    expect(second.tracks, isEmpty);
+    expect(await tracks.loadAll(), isEmpty);
+    expect(await lyrics.loadAll(), isEmpty);
+  });
+
+  test('same file name in two folders keeps its own lyrics (H-16 串词修复)', () async {
+    final firstDir = Directory(p.join(root.path, 'A'))..createSync(recursive: true);
+    final secondDir = Directory(p.join(root.path, 'B'))..createSync(recursive: true);
+    await writeFlacFixture(
+      firstDir,
+      '01.flac',
+      title: '甲',
+      artist: '歌手',
+      album: '专辑',
+    );
+    await writeFlacFixture(
+      secondDir,
+      '01.flac',
+      title: '乙',
+      artist: '歌手',
+      album: '专辑',
+    );
+    await File(p.join(firstDir.path, '01.lrc')).writeAsString('[00:01.00]甲的词');
+    await File(p.join(secondDir.path, '01.lrc')).writeAsString('[00:02.00]乙的词');
+
+    final result = await repository().scanDirectory(root.path);
+
+    final firstPath = p.join(firstDir.path, '01.flac');
+    final secondPath = p.join(secondDir.path, '01.flac');
+    expect(result.lyricsBySongId[firstPath], contains('甲的词'));
+    expect(result.lyricsBySongId[secondPath], contains('乙的词'));
+  });
+
+  test('KRC lyrics are decrypted and parsed, not stored as ciphertext', () async {
+    await writeFlacFixture(
+      root,
+      'kugou.flac',
+      title: '酷狗',
+      artist: '歌手',
+      album: '专辑',
+    );
+    await File(p.join(root.path, 'kugou.krc')).writeAsString(
+      LocalLyricsLoader.encryptKrcForTest(krcFixture()),
+    );
+
+    final result = await repository().scanDirectory(root.path);
+
+    final stored = result.lyricsBySongId[p.join(root.path, 'kugou.flac')];
+    expect(stored, isNotNull);
+    expect(stored, contains('第二段'));
+    expect(result.skippedLyrics, isEmpty);
+  });
+
+  test('an undecodable KRC is skipped instead of being stored as text', () async {
+    await writeFlacFixture(
+      root,
+      'broken.flac',
+      title: '坏歌词',
+      artist: '歌手',
+      album: '专辑',
+    );
+    final krcPath = p.join(root.path, 'broken.krc');
+    await File(krcPath).writeAsString('!!!not-base64!!!');
+
+    final result = await repository().scanDirectory(root.path);
+
+    expect(result.lyricsBySongId, isEmpty);
+    expect(result.skippedFiles, contains(krcPath));
+  });
+
+  test('a QRC file that is not QRC is rejected', () async {
+    await writeFlacFixture(
+      root,
+      'plain.flac',
+      title: '纯文本',
+      artist: '歌手',
+      album: '专辑',
+    );
+    final qrcPath = p.join(root.path, 'plain.qrc');
+    await File(qrcPath).writeAsString('[00:01.00]not qrc at all');
+
+    final result = await repository().scanDirectory(root.path);
+
+    expect(result.lyricsBySongId, isEmpty);
+    expect(result.skippedFiles, contains(qrcPath));
+  });
+
+  test('a .lrc sidecar is kept verbatim', () async {
+    await writeFlacFixture(
+      root,
+      'lrc.flac',
+      title: 'LRC',
+      artist: '歌手',
+      album: '专辑',
+    );
+    await File(p.join(root.path, 'lrc.lrc')).writeAsString('[00:01.00]原样保留');
+
+    final result = await repository().scanDirectory(root.path);
+
+    expect(
+      result.lyricsBySongId[p.join(root.path, 'lrc.flac')],
+      '[00:01.00]原样保留',
+    );
+  });
+
+  test('lyrics are read only once: the second scan touches no lyric file', () async {
+    await writeFlacFixture(
+      root,
+      'lyric.flac',
+      title: '歌词',
+      artist: '歌手',
+      album: '专辑',
+    );
+    await File(p.join(root.path, 'lyric.lrc')).writeAsString('[00:01.00]词');
+    final lyrics = MemoryLocalLyricsStore();
+    final repo = repository(lyrics: lyrics);
+
+    final first = await repo.scanDirectory(root.path);
+    expect(first.lyricsBySongId, hasLength(1));
+
+    // Even a file that disappears after being cached stays in the returned map
+    // because it is served from the store, not re-read from disk.
+    await File(p.join(root.path, 'lyric.lrc')).delete();
+    final second = await repo.scanDirectory(root.path);
+
+    expect(second.lyricsBySongId, hasLength(1));
+    expect(second.skippedLyrics, isEmpty);
+  });
+
+  test('the isolate scan path reads the same tags', () async {
+    await writeFlacFixture(
+      root,
+      'isolated.flac',
+      title: '隔离路径',
+      artist: '歌手',
+      album: '专辑',
+      durationMs: 4000,
+    );
+
+    final result = await repository(scanInIsolate: true).scanDirectory(root.path);
+
+    expect(result.tracks, hasLength(1));
+    expect(result.tracks.single.title, '隔离路径');
+    expect(result.tracks.single.durationMs, closeTo(4000, 60));
+    expect(result.parsedCount, 1);
+  });
+
+  test('the drift-backed stores persist the index across repository instances', () async {
+    final db = AppDatabase.forTesting(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await writeFlacFixture(
+      root,
+      'one.flac',
+      title: '第一首',
+      artist: '甲',
+      album: '专辑',
+      durationMs: 2000,
+    );
+    await writeFlacFixture(
+      root,
+      'two.flac',
+      title: '第二首',
+      artist: '乙',
+      album: '专辑',
+      durationMs: 3000,
+    );
+    await File(p.join(root.path, 'one.lrc')).writeAsString('[00:01.00]持久化');
+
+    final firstReader = CountingMetadataReader();
+    final first = await LocalMusicRepository(
+      metadataReader: firstReader,
+      trackStore: DriftLocalTrackStore(database: db),
+      lyricsStore: DriftLocalLyricsStore(database: db),
+      coverDirectoryPath: p.join(root.path, 'covers'),
+    ).scanDirectory(root.path);
+    expect(firstReader.calls, 2);
+    expect(first.tracks, hasLength(2));
+
+    // A brand-new repository over the same database — as when the page is
+    // reopened — must not open a single audio file.
+    final secondReader = CountingMetadataReader();
+    final second = await LocalMusicRepository(
+      metadataReader: secondReader,
+      trackStore: DriftLocalTrackStore(database: db),
+      lyricsStore: DriftLocalLyricsStore(database: db),
+      coverDirectoryPath: p.join(root.path, 'covers'),
+    ).scanDirectory(root.path);
+
+    expect(secondReader.calls, 0);
+    expect(second.reusedCount, 2);
+    expect(second.songs.map((s) => s.name), containsAll(['第一首', '第二首']));
+    expect(second.lyricsBySongId, hasLength(1));
+
+    final rows = await db.select(db.localTracks).get();
+    expect(rows, hasLength(2));
+    expect(rows.map((r) => r.title), containsAll(['第一首', '第二首']));
+    expect((await db.select(db.lyricsCache).get()), hasLength(1));
+  });
+
+  test('an index row outside the scanned root is left alone', () async {
+    final other = Directory(p.join(root.path, 'other'))..createSync(recursive: true);
+    final scanned = Directory(p.join(root.path, 'scanned'))..createSync();
+    final tracks = MemoryLocalTrackStore([
+      LocalTrackEntry(path: p.join(other.path, 'x.flac'), mtime: 1, size: 1),
+    ]);
+    await writeFlacFixture(
+      scanned,
+      'y.flac',
+      title: 'Y',
+      artist: '歌手',
+      album: '专辑',
+    );
+
+    final result = await repository(tracks: tracks).scanDirectory(scanned.path);
+
+    expect(result.removedCount, 0);
+    expect(await tracks.loadAll(), hasLength(2));
   });
 }
