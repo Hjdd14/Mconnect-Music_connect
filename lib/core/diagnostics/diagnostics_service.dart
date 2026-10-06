@@ -45,6 +45,12 @@ class DiagnosticsService {
 
   File get logFile => _logFile;
 
+  /// True once [initialize] has created the log file.
+  ///
+  /// [logFile] is `late` and throws before that, so anything that wants to read
+  /// or export the log (the settings "导出诊断日志" entry) must ask first.
+  bool get isInitialized => _initialized;
+
   List<DiagnosticEvent> get recentEvents => List.unmodifiable(_recentEvents);
 
   Future<void> initialize() async {
