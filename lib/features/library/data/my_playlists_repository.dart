@@ -126,6 +126,57 @@ class MyPlaylistsRepository {
     return true;
   }
 
+  /// Persists a new song order for [playlistId] (drag-to-reorder).
+  ///
+  /// [ordered] is the full desired order. Keys that are not already in the
+  /// playlist are ignored, duplicates collapse, and any song the caller left out
+  /// keeps its relative position at the end — a partial or slightly wrong list
+  /// must never lose a song. The whole playlist is replaced and written with the
+  /// single atomic write of [_writeState], so a crash can leave the old order,
+  /// never a half-applied one.
+  ///
+  /// Returns false when [playlistId] does not exist.
+  Future<bool> reorderSongs(String playlistId, List<Song> ordered) async {
+    final state = await _readState();
+    final playlist = state.playlists[playlistId];
+    if (playlist == null) return false;
+
+    final existing = playlist.songKeys.toSet();
+    final keys = <String>[];
+    for (final song in ordered) {
+      final key = _songKey(song);
+      if (existing.contains(key) && !keys.contains(key)) {
+        keys.add(key);
+      }
+    }
+    for (final key in playlist.songKeys) {
+      if (!keys.contains(key)) keys.add(key);
+    }
+
+    if (_sameOrder(playlist.songKeys, keys)) return true;
+
+    // Replaced rather than mutated in place: `songKeys` may be the `const []`
+    // created by [createPlaylist] (an unmodifiable list), and a caller holding
+    // the old entry must keep seeing the old order.
+    state.playlists[playlistId] = _StoredPlaylist(
+      id: playlist.id,
+      name: playlist.name,
+      createdAt: playlist.createdAt,
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
+      songKeys: keys,
+    );
+    await _writeState(state);
+    return true;
+  }
+
+  static bool _sameOrder(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
   Future<String?> exportPlaylistLink(String playlistId) async {
     final state = await _readState();
     final playlist = state.playlists[playlistId];

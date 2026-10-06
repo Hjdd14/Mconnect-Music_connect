@@ -194,6 +194,30 @@ class MyPlaylistsNotifier extends StateNotifier<MyPlaylistsState> {
     return _repository.exportPlaylistLink(playlistId);
   }
 
+  /// Persists a new song order for [playlistId] (drag-to-reorder) and returns
+  /// whether the write succeeded.
+  ///
+  /// Deliberately **not** gated on [MyPlaylistsState.isSaving] and does not set
+  /// it: the list UI reorders optimistically while a download or playlist
+  /// operation may be in flight, and dropping the user's drag because an
+  /// unrelated write is running would look like the app lost the change. The
+  /// repository replaces the whole order in one atomic write, so it cannot
+  /// interleave with itself.
+  Future<bool> reorderSongs(String playlistId, List<Song> ordered) async {
+    try {
+      final ok = await _repository.reorderSongs(playlistId, ordered);
+      if (mounted && !ok) {
+        state = state.copyWith(error: () => '歌单不存在');
+      }
+      return ok;
+    } catch (e) {
+      if (mounted) {
+        state = state.copyWith(error: () => '调整歌单顺序失败：$e');
+      }
+      return false;
+    }
+  }
+
   Future<Playlist?> importShareLink(String link) async {
     if (state.isSaving) return null;
     state = state.copyWith(isSaving: true, error: () => null);

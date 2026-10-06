@@ -37,62 +37,68 @@ Future<SongAction?> showSongActionsSheet(
     builder: (sheetContext) {
       final theme = Theme.of(sheetContext);
       return SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              title: Text(
-                song.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleSmall,
+        // Scrollable on purpose: `showModalBottomSheet` caps an unscrollable
+        // sheet at 9/16 of the screen, and this menu's six rows plus the header
+        // and drag handle exceed that on a 360x800 phone (measured: 417px of
+        // content in a 402px limit), which pushed the last action out of reach.
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                title: Text(
+                  song.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall,
+                ),
+                subtitle: Text(
+                  song.artistNames,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-              subtitle: Text(
-                song.artistNames,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            const Divider(height: 1),
-            _ActionTile(
-              icon: Icons.playlist_play,
-              label: '下一首播放',
-              action: SongAction.playNext,
-            ),
-            if (!isLocal)
+              const Divider(height: 1),
               _ActionTile(
-                icon: Icons.playlist_add,
-                label: '添加到歌单',
-                action: SongAction.addToPlaylist,
+                icon: Icons.playlist_play,
+                label: '下一首播放',
+                action: SongAction.playNext,
               ),
-            if (!isLocal)
+              if (!isLocal)
+                _ActionTile(
+                  icon: Icons.playlist_add,
+                  label: '添加到歌单',
+                  action: SongAction.addToPlaylist,
+                ),
+              if (!isLocal)
+                _ActionTile(
+                  icon: isDownloaded
+                      ? Icons.download_done
+                      : Icons.download_outlined,
+                  label: isDownloaded ? '已下载' : '下载',
+                  action: SongAction.download,
+                  enabled: !isDownloaded,
+                ),
+              if (!isLocal)
+                _ActionTile(
+                  icon: isLiked ? Icons.favorite : Icons.favorite_border,
+                  label: isLiked ? '取消喜欢' : '喜欢',
+                  action: SongAction.toggleLike,
+                ),
               _ActionTile(
-                icon: isDownloaded
-                    ? Icons.download_done
-                    : Icons.download_outlined,
-                label: isDownloaded ? '已下载' : '下载',
-                action: SongAction.download,
-                enabled: !isDownloaded,
+                icon: Icons.link,
+                label: '复制链接',
+                action: SongAction.copyLink,
               ),
-            if (!isLocal)
-              _ActionTile(
-                icon: isLiked ? Icons.favorite : Icons.favorite_border,
-                label: isLiked ? '取消喜欢' : '喜欢',
-                action: SongAction.toggleLike,
-              ),
-            _ActionTile(
-              icon: Icons.link,
-              label: '复制链接',
-              action: SongAction.copyLink,
-            ),
-            if (!isLocal)
-              _ActionTile(
-                icon: Icons.share_outlined,
-                label: '分享',
-                action: SongAction.share,
-              ),
-            const SizedBox(height: 8),
-          ],
+              if (!isLocal)
+                _ActionTile(
+                  icon: Icons.share_outlined,
+                  label: '分享',
+                  action: SongAction.share,
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
         ),
       );
     },

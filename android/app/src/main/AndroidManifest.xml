@@ -39,6 +39,34 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- Inbound deep links: `mconnect://song?…` / `mconnect://playlist?…`
+                 (the links this app shares, flowing back in) and the
+                 `mconnect://share?text=…` bridge below. A custom scheme needs no
+                 host verification and no https domain, which is why there is no
+                 `android:autoVerify` / `android:host` here. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="mconnect"/>
+            </intent-filter>
+        </activity>
+        <!-- Receives "share to Mconnect" (ACTION_SEND, text/plain) from other
+             apps and forwards it as an `mconnect://share?text=…` deep link, so
+             the Dart side can route it. Kept as its own no-UI activity so
+             MainActivity's activity-result handling (local music scan) stays
+             untouched. -->
+        <activity
+            android:name=".ShareIntentHandler"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="text/plain"/>
+            </intent-filter>
         </activity>
         <provider
             android:name="androidx.core.content.FileProvider"
