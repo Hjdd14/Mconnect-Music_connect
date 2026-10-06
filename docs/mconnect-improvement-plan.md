@@ -2883,4 +2883,78 @@ v1.4.0 是一次跨 13 条工作流的改造（网络/三平台能力/多平台�
 6. **i18n 仍未做**（约 3091 处中文、62 文件，含 domain 层），属 Wave 3 起步范围。
 7. **`PROJECT.md` 与 `CHANGELOG.md` 被 `.gitignore` 有意排除**（注释写明 "Local project memory and agent planning docs"）。因此 AGENTS.md §2 要求的"版本号 7 处同步"里有两处只在本机生效、不进版本库 —— 这是仓库既有策略，不是缺陷，但接手者需要知道。
 
+---
+
+## 30. 阶段 W —— v1.4.0 Wave 3 并行 + Wave 4 发布
+
+### W.1 Wave 3 派工（复用 inactive 队友）
+
+团队**成员上限 8 且无移除工具**，Wave 1/2 已占满，所以 Wave 3 **不新开成员**，改用 `send_message` 唤醒已 inactive 的队友派新任务：
+
+| 工作流 | 复用队友 | 结果 |
+|---|---|---|
+| WS-H 内容页 | `platform-qq` | 榜单中心 + **QQ 热歌榜专属界面** + 专辑/艺人/新歌页 + 聚合搜索（真分页/去重/选源/骨架屏/搜索历史/联想） |
+| WS-I 交互 | `net-hardening` | `lib/core/share/**`（5 文件，全部可注入）+ 长按菜单分发器 + 多选 + 拖拽排序 + 分享 + 深链/接收系统分享 |
+| WS-L i18n/无障碍/设置页 | `data-layer` | i18n 架构（126 键，4 文件迁移）+ 无障碍/主题收敛 + 统一提示 + 设置页两个入口 + 会话失效提示 |
+| task-11 日志导出 | `local-music` | 脱敏导出 + 分享 |
+| 播放补丁 | `player-core` | `playNext(Song)` + 离线模式播放优先级 |
+
+**Lead 独立门禁（最终树）**：`flutter analyze --no-pub` → **0 issue**；`flutter test --no-pub -j 1` → **960 passed / 10 skipped / 0 failed**（Wave 2 后 797 → **+163**）。
+
+### W.2 用户点名的 QQ 热歌榜：从「没有入口」到专属界面
+
+数据层（Wave 1 的 WS-C）修掉了两条硬根因（`topId=4` → **26**；解析 `data.data` + `data.songInfoList` + `_songPayload` 解包），但**界面仍缺**。Wave 3 补上：
+- **榜单中心**：缓存优先（`ToplistsCacheDao`）→ 三平台并发刷新；**QQ 热歌榜作为置顶卡片，目录为空或离线时照旧渲染** —— 这一条正是针对"平台返回空就被静默剔除、入口随之消失"的旧行为。
+- **热歌榜专属界面**：`topinfo` 头部（名称/封面/更新频率/周期/榜单定义）+ **300 首**（该 legacy 端点单次上限 50 首，内部翻 6 页）+ 每行名次与**涨跌**（`rankChange` 升降/持平、`isNew`、原始 `rankValue` 如 11% 原样显示）。
+- `rankings_provider` 的静默吞异常修好（改为 `errorsByPlatform`，每个被查询平台都保留、失败可见并可重试）。
+
+### W.3 Lead 在 Wave 3 处理的两个 pubspec 阻塞（i18n 前置）
+
+i18n 需要两个 **Lead 冻结文件**里的一行，队友无法自行加：
+1. `flutter_localizations`（**Flutter SDK 自带，非第三方**）—— 缺它生成的 `AppLocalizations` 无法 import，且 Material/Cupertino 内置文案永远是英文，"国际化"会沦为装饰。
+2. `flutter: generate: true` —— 缺它 `flutter gen-l10n` 直接 exit 1、不产出任何文件。
+3. 连带必须把 `intl` 从 `^0.19.0` 升到 `0.20.3`（`flutter_localizations` 的约束），全仓只有 `history_page.dart` 用 `DateFormat`，API 未变。
+
+另一项裁决：`supportedLocales` 本轮**只声明 `Locale('zh')`**，保留 en ARB 与"切到 en 真出英文"的测试。理由：测试环境是 en_US，声明 en 会让大量"断言中文"的既有测试集体变英文 —— 那是**改测试迁就实现**；放开条件是全仓迁移完成，改动量 1 行（已写进 `app.dart` 与 `l10n.yaml` 注释）。
+
+### W.4 本轮新增的教训
+
+1. **"缺一行 import 阻塞全仓"第四次发生**（本次是 `test/deep_link_service_test.dart` 缺 2 个 model import）。四次事故里有三次是"analyze 通过之后又加了新代码/新文件"。固化纪律：**每次编辑后立刻跑一次 `flutter analyze --no-pub`**，不要攒到"功能做完再跑"。
+2. **Dart 的 `RegExp` 没有内联 flag。** `RegExp(r'(?i)…')` 在运行时抛 `FormatException: Invalid group`（ECMAScript 语法），日志脱敏第一版一运行就会崩 —— 是 analyze 的 `valid_regexps` 诊断拦下的。**analyze 的 regexp 诊断不是噪音，是真崩溃的前哨**；大小写不敏感请用 `caseSensitive: false`。
+3. **Hive `openBox` 失败会同时经 ambient zone 上报，`try/catch` 不足以捕获**（WS-H 发现：未初始化 Hive 的 widget 测试因此整片失败），需要 `runZonedGuarded` 包裹。
+4. **用 `overrideWith` 注入自建 notifier 时不要再 `addTearDown(notifier.dispose)`** —— Riverpod 容器销毁时会自己 dispose，二次 dispose 抛 `Bad state: Tried to use … after dispose`（WS-H 踩到并记录）。
+5. **`flutter test` 偶发框架层 stall**：本轮再现两次（先后卡在 `loading test/widget_test.dart` 与 `loading database_stats_dao_test.dart`，数十分钟无输出、无残留进程）。处置：kill → 单文件复跑确认 → 全量重跑。**不要把"卡住"当成"我的代码有问题"而开始乱改**。
+6. **本仓库不是统一 `dart format` 的**：实测 281 个文件里 185 个不符合当前格式器。**功能改动不要夹带全仓格式化 churn**，否则 review 与 revert 都失去意义。
+7. **测试替换件注入要看清所有权**：`player-core` 把倍速/跳过静音做成独立能力接口而非加抽象成员，因为全仓 9 个测试替身 `implements PlayerAudioController`、其中 6 个不在它写范围 —— 与 Wave 0 的 `implements/extends` 同源教训。
+
+### W.5 Wave 4：发布
+
+**版本号按 `AGENTS.md` §2 一次改齐 7 处**：`pubspec.yaml`（`1.3.2+10` → **`1.4.0+11`**）、`lib/core/constants/app_constants.dart`、`test/settings_page_test.dart`、`installer/mconnect.iss`、`windows/runner/Runner.rc`（`VERSION_AS_NUMBER` 与 `VERSION_AS_STRING`）、`PROJECT.md`、`CHANGELOG.md`（后两者被 gitignore，仅本机生效）。
+
+**分包出包**（`AGENTS.md` §1，`--split-per-abi`）：
+
+| 产物 | 体积 |
+|---|---|
+| `app-arm64-v8a-release.apk` | **31.8 MB** |
+| `app-armeabi-v7a-release.apk` | **28.4 MB** |
+| `app-x86_64-release.apk` | **34.4 MB** |
+
+`flutter build apk --release --split-per-abi` → exit 0；`flutter-apk/` 目录内**没有 universal `app-release.apk`**（正确，未误发）。
+
+**Windows 零改动校验**：`git diff --stat -- windows/` 只有 `windows/runner/Runner.rc` 的 **2 行版本号**（`1,3,2,10` → `1,4,0,11`、`"1.3.2"` → `"1.4.0"`），即 `AGENTS.md` §2 明确要求的例外；**手写 Windows 逻辑（含 850+ 行原生悬浮歌词）零改动**。
+
+**未实测项（如实说明）**：本机没有 `aapt2`，所以**分包后的 `versionCode` ABI 加权（预期 arm64=2011 / v7a=1011 / x86_64=4011）未做工具核验**；`AGENTS.md` §1 记录的加权规则与"装过分包后 universal 会被判降级"的结论来自历史实测，本轮未复验。
+
+### W.6 交付后仍留的后续项（不静默丢弃）
+
+1. **i18n 只完成 4 个文件**：全仓剩余 **768 处中文 / 77 个文件**；`supportedLocales` 仍只有 zh（放开条件与 1 行改法已在代码注释）。
+2. **会话失效只接了 1 个生产调用点**（平台歌单）：`discovery/**`、下载失败链路（`DownloadFailureKind.auth` 已分类但缺 ref/Listener 接缝）、`quality_provider` 仍待接。
+3. **长按菜单**已接 7 处（6 处内容页 + 歌单详情）；`likes_page`/`history_page`/`local_music_page` 仍未接。
+4. **`rankingsProvider` 目前无 UI 消费者**（`/rankings` 改为内嵌榜单中心）：契约与 4 条测试保留，属已知的"可用但暂无消费者"代码；要么接进榜单中心，要么删除。
+5. **Android SAF `takePersistableUriPermission`**（下载到自定义目录）仍未做；**酷狗手机号验证码仍走明文**（该主机实测无 443，无替代）。
+6. **本地音乐 Android 侧只做编译验证**，未真机跑 SAF 与 `MediaMetadataRetriever`；加密 3DES `.qrc` 无样本可验。
+7. **textScale 2.0 只覆盖设置页家族与两种底栏**，首页/资料库/播放器页未覆盖。
+8. **`aapt2` 核验缺失**（见 W.5）。
+
+
 
