@@ -2833,3 +2833,54 @@ v1.4.0 是一次跨 13 条工作流的改造（网络/三平台能力/多平台�
 4. **`task-5`（会话失效的用户可见提示 + 生产调用点接线）** 已登记：`handleSessionExpired` 的 API 与单测就绪，但 `clearAll()`/`refreshUser()` 在 `lib/` 里**没有生产调用点**，401→登出/重登的真实触发依赖各 feature provider 在 catch 到 `LoginExpiredException` 时调用它。属 Wave 3。
 5. **既有"吞异常返回空"的旧路径未动**（`search`/`getLyrics`/`getRankingList` 等）：会影响既有调用方与测试，超出本轮范围，已在队友报告中标注。
 
+---
+
+## 29. 阶段 V —— v1.4.0 Wave 2：五路并行（已完成）
+
+### V.1 派工与门禁
+
+写范围互斥的 5 条工作流。**一条重要约束在这一轮显现**：Agent Teams 的成员上限是 **8**，且没有移除工具 —— Wave 1 的 4 位仍在占位，所以第 5 条（WS-K 工程化）的 `infra-eng` **无法创建**，改由 Lead 亲自完成。Wave 3 起改为**复用已 inactive 的队友**（`send_message` 可唤醒并派新任务）。
+
+| 工作流 | 队友 | 结果 |
+|---|---|---|
+| WS-E 播放器 | `player-core` | 音质闸门无条件 finally、自愈整段入 `_AudioMutex`、歌词 8s 超时+跨源回退；倍速/跳过静音/A-B/随机已播集合/歌词偏移/睡眠定时淡出。**12 项红→绿** |
+| WS-F 数据层 | `data-layer` | 统计改基 `PlayEvents` 明细（`allSongs` 永不截断）、暂停恢复判据、历史时长回填与时间窗去重、智能歌单规则扩展+可保存、**备份/恢复**（合并式导入）；新增 4 个 DAO |
+| WS-G 下载缓存 | `download-cache` | **三个失效功能全修** + 断点续传/大小校验/磁盘 gate/失败枚举/信号量/LRU/扫盘。**84 条新测试、7 条红证据** |
+| WS-J 本地音乐 | `local-music` | 真实 ID3/FLAC 元数据 + 封面、增量扫描落库、专辑/艺人/文件夹视图、`dedupeKey` 去重、KRC/QRC 解码；Android 复用 SAF tree URI |
+| WS-K 工程化 | **Lead 亲做** | CI（analyze+test+分包，并断言禁止 universal）、lint 加严、启动路径并行化、`imageCache` 真正接上、文档事实修正、`test/core` 17 条契约测试 |
+
+**Lead 独立门禁**：`flutter analyze --no-pub` → **0 issue**；`flutter test --no-pub -j 1` → **797 passed / 10 skipped / 0 failed**（Wave 0 基线 444，Wave 1 后 572 → 本轮 **+225**）。
+
+### V.2 本轮最有价值的三个发现
+
+1. **`.gitignore` 一条未锚定的规则把整个功能的源码挡在版本控制之外。** 第 90 行的 `backup/` 没有前导斜杠，会匹配**任意深度**的同名目录，于是 WS-F 新增的 `lib/features/backup/`（`app_router.dart` 会 import 它）被静默排除。危险之处在于：**本机文件在磁盘上，所以 analyze、测试、CI 配置全都绿** —— 只有"别人 clone 下来编译不过"这一条不会在本机暴露。已锚定为 `/backup/`（+ 显式反转，沿用该文件里 `local_music/` 的先例），并留下注释指出同区块的 `exports/`、`databases/`、`files/`、`cache/` 等同样未锚定。
+   **可复用检查**：`git ls-files -o -i --exclude-standard -- lib test` 必须为空。建议并入 CI。
+2. **三个"已上线但失效"的功能共享同一个根因：有 UI、有开关、有数据结构，但没有执行者。** `cacheSongs` 从不调用下载器且全仓无调度器；`wifiOnly`/`autoRetry`/`autoCleanup`/`offlineMode` 四个开关**没有任何读取点**（WS-G 的红证据对这两项只能是"编译级红"）；`cacheSongs` 的 id 与手动下载相同导致缓存过的歌再也下不了。修法是给每条链路补上**唯一执行点**，并各写一条"执行者真的被调用"的断言。
+3. **测试 fixture 必须是真实形状，否则是假绿。** WS-J 用**真 FLAC**（`fLaC`+STREAMINFO+VORBIS_COMMENT+PICTURE）而不是 stub —— 因为 stub 会走"无 tag → 回退文件名"路径，测试照样通过，但功能实际没生效。同理 WS-B 在 stub 单测之外补了**实现级 live 探针**（默认 skip、`NETEASE_LIVE=1` 才出网），才暴露出三处字段名假设错误。
+
+### V.3 本轮暴露的协作问题（第三次同类事故）
+
+**"缺一行 import 阻塞全仓"在本轮又发生了三次**：
+- `kugou_platform.dart` 调 `apiOverrideOf` 未 import `platform_http.dart`（Wave 1）
+- `player-core` 的 `PlaybackSpeedCapable` 中间态（Dart 不会把某类型自动提升为不相关接口，需显式 `as`）
+- `download_manager.dart` 用了 `debugPrint` 未 import `foundation.dart`
+
+每次后果都一样：**`lib/` 无法编译 → 全仓所有测试文件 `loading ... [E]` → 每个队友的门禁都被染红**，而文件本身属于"别人正在写"的范围，谁都不敢碰。已固化的纪律：**① 每次编辑后立刻跑一次 analyze；② 你的改动必须让 `lib/` 可编译；③ 门禁失败落在你不拥有的文件上不要修，报告归属。**
+
+**另一条**：`git add -A` 在 5 个 agent 同树时是炸弹。本轮规则是"**不要 commit、不要 add -A，改动留工作树，由 Lead 按写范围分批 review 提交**"，5 路都遵守了，最后工作树是干净的合并态，Lead 按 6 个 commit 分批提交归属清晰。
+
+### V.4 校验方式的一处升级
+
+**"队友自报"不能当结论。** 本轮所有完成报告都由 Lead 在最终树上**独立重跑** `flutter analyze` + `flutter test` 复核（797/10/0），并额外核查：`git ls-files -o -i` 无隐藏源码、无遗留临时产物（曾出现根目录 `full_test_out.txt` 与草稿测试 `download_debug_scratch_test.dart`，已清理）。同时用 `grep createPlatformDio` 独立确认"Wave 0 冻结的网络层真的被三个平台接上了"，而不是只看队友说接上了。
+
+### V.5 本轮明确留下的残余风险与 follow-up
+
+1. **Android SAF `takePersistableUriPermission` 未做**（下载到自定义目录）：需要 `MainActivity.kt` + MethodChannel + content URI 落盘，超出 WS-G 写范围。现状：不再对 API33+ 请求无效的 `Permission.storage`，EACCES 归类为 `storagePermission` 并给出明确文案。
+2. **`offlineMode` 的播放优先级只完成队列侧**：WS-G 提供了 `DownloadNotifier.localFilePathFor()` 钩子，播放器调用点属 WS-E → 已作为小补丁派给 `player-core`。
+3. **批量缓存（整歌单/整专辑）入口未接 UI**：`cacheSongs(List<Song>)` API 与测试已就绪，入口页面属内容页（Wave 3）。
+4. **Windows 无 `dart:io` 空闲空间 API**：桌面端不做下载前预检（满盘仍由 ENOSPC 归类为 `disk`），已在代码注释说明。
+5. **WS-J 的诚实项**：Android 端只做到"Kotlin 编译通过"，未真机验证 SAF 与 `MediaMetadataRetriever`；加密 3DES `.qrc` 无样本可验、拒绝猜密钥，进"跳过列表"并可见；"第二次进页面"仍是 stat 级遍历（1000 首 56ms/0 次开文件），未做 TTL 零遍历；上游包 `audio_metadata_reader` 在"无匹配解析器"路径漏句柄（已用容器嗅探 + 抛掷型 isolate 两层缓解）。
+6. **i18n 仍未做**（约 3091 处中文、62 文件，含 domain 层），属 Wave 3 起步范围。
+7. **`PROJECT.md` 与 `CHANGELOG.md` 被 `.gitignore` 有意排除**（注释写明 "Local project memory and agent planning docs"）。因此 AGENTS.md §2 要求的"版本号 7 处同步"里有两处只在本机生效、不进版本库 —— 这是仓库既有策略，不是缺陷，但接手者需要知道。
+
+

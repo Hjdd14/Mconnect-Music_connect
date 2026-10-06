@@ -37,6 +37,20 @@ jobs:
       - name: Analyze (must be 0 issues)
         run: flutter analyze --no-pub
 
+      - name: No source file is hidden by .gitignore
+        # A `.gitignore` pattern without a leading slash matches at any depth.
+        # An unanchored `backup/` therefore silently excluded
+        # `lib/features/backup/` (which app_router.dart imports): everything
+        # passed locally because the files were on disk, but a fresh clone would
+        # not have compiled. This step makes that class of mistake loud.
+        run: |
+          hidden=$(git ls-files -o -i --exclude-standard -- lib test)
+          if [ -n "$hidden" ]; then
+            echo "::error::.gitignore is hiding source files that the build needs:"
+            echo "$hidden"
+            exit 1
+          fi
+
       - name: Test
         # -j 1 keeps the output readable and avoids the framework-level stall
         # observed locally when many suites load files concurrently.
