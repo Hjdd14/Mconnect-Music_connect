@@ -69,3 +69,14 @@ class UnsupportedActionException extends ApiException {
 class StorageFullException extends ApiException {
   StorageFullException() : super(message: '存储空间不足');
 }
+
+/// The caller cancelled the request (screen disposed, user navigated away, a
+/// newer query superseded this one).
+///
+/// Deliberately NOT a [NetworkException]: the network was fine, so the UI must
+/// not tell the user to "检查网络后重试". Callers that cancel query requests
+/// (see the `CancelToken` wiring in the platform adapters) are expected to
+/// swallow this type silently.
+class RequestCancelledException extends ApiException {
+  RequestCancelledException() : super(message: '请求已取消');
+}

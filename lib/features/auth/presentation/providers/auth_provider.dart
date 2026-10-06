@@ -6,6 +6,8 @@ import '../../../../models/user.dart';
 import '../../../../platform/base/music_platform.dart';
 import '../../../../platform/base/platform_registry.dart';
 import '../../../../platform/kugou/kugou_platform.dart';
+import '../../../../core/network/api_exception.dart';
+import '../../../../core/network/platform_http.dart';
 import '../../../../core/storage/session_storage.dart';
 
 class AuthState {
@@ -51,6 +53,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
         users[platform] = await impl.getUserInfo();
       } catch (e) {
         debugPrint('Session restore error for $platform: $e');
+        if (apiExceptionOf(e) is LoginExpiredException) {
+          // The stored cookie is dead: forget it so every later start does not
+          // repeat the same doomed request before showing the login screen.
+          await _forgetPersistedSession(platform);
+        }
         users[platform] = null;
       }
     }
@@ -73,7 +80,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  /// Fetch user info for a platform and update state
+  /// Fetch user info for a platform and update state.
+  ///
+  /// When the platform answers that the stored session is no longer valid
+  /// ([LoginExpiredException], i.e. HTTP 401/403 or the platform's own
+  /// "not logged in" code — see `PlatformErrorInterceptor`), the stale session
+  /// is dropped instead of being silently swallowed, so the UI falls back to
+  /// its logged-out state and offers a fresh login.
   Future<void> refreshUser(PlatformType platform) async {
     try {
       final impl = PlatformRegistry.get(platform);
@@ -81,7 +94,38 @@ class AuthNotifier extends StateNotifier<AuthState> {
       state = state.copyWith(
         loggedUsers: {...state.loggedUsers, platform: user},
       );
-    } catch (_) {}
+    } on Object catch (e) {
+      if (apiExceptionOf(e) is LoginExpiredException) {
+        await handleSessionExpired(platform);
+      }
+    }
+  }
+
+  /// Signals that [platform] reported an expired session
+  /// ([LoginExpiredException]): forget the persisted cookie/user and return to
+  /// the logged-out state so the user can log in again.
+  ///
+  /// Public on purpose: the platform providers (discovery / playlists /
+  /// playback) that surface [LoginExpiredException] from an adapter call can
+  /// report it here (`ref.read(authProvider.notifier).handleSessionExpired(p)`)
+  /// instead of leaving the app on a stale "logged in" user that can no longer
+  /// fetch anything.
+  Future<void> handleSessionExpired(PlatformType platform) async {
+    await _forgetPersistedSession(platform);
+    state = state.copyWith(
+      loggedUsers: {...state.loggedUsers, platform: null},
+    );
+  }
+
+  /// Best-effort removal of the persisted session; storage failures must not
+  /// stop the state from being reset (see [SessionStorage]).
+  Future<void> _forgetPersistedSession(PlatformType platform) async {
+    try {
+      await _sessionStorage.deleteCookie(platform);
+      await _sessionStorage.deleteUser(platform);
+    } catch (e) {
+      debugPrint('Forget session error for $platform: $e');
+    }
   }
 
   /// Refresh all platforms

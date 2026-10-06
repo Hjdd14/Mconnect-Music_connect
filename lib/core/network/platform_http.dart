@@ -15,6 +15,8 @@ import 'retry_interceptor.dart';
 /// * retries are **restricted to idempotent methods** (`GET`/`HEAD`), so a
 ///   failed `POST` (login, like, playlist write) is never replayed;
 /// * timeouts are configurable per platform, including `sendTimeout`;
+/// * retry backoff is configurable ([retryBaseDelay]/[retryMaxDelay]) so per
+///   platform tuning and fast tests do not need the production 1s/2s backoff;
 /// * errors are translated into typed [ApiException]s (see
 ///   [PlatformErrorInterceptor]).
 ///
@@ -30,6 +32,8 @@ Dio createPlatformDio({
   Duration receiveTimeout = const Duration(seconds: 15),
   Duration sendTimeout = const Duration(seconds: 15),
   int maxRetries = 2,
+  Duration retryBaseDelay = const Duration(seconds: 1),
+  Duration retryMaxDelay = const Duration(seconds: 30),
   List<Interceptor> interceptors = const [],
 }) {
   final dio = Dio(
@@ -45,7 +49,11 @@ Dio createPlatformDio({
     ),
   );
 
-  final retry = RetryInterceptor(maxRetries: maxRetries);
+  final retry = RetryInterceptor(
+    maxRetries: maxRetries,
+    baseDelay: retryBaseDelay,
+    maxDelay: retryMaxDelay,
+  );
   dio.interceptors.addAll([
     IdempotentRetryGuard(retry),
     PlatformErrorInterceptor(label: label),
@@ -84,7 +92,7 @@ class IdempotentRetryGuard extends Interceptor {
 /// Translates transport failures into typed [ApiException]s.
 ///
 /// The translated exception is attached to `DioException.error`, which is where
-/// platform code can pick it up with [apiExceptionOf]; [translateApiException]
+/// platform code can pick it up with [apiExceptionOf]; [translateDioException]
 /// does the unwrapping for the common `catch` shape.
 class PlatformErrorInterceptor extends Interceptor {
   PlatformErrorInterceptor({required this.label});
@@ -119,7 +127,11 @@ ApiException translateDioException(DioException err, {String label = ''}) {
     case DioExceptionType.badCertificate:
       return NetworkException(details: err.message);
     case DioExceptionType.cancel:
-      return NetworkException(details: '请求已取消');
+      // A deliberate cancel (screen disposed, a newer query superseded this
+      // one, `CancelToken` fired) is not a connectivity problem. Adapters wire
+      // per-query `CancelToken`s, so callers must be able to tell the two
+      // apart — otherwise leaving a page shows "网络连接失败，请检查网络".
+      return RequestCancelledException();
     case DioExceptionType.badResponse:
       return _fromStatusCode(err.response?.statusCode, label);
     case DioExceptionType.unknown:
