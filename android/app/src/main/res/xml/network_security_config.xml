@@ -1,8 +1,49 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Wave 1 (WS-D 酷狗) 安全收窄：明文 HTTP 不再全 App 放行。
+
+  改前：<base-config cleartextTrafficPermitted="true"> + AndroidManifest 的
+  android:usesCleartextTraffic="true"，等于允许 App 向任意主机发明文请求，
+  中间人可以改写任何响应（酷狗的 /v7/send_mobile_code 带手机号、
+  getSongInfo 返回的播放地址会被下载器直接落盘）。
+
+  改后：默认禁止明文，只对确实没有 HTTPS 的服务放行：
+
+  * kugou.com —— 酷狗 16 个明文端点分布在 mobilecdn.kugou.com、
+    mobilecdnbj.kugou.com、login.user.kugou.com 上；实测这些主机的 443
+    不可用（TLS 握手直接失败），所以必须保留明文。同一域下还有封面图
+    （imge.kugou.com、singerimg.kugou.com，接口返回的就是 http 链接）。
+    m.kugou.com/?json=true（首页推荐）同样是 http。
+    已经改走 HTTPS 的酷狗端点：getSongInfo（播放地址）、lyrics.kugou.com、
+    krcs.kugou.com —— 见 kugou_endpoints.dart 的注释。
+  * kgcdn.com —— 酷狗 CDN 域名族（fs.kgcdn.com 等）。属于兜底：本次探针里
+    实际拿到的播放地址是 https://sharefs.kugou.com（详见报告），保留此项是
+    为了避免线上 v5 取流路由返回该域名的明文地址时播放直接失败。
+  * 126.net —— 网易云音频/封面 CDN（WS-B），保留以免收窄后网易云播放回归。
+  * qq.com —— QQ 音乐 stream.qqmusic.qq.com / dl.stream.qqmusic.qq.com /
+    isure.stream.qqmusic.qq.com / aqqmusic.tc.qq.com 等取流主机（WS-C），
+    同上，保留以免收窄后 QQ 播放回归。
+
+  残余风险（无法用白名单消除，见 WS-D 报告）：裸 IP 的播放直链无法列入
+  domain-config；同一 kugou.com 域内的明文端点仍可被同路径中间人改写。
+-->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="true">
+    <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
     </base-config>
+
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">kugou.com</domain>
+        <domain includeSubdomains="true">kgcdn.com</domain>
+    </domain-config>
+
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">126.net</domain>
+    </domain-config>
+
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">qq.com</domain>
+    </domain-config>
 </network-security-config>

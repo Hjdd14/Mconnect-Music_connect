@@ -1,0 +1,119 @@
+
+============ A. album/info 字段 ============
+
+--- album/info  [HTTP 200 len=798 129ms]
+    status=1 errcode=0
+    data = {"songcount":0,"intro":"从戴上面具的《丑八怪》到摘下礼帽的《绅士》\n这，都是薛之谦\n这，都是用优雅到极限来诠释伤悲的爱情寓言\n3首全唱作谦谦情歌\n令每一个爱过的人都痛到慰藉 让每一个爱着的人也为之黯然\n\n出道10年，2015年正式签约海蝶音乐，首次担当制作人的薛之谦，包揽了这张概念EP的所有词曲，仅3首唱作曲目，但是100%的薛之谦。从上一张专辑到《绅士》经历了19个月，往返北京、上海、台北……好好做“音乐”是薛之谦最认真的梦想，不遗余力，甚至有些强迫症。\n从《认真的雪》到《你还要我怎样》，薛之谦的情歌，听着总是让人不由的纠结和悲伤。“相对于作曲，我更加喜欢填词。”这一次作为EP总制作人的他，是这样评价自己的。\n“在爱情面前，我不是一位《演员》，但愿成为一名《绅士》。”\n翻开歌词本，带上耳机，听完这三首歌，你会发现，这里住着一位“心里下着雨”的薛之谦。","albumname":"绅士","collectcount":0,"trans_param":{"special_tag":"65372160"},"classmap":{"attr0":8},"category":1,"singername":"薛之谦","play_count":0,"publishtime":"2015-06-05 00:00:00","privilege":0,"subscribe_total":0,"sextype":0,"singerid":3060,"albumid":14456909,"imgurl":"http://imge.kugou.com/st...(trimmed)
+
+
+============ B. singer/info 去 res_tag + 字段 ============
+
+--- singer/info 无 with_res_tag  [HTTP 200 len=2462 165ms]
+    status=1 errcode=0
+    data = {"peripherycount":0,"songcount":962,"singername":"薛之谦","profile":"薛之谦，1983年7月17日出生于上海市，中国内地流行乐男歌手、音乐制作人、影视演员，毕业于格里昂酒店管理学院。\n\n2005年，因参加选秀节目《我型我秀》而正式出道。2006年6月9日，薛之谦发行首张个人原创同名专辑《薛之谦》；2007年在中国原创音乐流行榜上凭借《认真的雪》获得内地金曲奖；2008年11月26日发行第三张个人原创专辑《深深爱过你》；12月20日举行首场演唱会“谦年传说”；2012年7月17日发行专辑《几个薛之谦》。2013年11月发行专辑《意外》。2015年4月1日，薛之谦主演《男人帮·朋友》预告片发布；6月10日正式签约海蝶音乐公司，升为制作人并发行原创EP《绅士》；同年，他还主演都市励志剧《妈妈像花儿一样》。2016年，凭借EP《绅士》、《一半》获得第16届全球华语歌曲排行榜最受欢迎男歌手、五大最受欢迎男歌手奖、上海地区杰出歌手奖及最受欢迎创作歌手奖，而歌曲《初学者》则获得年度二十大金曲奖。2017年4月，开启“我好像在哪见过你”全国巡回演唱会；同年，薛之谦获得第7届全球流行音乐年度盛典年度最佳男歌手及MusicRadio榜中国TOP排行榜内地最佳男歌手。2018年7月，薛之谦“摩天大楼”世界巡回演唱会于北京站启程，整个巡演横跨4大洲，8个国家，21个城市，累计上演场次23场。2019年，发行专辑《尘》。2020年12月31日，发行第11张个人专辑《天外来物》。2022年，发行个人音乐专辑《无数》 。2023年4月20日，...(trimmed)
+
+--- singer/info with_res_tag  [HTTP 200 len=2506 59ms]
+    status=1 errcode=0
+    data = {"peripherycount":0,"songcount":962,"singername":"薛之谦","profile":"薛之谦，1983年7月17日出生于上海市，中国内地流行乐男歌手、音乐制作人、影视演员，毕业于格里昂酒店管理学院。\n\n2005年，因参加选秀节目《我型我秀》而正式出道。2006年6月9日，薛之谦发行首张个人原创同名专辑《薛之谦》；2007年在中国原创音乐流行榜上凭借《认真的雪》获得内地金曲奖；2008年11月26日发行第三张个人原创专辑《深深爱过你》；12月20日举行首场演唱会“谦年传说”；2012年7月17日发行专辑《几个薛之谦》。2013年11月发行专辑《意外》。2015年4月1日，薛之谦主演《男人帮·朋友》预告片发布；6月10日正式签约海蝶音乐公司，升为制作人并发行原创EP《绅士》；同年，他还主演都市励志剧《妈妈像花儿一样》。2016年，凭借EP《绅士》、《一半》获得第16届全球华语歌曲排行榜最受欢迎男歌手、五大最受欢迎男歌手奖、上海地区杰出歌手奖及最受欢迎创作歌手奖，而歌曲《初学者》则获得年度二十大金曲奖。2017年4月，开启“我好像在哪见过你”全国巡回演唱会；同年，薛之谦获得第7届全球流行音乐年度盛典年度最佳男歌手及MusicRadio榜中国TOP排行榜内地最佳男歌手。2018年7月，薛之谦“摩天大楼”世界巡回演唱会于北京站启程，整个巡演横跨4大洲，8个国家，21个城市，累计上演场次23场。2019年，发行专辑《尘》。2020年12月31日，发行第11张个人专辑《天外来物》。2022年，发行个人音乐专辑《无数》 。2023年4月20日，...(trimmed)
+
+
+============ C. 歌手专辑 候选路径 ============
+
+--- candidate  [HTTP 200 len=3712 142ms]
+    status=1 errcode=0
+    fields: sum_ownercount,album_tag,trans_param,singerid,songcount,publishtime,singername,albumname,privilege,isfirst,albumid,buycount,intro,imgurl
+    item = {"sum_ownercount":0,"album_tag":[],"trans_param":{"special_tag":"65392640"},"singerid":3060,"songcount":1,"publishtime":"2026-07-17 00:00:00","singername":"薛之谦","albumname":"媚人","privilege":0,"isfirst":0,"albumid":199628146,"buycount":0,"intro":"你心所想 即是模样","imgurl":"http://imge.kugou.com/stdmusic/{size}/20260716/20260716164213811952.jpg"}
+
+--- candidate  [HTTP 200 len=3712 107ms]
+    status=1 errcode=0
+    fields: sum_ownercount,album_tag,trans_param,singerid,songcount,publishtime,singername,albumname,privilege,isfirst,albumid,buycount,intro,imgurl
+    item = {"sum_ownercount":0,"album_tag":[],"trans_param":{"special_tag":"65392640"},"singerid":3060,"songcount":1,"publishtime":"2026-07-17 00:00:00","singername":"薛之谦","albumname":"媚人","privilege":0,"isfirst":0,"albumid":199628146,"buycount":0,"intro":"你心所想 即是模样","imgurl":"http://imge.kugou.com/stdmusic/{size}/20260716/20260716164213811952.jpg"}
+
+--- candidate  [HTTP 404 len=166 85ms]
+    NON-JSON: <html>
+<head><title>404 Not Found</title></head>
+<body bgcolor="white">
+<center><h1>404 Not Found</h1></center>
+<hr>
+
+--- candidate  [HTTP 404 len=166 61ms]
+    NON-JSON: <html>
+<head><title>404 Not Found</title></head>
+<body bgcolor="white">
+<center><h1>404 Not Found</h1></center>
+<hr>
+
+--- candidate  [HTTP 200 len=218 26ms]
+    NON-JSON: Access Deny ! No Actions ! {"JS_CSS_DATE":20130320,"kg_domain":"https:\/\/m.kugou.com","src":"http:\/\/downmobile.kugou.
+
+--- candidate  [HTTP 200 len=130199 116ms]
+    status=null errcode=null
+    no item at data.info.0 (Null)
+
+--- candidate  [HTTP 200 len=304 108ms]
+    status=null errcode=null
+    no item at data.info.0 (Null)
+
+--- candidate  [HTTP 200 len=1941 376ms]
+    status=1 errcode=0
+    fields: auxiliary,category,publishtime,albumid,trans_param,singerid,songcount,cd_url,singername,albumname,privilege,isfirst,moviesmark,buycount,intro,imgurl
+    item = {"auxiliary":"","category":1,"publishtime":"2013-11-11 00:00:00","albumid":960327,"trans_param":{"special_tag":"65372160"},"singerid":0,"songcount":10,"cd_url":"","singername":"薛之谦","albumname":"意外","privilege":0,"isfirst":0,"moviesmark":"","buycount":0,"intro":"","imgurl":"http://imge.kugou.com/stdmusic/{size}/20200407/20200407151818862082.jpg"}
+
+
+============ D. 新歌 候选路径 ============
+
+--- candidate  [HTTP 200 len=15 126ms]
+    NON-JSON: Access Deny !!!
+
+--- candidate  [HTTP 200 len=15 68ms]
+    NON-JSON: Access Deny !!!
+
+--- candidate  [HTTP 200 len=1882 368ms]
+    status=1 errcode=0
+    fields: quality,trans_param,singerid,ad_id,singername,publishtime,isfirst,albumid,albumname,intro,imgurl
+    item = {"quality":3,"trans_param":{"special_tag":"4276224"},"singerid":810892,"ad_id":0,"singername":"王小乱","publishtime":"2026-09-21 00:00:00","isfirst":0,"albumid":48017332,"albumname":"怕失去的终究会失去","intro":"怕失去的终究会失去的","imgurl":"http://imge.kugou.com/stdmusic/{size}/20260921/20260921113002495888.jpg"}
+
+--- candidate  [HTTP 200 len=1882 305ms]
+    status=1 errcode=0
+    fields: quality,trans_param,singerid,ad_id,singername,publishtime,isfirst,albumid,albumname,intro,imgurl
+    item = {"quality":3,"trans_param":{"special_tag":"4276224"},"singerid":810892,"ad_id":0,"singername":"王小乱","publishtime":"2026-09-21 00:00:00","isfirst":0,"albumid":48017332,"albumname":"怕失去的终究会失去","intro":"怕失去的终究会失去的","imgurl":"http://imge.kugou.com/stdmusic/{size}/20260921/20260921113002495888.jpg"}
+
+--- candidate  [HTTP 200 len=16 9ms]
+    NON-JSON: No Action Found!
+
+--- candidate  [HTTP 200 len=176627 35ms]
+    status=null errcode=null
+    no item at data.info.0 (Null)
+
+--- candidate  [HTTP 200 len=11855 107ms]
+    status=1 errcode=0
+    fields: last_sort,authors,rank_count,rank_id_publish_date,songname,topic_url_320,sqhash,fail_process,pkg_price,addtime,rp_type,album_id,privilege_high,topic_url_sq,rank_cid,inlist,320filesize,pkg_price_320,feetype,filename,duration_high,fail_process_320,zone,topic_url,rp_publish,trans_obj,hash,sqfilesize,sqprivilege,pay_type_sq,bitrate,pkg_price_sq,has_accompany,musical,pay_type_320,extname_super,duration_super,bitrate_super,hash_high,duration,album_sizable_cover,price_sq,old_cpy,filesize_super,m4afilesize,filesize_high,320privilege,remark,isfirst,privilege,320hash,price,extname,price_320,mvhash,sort,trans_param,recommend_reason,album_audio_id,bitrate_high,issue,pay_type,filesize,hash_super,audio_id,first,privilege_super,fail_process_sq
+    item = {"last_sort":100,"authors":[{"sizable_avatar":"http://singerimg.kugou.com/uploadpic/softhead/{size}/20251231/20251231022210707157.jpg","is_publish":1,"author_id":792619,"author_name":"杨小壮"}],"rank_count":1,"rank_id_publish_date":"2026-10-06 08:30:00","songname":"若你看见花开","topic_url_320":"","sqhash":"CED42679D42E15EF61C62A4050C183E7","fail_process":4,"pkg_price":1,"addtime":"2026-10-06 08:30:00","rp_type":"audio","album_id":"210083455","privilege_high":10,"topic_url_sq":"","rank_cid":130160,"inlist":1,"320filesize":6515144,"pkg_price_320":1,"feetype":0,"filename":"杨小壮 - 若你看见花开","duration_high":162,"fail_process_320":4,"zone":"tx6_gz_kmr","topic_url":"","rp_publish":1,"trans_obj":{"rank_show_sort":1},"hash":"032B8E2183C3CC4CB8C66328991CEC2D","sqfilesize":18403730,"sqprivilege":10,"pay_type_sq":3,"bitrate":128,"pkg_price_sq":1,"has_accompany":1,"musical":null,"pay_type_320":3,"extname_super":"","duration_super":0,"bitrate_super":0,"hash_high":"CE291633E230DA6B11BDEF37286963AA","duration":162,"album_sizable_cover":"http://imge.kugou.com/stdmusic/{size}/20260929/20260929171610499467.jpg","price_sq":200,"old_cpy":0,"filesize_super":0,"m4afilesize":0,"filesize_high":34943018,"320privilege":10,"remark":"若你看见花开","isfirst":0,"privilege":8,"320hash":"1ACF93221C95C3122BC61F2C573C0CCD","price":200,"extname":"mp3","price_320":200,"mvhash":"","sort":1,"trans_param":{"ogg_128_hash":"6CB6DE97EF72598224DA9D0E9C8FAD42","classmap":{"attr0":234881032},"language":"国语","cpy_attr0":33562624,"musicpack_advance":0,"ogg_128_filesize":1896608,"display_rate":0,"cpy_map":"2","provider":5,"qualitymap":{"bits":"800000db41080003d00e474","attr0":1023468660,"attr1":1746993152},"union_cover":"http://imge.kugou.com/stdmusic/{size}/20260929/20260929171610499467.jpg","ogg_320_filesize":6812954,"cid":669683358,"ogg_320_hash":"4A21E308275454EDC9B40080D1CBC2EB","cpy_grade":5,"ipmap":{"attr0":33554432},"display":0,"pay_block_tpl":1,"hash_multitrack":"D91F42F1962E19E0263E2533CE49B39B","cpy_level":1},"recommend_reason":"","album_audio_id":970421726,"bitrate_high":1718,"issue":279,"pay_type":3,"filesize":2606181,"hash_super":"","audio_id":659844997,"first":0,"privilege_super":0,"fail_process_sq":4}
+
+--- candidate  [HTTP 200 len=12966 103ms]
+    status=1 errcode=0
+    fields: last_sort,authors,rank_count,rank_id_publish_date,songname,topic_url_320,sqhash,fail_process,pkg_price,addtime,rp_type,album_id,privilege_high,topic_url_sq,rank_cid,inlist,320filesize,pkg_price_320,feetype,filename,duration_high,fail_process_320,zone,topic_url,rp_publish,trans_obj,hash,sqfilesize,sqprivilege,pay_type_sq,bitrate,pkg_price_sq,has_accompany,musical,pay_type_320,extname_super,duration_super,bitrate_super,hash_high,duration,album_sizable_cover,price_sq,mvdata,old_cpy,filesize_super,m4afilesize,filesize_high,320privilege,remark,isfirst,privilege,320hash,price,extname,price_320,mvhash,sort,trans_param,recommend_reason,album_audio_id,bitrate_high,issue,pay_type,filesize,hash_super,audio_id,first,privilege_super,fail_process_sq
+    item = {"last_sort":2,"authors":[{"sizable_avatar":"http://singerimg.kugou.com/uploadpic/softhead/{size}/20240410/20240410145303317821.jpg","is_publish":1,"author_id":93475,"author_name":"李荣浩"}],"rank_count":50,"rank_id_publish_date":"2026-10-05 13:40:28","songname":"恋人","topic_url_320":"","sqhash":"34C52ED693A5519D72DA623EBA0E7DE1","fail_process":4,"pkg_price":1,"addtime":"2026-10-05 13:39:31","rp_type":"audio","album_id":"106374641","privilege_high":10,"topic_url_sq":"","rank_cid":130068,"inlist":1,"320filesize":11039079,"pkg_price_320":1,"feetype":0,"filename":"李荣浩 - 恋人","duration_high":275,"fail_process_320":4,"zone":"tx6_gz_kmr","topic_url":"","rp_publish":1,"trans_obj":{"rank_show_sort":0},"hash":"9DA7851E2BF83B18C74CBBAB461CEFDD","sqfilesize":28164599,"sqprivilege":10,"pay_type_sq":3,"bitrate":128,"pkg_price_sq":1,"has_accompany":1,"musical":null,"pay_type_320":3,"extname_super":"","duration_super":0,"bitrate_super":0,"hash_high":"CE16C9658C82664796DBB7585588AAC5","duration":275,"album_sizable_cover":"http://imge.kugou.com/stdmusic/{size}/20241016/20241016175101115675.jpg","price_sq":200,"mvdata":[{"id":"12602115","trk":"3","hash":"B21CA28AFC6D3FB7B1F9964D330F689F","typ":0}],"old_cpy":0,"filesize_super":0,"m4afilesize":0,"filesize_high":56219830,"320privilege":10,"remark":"黑马","isfirst":0,"privilege":10,"320hash":"C8DE6F8214A0556AC3F0BE4872A6EED8","price":200,"extname":"mp3","price_320":200,"mvhash":"BC8604B4B3F4D712E10E3507D46A1C62","sort":2,"trans_param":{"cpy_grade":5,"classmap":{"attr0":234881032},"language":"国语","cpy_attr0":58727552,"musicpack_advance":1,"display":0,"display_rate":0,"ogg_320_hash":"57FA42A7EE6A5EC6F6AB35FB2F22DF43","cpy_map":"2","union_cover":"http://imge.kugou.com/stdmusic/{size}/20241016/20241016175101115675.jpg","ogg_320_filesize":10431630,"qualitymap":{"bits":"8fffc0db411ffffff3fc074","attr0":2134884468,"attr1":1747189759},"is_original":2,"ogg_128_filesize":3064050,"cid":402261960,"ogg_128_hash":"4839A269E37919D74A36DDA58368A976","pay_block_tpl":1,"ipmap":{"attr0":1107300352},"hash_offset":{"clip_hash":"AE1F7B7C65EABCB300EBEB4B57C2F478","start_byte":0,"end_ms":60000,"end_byte":960113,"file_type":0,"start_ms":0,"offset_hash":"6A1D28108F84B50C917D358A6CC20A50"},"appid_block":"3124","hash_multitrack":"BB5D3DD6C97D1D22BD0A9E23184E2B2C","cpy_level":1},"recommend_reason":"","album_audio_id":644833397,"bitrate_high":1629,"issue":40,"pay_type":3,"filesize":4415928,"hash_super":"","audio_id":363537969,"first":0,"privilege_super":0,"fail_process_sq":4}
+
+
+============ E. 播放地址真实 host ============
+
+--- getSongInfo playInfo(rank hash)  [HTTP 200 len=2706 20ms]
+    status=1 errcode=0
+    url = https://sharefs.kugou.com/202610062207/18e37be40ed040c610ac2ddbdee8213d/v3/e2948b4513f34f7a4c7767ead15bc4f8/yp/full/ap1000_us0_pi409_s1660748814.mp3
+
+--- getSongInfo playInfo 显示全部  [HTTP 200 len=2706 21ms]
+    status=1 errcode=0
+
+--- trackercdn v2 (android key)  [HTTP 200 len=47 26ms]
+    status=0 errcode=null
+    url = null
+
+
+============ F. 首页模块规模 ============
+
+--- 首页 data 数量  [HTTP 200 len=369364 25ms]
+    status=null errcode=null
+    data.10.filename = null
+
+Running build hooks...Running build hooks...

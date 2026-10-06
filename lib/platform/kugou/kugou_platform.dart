@@ -4,12 +4,16 @@ import 'package:flutter/foundation.dart';
 import '../../models/song.dart';
 import '../../models/artist.dart';
 import '../../models/album.dart';
+import '../../models/toplist.dart';
+import '../../models/recommendation_source.dart';
 import '../../models/user.dart';
 import '../../models/playlist.dart';
 import '../../models/audio_quality.dart';
 import '../../models/platform_type.dart';
 import '../base/music_platform.dart';
 import '../../core/diagnostics/diagnostics_service.dart';
+import '../../core/network/api_exception.dart';
+import '../../core/network/platform_http.dart';
 import '../../core/storage/session_storage.dart';
 import 'kugou_api.dart';
 
@@ -33,6 +37,32 @@ class KugouPlatform extends MusicPlatform {
 
   @override
   bool get isLoggedIn => _currentUser != null;
+
+  // --- Capabilities ---
+
+  /// Kugou's official recommendation endpoints are refused server-side, but the
+  /// mobile homepage module reliably provides a (non-personalised) list, and
+  /// [getDailyRecommendation] reports that provenance instead of pretending it
+  /// is a personalised daily playlist.
+  @override
+  bool get supportsDailyRecommendations => true;
+
+  /// Phone + SMS-code login is implemented in [sendPhoneCode]/[loginByPhone].
+  @override
+  bool get supportsPhoneLogin => true;
+
+  @override
+  bool get supportsArtistPage => true;
+
+  @override
+  bool get supportsAlbumPage => true;
+
+  /// No live 新歌 endpoint: `/api/v3/newcd/list` answers `Access Deny !!!` and
+  /// `/api/v3/album/newsongs` answers `Access Deny ! No Actions !`, and
+  /// `rank/list` publishes no 新歌榜 (probed 2026-10-06). Reported honestly as
+  /// unsupported instead of returning an empty list.
+  @override
+  bool get supportsNewSongs => false;
 
   // --- Auth ---
 
@@ -331,7 +361,13 @@ class KugouPlatform extends MusicPlatform {
   Future<User?> getUserInfo() async => _currentUser;
 
   @override
-  Future<void> logout() async => _currentUser = null;
+  Future<void> logout() async {
+    _currentUser = null;
+    // Clearing only `_currentUser` used to leave `token`/`userid`/`vipToken` in
+    // the API client, where `_signedAndroidParams` kept injecting them into
+    // every subsequent request until the process restarted.
+    _api.clearSession();
+  }
 
   @override
   Future<void> saveSession(SessionStorage storage) async {
@@ -465,6 +501,8 @@ class KugouPlatform extends MusicPlatform {
       }
     }
     coverUrl ??= s['album_img'] ?? s['image'] ?? s['cover'];
+    coverUrl ??= s['album_sizable_cover'];
+    coverUrl = _normalizeSizeTemplate(coverUrl);
     final durationSeconds =
         int.tryParse((s['duration'] ?? s['timeLength'] ?? 0).toString()) ?? 0;
     final timelenMs = int.tryParse((s['timelen'] ?? 0).toString()) ?? 0;
@@ -473,7 +511,7 @@ class KugouPlatform extends MusicPlatform {
       id: s['hash'] ?? '',
       platform: PlatformType.kugou,
       name: songName,
-      artists: [Artist(id: s['singerid']?.toString() ?? '', name: singerName)],
+      artists: _artistsFromSong(s, fallbackName: singerName),
       album: s['album_name'] != null
           ? Album(id: s['album_id']?.toString() ?? '', name: s['album_name'])
           : null,
@@ -482,6 +520,28 @@ class KugouPlatform extends MusicPlatform {
           : Duration(seconds: durationSeconds),
       coverUrl: coverUrl,
     );
+  }
+
+  /// `rank/song`, `album/song` and the homepage payload list performers as
+  /// `authors: [{author_id, author_name}]` instead of `singername`, so a cover
+  /// or chart row used to lose every artist but the first one from `filename`.
+  List<Artist> _artistsFromSong(dynamic s, {required String fallbackName}) {
+    final authors = s is Map ? s['authors'] : null;
+    if (authors is List) {
+      final artists = <Artist>[];
+      for (final author in authors) {
+        if (author is! Map) continue;
+        final name = (author['author_name'] ?? author['name'] ?? '')
+            .toString()
+            .trim();
+        if (name.isEmpty) continue;
+        artists.add(
+          Artist(id: (author['author_id'] ?? '').toString(), name: name),
+        );
+      }
+      if (artists.isNotEmpty) return artists;
+    }
+    return [Artist(id: s['singerid']?.toString() ?? '', name: fallbackName)];
   }
 
   // --- Playback ---
@@ -579,7 +639,7 @@ class KugouPlatform extends MusicPlatform {
         'routes': failures.join(','),
       },
     );
-    throw Exception('无法获取酷狗播放地址');
+    throw SongNotAvailableException(platform: platformName);
   }
 
   String? _songInfoString(Map<String, dynamic> res, Iterable<String> keys) {
@@ -955,16 +1015,146 @@ class KugouPlatform extends MusicPlatform {
 
   // --- Recommendations ---
 
+  /// How many songs the homepage fallback returns at most.
+  static const int _homepageRecommendationLimit = 30;
+
   @override
-  Future<List<Song>> getDailyRecommendations() async {
+  Future<RecommendationResult> getDailyRecommendation() async {
+    final official = await _fetchOfficialRecommendations();
+    if (official != null && official.isNotEmpty) {
+      return RecommendationResult(
+        songs: official,
+        source: RecommendationSource(
+          platform: platformType,
+          kind: RecommendationKind.personalizedDaily,
+          label: '每日推荐',
+        ),
+      );
+    }
+
+    final source = RecommendationSource(
+      platform: platformType,
+      kind: RecommendationKind.fallbackHomepage,
+      label: '酷狗推荐',
+      note: '官方推荐接口已不可用，来源为首页推荐',
+    );
+    try {
+      final songs = await fetchHomepageRecommendations();
+      if (songs.isEmpty) {
+        // The homepage answered but carried no songs: surface it instead of
+        // pretending the platform has nothing to recommend.
+        return RecommendationResult(
+          songs: const [],
+          source: RecommendationSource(
+            platform: platformType,
+            kind: RecommendationKind.unavailable,
+            label: '不可用',
+            note: '首页推荐为空',
+          ),
+          error: '酷狗推荐暂不可用',
+        );
+      }
+      return RecommendationResult(songs: songs, source: source);
+    } catch (e) {
+      // Never `catch (_) { return []; }`: the caller has to be able to tell
+      // "the homepage module failed" from "Kugou has no recommendations".
+      final error = apiExceptionOf(e);
+      DiagnosticsService.instance.record(
+        'kugou_recommend',
+        'homepage_fallback_failed',
+        data: {'error': error.message},
+      );
+      return RecommendationResult(
+        songs: const [],
+        source: RecommendationSource(
+          platform: platformType,
+          kind: RecommendationKind.unavailable,
+          label: '不可用',
+          note: error.message,
+        ),
+        error: error.message,
+      );
+    }
+  }
+
+  /// The official endpoint is refused by the server, so this returns `null`
+  /// (and records why) rather than throwing: the caller falls back to the
+  /// homepage. Kept as a real attempt so the fallback stays exercised.
+  Future<List<Song>?> _fetchOfficialRecommendations() async {
     try {
       final res = await _api.getRecommend();
-      final data = res['data']?['info'] as List<dynamic>?;
-      if (data == null) return [];
-      return data.map((s) => _parseSong(s)).toList();
-    } catch (_) {
-      return [];
+      final list = res['data']?['info'] as List<dynamic>?;
+      if (list == null || list.isEmpty) {
+        DiagnosticsService.instance.record(
+          'kugou_recommend',
+          'official_endpoint_empty',
+          data: {'status': res['status']?.toString() ?? 'unknown'},
+        );
+        return null;
+      }
+      return list.map((s) => _parseSong(s)).toList();
+    } catch (e) {
+      final error = apiExceptionOf(e);
+      DiagnosticsService.instance.record(
+        'kugou_recommend',
+        'official_endpoint_refused',
+        data: {'error': error.message},
+      );
+      return null;
     }
+  }
+
+  @override
+  Future<List<Song>> getDailyRecommendations() async {
+    final result = await getDailyRecommendation();
+    return result.songs;
+  }
+
+  /// Songs from the mobile homepage module: `data` (10 songs) plus the songs
+  /// embedded in `special.list.info[]`, de-duplicated by hash.
+  @visibleForTesting
+  Future<List<Song>> fetchHomepageRecommendations() async {
+    final res = await _api.getHomepage();
+    final songs = <Song>[];
+    final seen = <String>{};
+
+    void add(dynamic raw) {
+      if (raw is! Map) return;
+      final song = _parseSong(raw);
+      final key = song.id.isNotEmpty
+          ? song.id
+          : '${song.name}|${song.artists.isEmpty ? '' : song.artists.first.name}';
+      if (key.isEmpty || !seen.add(key)) return;
+      songs.add(song);
+    }
+
+    final data = res['data'];
+    if (data is List) {
+      for (final item in data) {
+        add(item);
+      }
+    }
+    final special = res['special'];
+    if (special is Map) {
+      final specialList = special['list'];
+      if (specialList is Map) {
+        final info = specialList['info'];
+        if (info is List) {
+          for (final item in info) {
+            if (item is! Map) continue;
+            final nested = item['songs'];
+            if (nested is List) {
+              for (final song in nested) {
+                add(song);
+              }
+            }
+          }
+        }
+      }
+    }
+    return songs.length > _homepageRecommendationLimit
+        ? songs.sublist(0, _homepageRecommendationLimit)
+        : songs;
   }
 
   @override
@@ -978,6 +1168,218 @@ class KugouPlatform extends MusicPlatform {
       debugPrint('Kugou getRankingList error: $e');
       return [];
     }
+  }
+
+  // --- Charts (榜单中心) ---
+
+  @override
+  Future<List<Toplist>> getToplists() async {
+    final res = await _api.getToplists();
+    final list = res['data']?['info'] as List<dynamic>?;
+    if (list == null) return const [];
+    return list
+        .whereType<Map>()
+        .map((item) {
+          final id = item['rankid']?.toString() ?? '';
+          if (id.isEmpty) return null;
+          return Toplist(
+            id: id,
+            name: (item['rankname'] ?? '酷狗榜单').toString(),
+            coverUrl: _normalizeSizeTemplate(item['imgurl']?.toString()),
+            updateFrequency: _nonEmpty(item['update_frequency']),
+            songCount: _firstInt(item, const ['songcount']) ??
+                _rankTotalFromExtra(item['extra']),
+            period: _nonEmpty(item['rank_id_publish_date']),
+            intro: _nonEmpty(item['intro']),
+          );
+        })
+        .whereType<Toplist>()
+        .toList();
+  }
+
+  /// `rank/list` hides the track count inside `extra.resp.all_total`
+  /// (TOP500 reports 500).
+  int? _rankTotalFromExtra(dynamic extra) {
+    if (extra is! Map) return null;
+    final resp = extra['resp'];
+    if (resp is! Map) return null;
+    return _firstInt(resp, const ['all_total', 'total']);
+  }
+
+  @override
+  Future<List<RankedSong>> getRankedSongs(
+    String toplistId, {
+    int offset = 0,
+    int num = 100,
+    String? period,
+  }) async {
+    final rankId = int.tryParse(toplistId);
+    if (rankId == null) {
+      throw ApiException(message: '无效的酷狗榜单 id: $toplistId');
+    }
+    final pageSize = num <= 0 ? 100 : num;
+    // `rank/song` is 1-based paged; translate the offset into pages.
+    final firstPage = (offset < 0 ? 0 : offset) ~/ pageSize + 1;
+    final songs = <RankedSong>[];
+    for (var page = firstPage; page <= 100; page++) {
+      final res = await _api.getRankList(
+        rankId: rankId,
+        page: page,
+        pagesize: pageSize,
+      );
+      final list = res['data']?['info'] as List<dynamic>?;
+      if (list == null || list.isEmpty) break;
+      for (var i = 0; i < list.length; i++) {
+        final raw = list[i];
+        if (raw is! Map) continue;
+        // `sort` is the real chart position when present; otherwise derive it
+        // from the page/offset arithmetic.
+        final absolute = offset + i;
+        final rank = _firstInt(raw, const ['sort']) ??
+            (absolute < 0 ? i + 1 : absolute + 1);
+        songs.add(
+          RankedSong(
+            song: _parseSong(raw),
+            rank: rank,
+            rankChange: _rankChange(raw),
+            isNew: _firstInt(raw, const ['isfirst']) == 1 ? true : null,
+            rankValue: _nonEmpty(raw['rank_count']?.toString()),
+          ),
+        );
+      }
+      if (list.length < pageSize) break;
+      if (songs.length >= num) break;
+    }
+    return songs.length > num && num > 0 ? songs.sublist(0, num) : songs;
+  }
+
+  /// Kugou reports `rank_count` (previous position) next to `sort` (current).
+  /// Positive means the song moved **up**, matching [RankedSong.rankChange].
+  int? _rankChange(Map raw) {
+    final current = _firstInt(raw, const ['sort']);
+    final previous = _firstInt(raw, const ['rank_count']);
+    if (current == null || previous == null) return null;
+    if (previous <= 0) return null;
+    return previous - current;
+  }
+
+  // --- Artist / album pages ---
+
+  @override
+  Future<Artist?> getArtistDetail(String artistId) async {
+    final res = await _api.getArtistInfo(artistId);
+    final data = res['data'];
+    if (data is! Map) return null;
+    final name = (data['singername'] ?? '').toString();
+    if (name.isEmpty) return null;
+    return Artist(
+      id: (data['singerid'] ?? artistId).toString(),
+      name: name,
+      avatarUrl: _normalizeSizeTemplate(
+        (data['avatar'] ?? data['imgurl'])?.toString(),
+      ),
+      briefDesc: _nonEmpty(data['profile'] ?? data['intro']),
+      songCount: _firstInt(data, const ['songcount']),
+      albumCount: _firstInt(data, const ['albumcount']),
+      fansCount: _firstInt(data, const ['fansnums', 'fanscount']),
+    );
+  }
+
+  @override
+  Future<List<Song>> getArtistTopSongs(
+    String artistId, {
+    int limit = 50,
+  }) async {
+    final pageSize = limit <= 0 ? 50 : limit;
+    final res = await _api.getArtistSongs(artistId, pagesize: pageSize);
+    final list = res['data']?['info'] as List<dynamic>?;
+    if (list == null) return const [];
+    final songs = list.map((s) => _parseSong(s)).toList();
+    return songs.length > limit && limit > 0 ? songs.sublist(0, limit) : songs;
+  }
+
+  @override
+  Future<List<Album>> getArtistAlbums(
+    String artistId, {
+    int page = 1,
+    int limit = 30,
+  }) async {
+    final pageSize = limit <= 0 ? 30 : limit;
+    final res = await _api.getArtistAlbums(
+      artistId,
+      page: page,
+      pagesize: pageSize,
+    );
+    final list = res['data']?['info'] as List<dynamic>?;
+    if (list == null) return const [];
+    return list.whereType<Map>().map(_albumFromMap).toList();
+  }
+
+  @override
+  Future<Album?> getAlbumDetail(String albumId) async {
+    final res = await _api.getAlbumInfo(albumId);
+    final data = res['data'];
+    if (data is! Map) return null;
+    final name = (data['albumname'] ?? '').toString();
+    if (name.isEmpty) return null;
+    return _albumFromMap(data);
+  }
+
+  @override
+  Future<List<Song>> getAlbumSongs(String albumId) async {
+    final res = await _api.getAlbumSongs(albumId);
+    final list = res['data']?['info'] as List<dynamic>?;
+    if (list == null) return const [];
+    return list.map((s) => _parseSong(s)).toList();
+  }
+
+  Album _albumFromMap(Map raw) {
+    return Album(
+      id: (raw['albumid'] ?? '').toString(),
+      name: (raw['albumname'] ?? '未知专辑').toString(),
+      artistName: _nonEmpty(raw['singername']),
+      artistId: _nonEmpty(raw['singerid']?.toString()),
+      coverUrl: _normalizeSizeTemplate(
+        (raw['imgurl'] ?? raw['album_sizable_cover'])?.toString(),
+      ),
+      releaseDate: _parseKugouDate(raw['publishtime']),
+      description: _nonEmpty(raw['intro']),
+      songCount: _firstInt(raw, const ['songcount']),
+    );
+  }
+
+  DateTime? _parseKugouDate(dynamic value) {
+    if (value == null) return null;
+    final text = value.toString().trim();
+    if (text.isEmpty) return null;
+    return DateTime.tryParse(text.replaceFirst(' ', 'T'));
+  }
+
+  String? _nonEmpty(dynamic value) {
+    final text = value?.toString().trim();
+    if (text == null || text.isEmpty || text == 'null') return null;
+    return text;
+  }
+
+  /// Kugou image URLs embed a `{size}` placeholder; a literal `{size}` must not
+  /// reach the image loader verbatim.
+  String? _normalizeSizeTemplate(String? url) {
+    if (url == null || url.isEmpty) return null;
+    return url.replaceAll('{size}', '480');
+  }
+
+  @override
+  Future<List<Song>> getNewSongs({
+    int limit = 100,
+    NewSongRegion region = NewSongRegion.all,
+  }) async {
+    // Honest degradation: every candidate endpoint is refused or absent, and
+    // `rank/list` publishes no 新歌榜. Returning `[]` would be indistinguishable
+    // from "no new songs today".
+    throw UnsupportedActionException(
+      '酷狗音乐',
+      details: '新歌接口（newcd/list、album/newsongs）已被服务端拒绝访问',
+    );
   }
 
   // --- VIP ---

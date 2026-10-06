@@ -1,0 +1,119 @@
+
+================ 1. 榜单列表 rank/list ================
+
+--- rank/list
+    http://mobilecdn.kugou.com/api/v3/rank/list?format=json&withsong=0&plat=0&page=1&pagesize=5
+    HTTP 200 len=40347 72ms
+    top-level keys: data,errcode,status,error
+    status=1 error_code=null errmsg=null
+    item fields: children,base_img,rankname,new_cycle,banner_9,album_img_9,table_plaque,update_frequency_type,play_times,img_9,ranktype,classify,img_cover,intro,rank_cid,share_bg,id,jump_url,show_play_button,count_down,share_logo,bannerurl,rank_id_publish_date,show_play_count,isvol,album_cover_color,is_city_rank,haschildren,custom_type,video_ending,update_frequency,banner7url,rankid,jump_title,is_timing,issue,extra,zone,imgurl
+    item[0] = {"children":[],"base_img":"","rankname":"TOP500","new_cycle":1800,"banner_9":"http://imge.kugou.com/mcommon/{size}/20220112/20220112175202472916.png","album_img_9":"http://imge.kugou.com/stdmusic/{size}/20260924/20260924231711500123.jpg","table_plaque":"http://imge.kugou.com/mcommon/{size}/20240311/20240311161214589894.png","update_frequency_type":1,"play_times":9981780,"img_9":"http://imge.kugou.com/mcommon/{size}/20241219/20241219164221229666.png","ranktype":2,"classify":1,"img_cover":"http://imge.kugou.com/mcommon/{size}/20241219/20241219164226731176.png","intro":"数据来源：全曲库歌曲\r\n排序方式：按照歌曲产生的完整播放，收藏和分享数据综合进行排名\r\n更新频率：每天","rank_cid":130162,"share_bg":"http://imge.kugou.com/mcommon/{size}/20240505/20240505213952649412.png","id":2,"jump_url":"","show_play_button":0,"count_down":1800,"share_logo":"http://imge.kugou.com/mcommon/{size}/20240311/20240311161212168226.png","bannerurl":"http://imge.kugou.com/mcommonbanner/{size}/20181019/20181019122517263545.jpg","rank_id_publish_date":"2026-10-06 08:30:01","show_play_count":1,"isvol":1,"album_cover_color":"#644b3d","is_city_rank":0,"haschildren":0,"custom_type":0,"video_ending":"http://imge.kugou.com/mcommon/{size}/20240313/20240313142811662716.jpg","update_frequency":"每天","banner7url":"http://imge.kugou.com/mcommon/{size}/20241219/20241219164215715999.png","rankid":8888,"jump_title":"","is_timing":1,"issue":279,"extra":{"resp":{"scheduled_release_conf":{"scheduled_release_time":"10:00:00","latest_rank_cid":130162,"latest_rank_cid_publish_date":"2026-10-06 08:30:01"},"five_year_total":149,"new_total":1,"enjoy_total":0,"recent_year_total":101,"follow_total":0,"all_total":500,"vip_total":0,"rank_tag":[{"desc":"有1首上新","type":3}]}},"zone":"tx6_gz_kmr","imgurl":"http://imge.kugou.com/mcommon/{size}/20241219/20241219164209670219.png"}
+
+
+================ 2. 榜单歌曲 rank/song ================
+
+--- rank/song rankid=8888
+    http://mobilecdn.kugou.com/api/v3/rank/song?rankid=8888&page=1&pagesize=5&plat=0&version=11309
+    HTTP 200 len=12698 106ms
+    top-level keys: data,errcode,status,error
+    status=1 error_code=null errmsg=null
+    item fields: last_sort,authors,rank_count,rank_id_publish_date,songname,topic_url_320,sqhash,fail_process,pkg_price,addtime,rp_type,album_id,privilege_high,topic_url_sq,rank_cid,inlist,320filesize,pkg_price_320,feetype,filename,duration_high,fail_process_320,zone,topic_url,rp_publish,trans_obj,hash,sqfilesize,sqprivilege,pay_type_sq,bitrate,pkg_price_sq,has_accompany,musical,pay_type_320,extname_super,duration_super,bitrate_super,hash_high,duration,album_sizable_cover,price_sq,mvdata,old_cpy,filesize_super,m4afilesize,filesize_high,320privilege,remark,isfirst,privilege,320hash,price,extname,price_320,mvhash,sort,trans_param,recommend_reason,album_audio_id,bitrate_high,issue,pay_type,filesize,hash_super,audio_id,first,privilege_super,fail_process_sq
+    item[0] = {"last_sort":1,"authors":[{"sizable_avatar":"http://singerimg.kugou.com/uploadpic/softhead/{size}/20241220/20241220000110333441.jpg","is_publish":1,"author_id":6539,"author_name":"郁可唯"}],"rank_count":23,"rank_id_publish_date":"2026-10-06 08:30:01","songname":"茶汤","topic_url_320":"","sqhash":"CBF33AFF41AE7EBA6C88FAB7D27B4A86","fail_process":4,"pkg_price":1,"addtime":"2026-10-06 08:30:01","rp_type":"audio","album_id":"4012536","privilege_high":0,"topic_url_sq":"","rank_cid":130162,"inlist":1,"320filesize":12272540,"pkg_price_320":1,"feetype":0,"filename":"郁可唯 - 茶汤","duration_high":0,"fail_process_320":4,"zone":"tx6_gz_kmr","topic_url":"","rp_publish":1,"trans_obj":{"rank_show_sort":1},"hash":"E2948B4513F34F7A4C7767EAD15BC4F8","sqfilesize":36316570,"sqprivilege":10,"pay_type_sq":3,"bitrate":128,"pkg_price_sq":1,"has_accompany":1,"musical":null,"pay_type_320":3,"extname_super":"","duration_super":0,"bitrate_super":0,"hash_high":"","duration":306,"album_sizable_cover":"http://imge.kugou.com/stdmusic/{size}/20260930/20260930162931567347.jpg","price_sq":200,"mvdata":[{"id":"3766359","trk":"3","hash":"EC9FA543665971395B39828762974A88","typ":0}],"old_cpy":0,"filesize_super":0,"m4afilesize":0,"filesize_high":0,"320privilege":10,"remark":"微加幸福 (微笑幸福庆功版)","isfirst":0,"privilege":8,"320hash":"E4B83DBC8EC7F4104F3738D24D950D35","price":200,"extname":"mp3","price_320":200,"mvhash":"F839921CD2CE1A572C602A0260754AED","sort":1,"trans_param":{"cpy_grade":6,"classmap":{"attr0":235016200},"language":"国语","free_limited":1,"cpy_attr0":59768832,"musicpack_advance":0,"display":40,"display_rate":2,"ogg_320_hash":"13683CF9CB3F68847AEE263F5F245FBD","cpy_map":"2","union_cover":"http://imge.kugou.com/stdmusic/{size}/20260930/20260930162931567347.jpg","ogg_320_filesize":13085321,"qualitymap":{"bits":"fffc01b411ffffff30c035","attr0":2133901365,"attr1":1747189759},"is_original":2,"ogg_128_filesize":3747809,"cid":22182642,"ogg_128_hash":"2523B6618C42C4FBBF7A09DFB6F6B2F0","ipmap":{"attr0":2200197664768},"hash_multitrack":"9B7AE3DCFB93C3DFFE9FD9B745019418","hash_offset":{"clip_hash":"635BE23739E9220D270F38A70A2C0389","start_byte":0,"end_ms":30000,"end_byte":480320,"file_type":0,"start_ms":0,"offset_hash":"4178457322FEC89698AFC09223495B4D"},"pay_block_tpl":1,"appid_block":"2910","cpy_level":1},"recommend_reason":"","album_audio_id":88079533,"bitrate_high":0,"issue":279,"pay_type":3,"filesize":4909144,"hash_super":"","audio_id":314877945,"first":0,"privilege_super":0,"fail_process_sq":4}
+
+
+================ 3. 歌手 singer/info + singer/song ================
+
+--- singer/info singerid=3060
+    http://mobilecdnbj.kugou.com/api/v3/singer/info?singerid=3060&with_res_tag=1
+    HTTP 200 len=2506 71ms
+    NON-JSON body: <!--KG_TAG_RES_START-->{"data":{"peripherycount":0,"songcount":962,"singername":"薛之谦","profile":"薛之谦，1983年7月17日出生于上海市，中国内地流行乐男歌手、音乐制作人、影视演员，毕业于格里昂酒店管理学院。\n\n200
+
+--- singer/song sorttype=2 singerid=3060
+    http://mobilecdnbj.kugou.com/api/v3/singer/song?sorttype=2&version=9108&identity=3&plat=0&pagesize=5&singerid=3060&area_code=1&page=1
+    HTTP 200 len=11064 7944ms
+    top-level keys: data,errcode,status,error
+    status=1 error_code=null errmsg=null
+    item fields: mvdata,hash,sqfilesize,sqprivilege,pay_type_sq,bitrate,pkg_price_sq,has_accompany,musical,album_name,pay_type_320,topic_url_320,privilege_high,filesize_super,extname_super,sqhash,composer_info,fail_process,pkg_price,duration_super,rp_type,album_id,bitrate_super,mvhash,extname,hash_super,topic_url_sq,pay_type,320hash,bitrate_high,price_sq,old_cpy,hash_high,inlist,publish_date,m4afilesize,duration,filename,320filesize,pkg_price_320,identity,feetype,price,price_320,album_audio_id,duration_high,fail_process_320,trans_param,audio_id,lyrics_info,topic_url,filesize,rp_publish,privilege,filesize_high,remark,320privilege,privilege_super,fail_process_sq
+    item[0] = {"mvdata":[{"id":"180472","trk":"3","hash":"DEA9ACFE7E6201EB7E384063E700734E","typ":0}],"hash":"097E777171F692855EAE98B6965F9477","sqfilesize":25308568,"sqprivilege":10,"pay_type_sq":3,"bitrate":128,"pkg_price_sq":1,"has_accompany":1,"musical":null,"album_name":"绅士","pay_type_320":3,"topic_url_320":"","privilege_high":10,"filesize_super":0,"extname_super":"","sqhash":"E43B1F05774C3995F5C97168BDEAF350","composer_info":[{"identity":2,"author_id":3060,"author_name":"薛之谦"}],"fail_process":4,"pkg_price":1,"duration_super":0,"rp_type":"audio","album_id":"14456909","bitrate_super":0,"mvhash":"4F5DAE4814BFAF9C556ABCD91EBF7FC5","extname":"mp3","hash_super":"","topic_url_sq":"","pay_type":3,"320hash":"06156D13E628E200728EDAA5E58EF9EC","bitrate_high":1480,"price_sq":200,"old_cpy":0,"hash_high":"6533406512471EF54A96CAD8465D393B","inlist":1,"publish_date":"2015-06-05","m4afilesize":0,"duration":261,"filename":"薛之谦 - 演员","320filesize":10452304,"pkg_price_320":1,"identity":1,"feetype":0,"price":200,"price_320":200,"album_audio_id":128180951,"duration_high":261,"fail_process_320":4,"trans_param":{"cpy_grade":5,"classmap":{"attr0":234881032},"language":"国语","cpy_attr0":58727552,"musicpack_advance":1,"display":0,"display_rate":0,"ogg_320_hash":"88F7FFDC23110CAFE2E018528CDDA6A7","cpy_map":"2","union_cover":"http://imge.kugou.com/stdmusic/{size}/20250207/20250207161328731643.jpg","ogg_320_filesize":10261245,"qualitymap":{"bits":"8fffc0db411ffffff3fc075","attr0":2134884469,"attr1":1747189759},"is_original":1,"ogg_128_filesize":2890335,"cid":2481985,"ogg_128_hash":"06DCBAEE53E39E21EF80B91FA804626E","pay_block_tpl":1,"ipmap":{"attr0":2200130555904},"hash_offset":{"clip_hash":"D3179F332153658F8B85E77E5ABD110C","start_byte":0,"end_ms":60000,"end_byte":960113,"file_type":0,"start_ms":0,"offset_hash":"64BF3CCD82D2B8C1548A1446E8556847"},"appid_block":"3124","hash_multitrack":"BF53E2D84443B6DF2033ACA4500A5358","cpy_level":1},"audio_id":15327235,"lyrics_info":[{"identity":1,"author_id":3060,"author_name":"薛之谦"}],"topic_url":"","filesize":4181035,"rp_publish":1,"privilege":10,"filesize_high":48354702,"remark":"《逆袭之星途璀璨》电视剧插曲","320privilege":10,"privilege_super":0,"fail_process_sq":4}
+
+
+================ 4. 歌手专辑 singer/albumlist (candidate paths) ================
+
+--- singer/albumlist (mobilecdnbj)
+    http://mobilecdnbj.kugou.com/api/v3/singer/albumlist?singerid=3060&page=1&pagesize=5&plat=0&version=9108
+    HTTP 200 len=27 66ms
+    NON-JSON body: Access Deny ! No Actions ! 
+
+--- singer/albumlist (mobilecdn)
+    http://mobilecdn.kugou.com/api/v3/singer/albumlist?singerid=3060&page=1&pagesize=5&plat=0&version=9108
+    HTTP 200 len=27 118ms
+    NON-JSON body: Access Deny ! No Actions ! 
+
+
+================ 5. 专辑 album/info + album/song ================
+
+--- album/info albumid=1020619
+    http://mobilecdn.kugou.com/api/v3/album/info?albumid=1020619&format=json
+    HTTP 200 len=432 98ms
+    top-level keys: data,errcode,status,error
+    status=1 error_code=null errmsg=null
+
+--- album/song albumid=1020619
+    http://mobilecdn.kugou.com/api/v3/album/song?albumid=1020619&page=1&pagesize=5&plat=0&version=11309
+    HTTP 200 len=1344 168ms
+    top-level keys: data,errcode,status,error
+    status=1 error_code=null errmsg=null
+    item fields: hash,sqfilesize,sqprivilege,pay_type_sq,bitrate,pkg_price_sq,has_accompany,musical,topic_url_320,sqhash,fail_process,pkg_price,rp_type,album_id,mvhash,extname,topic_url_sq,320hash,price_sq,inlist,m4afilesize,audio_id,320filesize,origin_hash,album_audio_id,feetype,price,price_320,old_cpy,pay_type_320,fail_process_320,trans_param,pkg_price_320,duration,topic_url,privilege,rp_publish,filesize,remark,pay_type,320privilege,filename,fail_process_sq
+    item[0] = {"hash":"AB9F4F0054263A3521E83D50CB9DF818","sqfilesize":24372524,"sqprivilege":0,"pay_type_sq":0,"bitrate":128,"pkg_price_sq":0,"has_accompany":1,"musical":null,"topic_url_320":"","sqhash":"5F4DECDFB2A049B1BD375B103B506818","fail_process":0,"pkg_price":0,"rp_type":"audio","album_id":"1020619","mvhash":"","extname":"mp3","topic_url_sq":"","320hash":"9413477794E3AD652195E0CD46C121BA","price_sq":0,"inlist":1,"m4afilesize":0,"audio_id":17192817,"320filesize":8260069,"origin_hash":"AB9F4F0054263A3521E83D50CB9DF818","album_audio_id":32711020,"feetype":0,"price":0,"price_320":0,"old_cpy":1,"pay_type_320":0,"fail_process_320":0,"trans_param":{"ownercount":0,"cpy_map":"2","sort":1,"pay_block_tpl":1,"classmap":{"attr0":100663304},"union_cover":"http://imge.kugou.com/stdmusic/{size}/20151230/20151230005311982248.jpg","ipmap":{"attr0":77326192640},"cid":-1,"language":"英语","cpy_attr0":50339840,"hash_multitrack":"3D9C3DD6D71369A848F10491FC9D9280","qualitymap":{"bits":"4074","attr0":16500,"attr1":0},"musicpack_advance":0,"display":0,"display_rate":0},"pkg_price_320":0,"duration":206,"topic_url":"","privilege":0,"rp_publish":1,"filesize":3303785,"remark":"","pay_type":0,"320privilege":0,"filename":"beck hansen、Scenic - Petals","fail_process_sq":0}
+
+
+================ 6. 新歌 newcd/list (candidate paths) ================
+
+--- newcd/list
+    http://mobilecdn.kugou.com/api/v3/newcd/list?page=1&pagesize=5&plat=0&type=1&version=11309
+    HTTP 200 len=15 120ms
+    NON-JSON body: Access Deny !!!
+
+--- album/newsongs
+    http://mobilecdn.kugou.com/api/v3/album/newsongs?page=1&pagesize=5&plat=0&version=11309
+    HTTP 200 len=27 123ms
+    NON-JSON body: Access Deny ! No Actions ! 
+
+
+================ 7. 首页推荐 m.kugou.com/?json=true ================
+
+--- homepage json
+    http://m.kugou.com/?json=true
+    HTTP 200 len=369364 97ms
+    top-level keys: JS_CSS_DATE,kg_domain,src,fr,ver,data,special,rank,ts,banner,singers,__Tpl
+    item fields: last_sort,authors,rank_count,rank_id_publish_date,songname,topic_url_320,sqhash,fail_process,pkg_price,addtime,rp_type,album_id,privilege_high,topic_url_sq,rank_cid,inlist,320filesize,pkg_price_320,feetype,filename,duration_high,fail_process_320,zone,topic_url,rp_publish,hash,sqfilesize,sqprivilege,pay_type_sq,bitrate,pkg_price_sq,has_accompany,musical,pay_type_320,extname_super,duration_super,bitrate_super,hash_high,duration,album_sizable_cover,price_sq,old_cpy,filesize_super,m4afilesize,filesize_high,320privilege,remark,isfirst,privilege,320hash,price,extname,price_320,mvhash,sort,trans_param,recommend_reason,album_audio_id,bitrate_high,issue,pay_type,filesize,hash_super,audio_id,first,privilege_super,fail_process_sq,song_url,singer_name,song_name
+    item[0] = {"last_sort":0,"authors":[{"sizable_avatar":"http://singerimg.kugou.com/uploadpic/softhead/{size}/20230531/20230531155603291987.jpg","is_publish":1,"author_name":"周深","author_id":169967},{"sizable_avatar":"http://singerimg.kugou.com/uploadpic/softhead/{size}/20230726/20230726173000449.jpg","is_publish":1,"author_name":"王者荣耀","author_id":645596}],"rank_count":0,"rank_id_publish_date":"","songname":"我们在场","topic_url_320":"","sqhash":"DBCD98346BBCB39C3E217BE4D5EC42FB","fail_process":4,"pkg_price":1,"addtime":"2021-12-25 22:00:00","rp_type":"audio","album_id":"209454115","privilege_high":10,"topic_url_sq":"","rank_cid":0,"inlist":1,"320filesize":8018496,"pkg_price_320":1,"feetype":0,"filename":"周深、王者荣耀 - 我们在场","duration_high":200,"fail_process_320":4,"zone":"","topic_url":"","rp_publish":1,"hash":"AE1E9503424BD9581A1F9CC5760E907D","sqfilesize":24370536,"sqprivilege":10,"pay_type_sq":3,"bitrate":128,"pkg_price_sq":1,"has_accompany":1,"musical":null,"pay_type_320":3,"extname_super":"","duration_super":0,"bitrate_super":0,"hash_high":"C523348D3F0D0DAAD4A1D1A1D88ACD0F","duration":200,"album_sizable_cover":"https://imgessl.kugou.com/stdmusic/{size}/20260928/20260928185551489508.jpg","price_sq":200,"old_cpy":0,"filesize_super":0,"m4afilesize":0,"filesize_high":44711890,"320privilege":10,"remark":"我们在场","isfirst":0,"privilege":8,"320hash":"48594448CEC0A2C5C26F47F1E9D8C771","price":200,"extname":"mp3","price_320":200,"mvhash":"4D7861A8E5E1F68E48E088BED512ADB1","sort":1,"trans_param":{"cpy_grade":5,"classmap":{"attr0":234881032},"provider":2,"cpy_attr0":50331648,"musicpack_advance":0,"ogg_128_filesize":2326245,"display_rate":0,"cpy_map":"2","cpy_level":1,"qualitymap":{"bits":"800000db41080003d00e474","attr0":1023468660,"attr1":1746993152},"language":"国语","hash_multitrack":"17C314E348B7EBEA39DDE5DDDAC8CF8D","cid":668302664,"pay_block_tpl":1,"display":0,"ipmap":{"attr0":33554436},"union_cover":"http://imge.kugou.com/stdmusic/{size}/20260928/20260928185551489508.jpg","ogg_320_hash":"74D646EEAD5EC1AFCC6C27328E00F3A4","ogg_128_hash":"00CDB09CA7961EABE83961C781B94296","ogg_320_filesize":7897955},"recommend_reason":"","album_audio_id":968531741,"bitrate_high":1785,"issue":1,"pay_type":3,"filesize":3207624,"hash_super":"","audio_id":1108546737,"first":0,"privilege_super":0,"fail_process_sq":4,"song_url":"https://m.kugou.com/mixsong/g0mzvh32.html","singer_name":"周深、王者荣耀","song_name":"我们在场"}
+
+
+================ 8. 官方推荐接口复核（预期已下线） ================
+
+--- recommend/song (plain)
+    http://mobilecdn.kugou.com/api/v3/recommend/song?format=json
+    HTTP 200 len=27 142ms
+    NON-JSON body: Access Deny ! No Actions ! 
+
+--- recommend/song (bj)
+    http://mobilecdnbj.kugou.com/api/v3/recommend/song?format=json
+    HTTP 200 len=27 50ms
+    NON-JSON body: Access Deny ! No Actions ! 
+
+--- everyday/recommend
+    http://mobilecdn.kugou.com/api/v3/everyday/recommend?format=json
+    HTTP 200 len=15 163ms
+    NON-JSON body: Access Deny !!!
+
+
+================ 9. 播放地址真实 host（cleartext 白名单依据） ================
+
+--- getSongInfo playInfo
+    http://m.kugou.com/app/i/getSongInfo.php?cmd=playInfo&hash=2c5e5f4c0c9d0c4c8c6f2f1b0a1e0f11
+    HTTP 200 len=53 37ms
+    top-level keys: errcode,status,error
+    status=0 error_code=null errmsg=null
+
+Running build hooks...Running build hooks...

@@ -1,0 +1,35 @@
+== 本次改动涉及 / 新增的酷狗端点（实跑 2026-10-06） ==
+
+-- 内容接口（本次新增） --
+[OK]  rank/list → getToplists HTTP http=200 len=40347 852ms json status=1
+       item fields: children,base_img,rankname,new_cycle,banner_9,album_img_9,table_plaque,update_frequency_type,play_times,img_9,ranktype,classify,img_cover,intro,rank_cid,share_bg,id,jump_url,show_play_button,count_down,share_logo,bannerurl,rank_id_publish_date,show_play_count,isvol,album_cover_color,is_city_rank,haschildren,custom_type,video_ending,update_frequency,banner7url,rankid,jump_title,is_timing,issue,extra,zone,imgurl
+[OK]  rank/song → getRankedSongs HTTP http=200 len=5115 108ms json status=1
+       item fields: last_sort,authors,rank_count,rank_id_publish_date,songname,topic_url_320,sqhash,fail_process,pkg_price,addtime,rp_type,album_id,privilege_high,topic_url_sq,rank_cid,inlist,320filesize,pkg_price_320,feetype,filename,duration_high,fail_process_320,zone,topic_url,rp_publish,trans_obj,hash,sqfilesize,sqprivilege,pay_type_sq,bitrate,pkg_price_sq,has_accompany,musical,pay_type_320,extname_super,duration_super,bitrate_super,hash_high,duration,album_sizable_cover,price_sq,mvdata,old_cpy,filesize_super,m4afilesize,filesize_high,320privilege,remark,isfirst,privilege,320hash,price,extname,price_320,mvhash,sort,trans_param,recommend_reason,album_audio_id,bitrate_high,issue,pay_type,filesize,hash_super,audio_id,first,privilege_super,fail_process_sq
+[OK]  singer/info → getArtistDetail HTTP http=200 len=2462 199ms json status=1
+[OK]  singer/song → getArtistTopSongs HTTP http=200 len=4472 143ms json status=1
+       item fields: mvdata,hash,sqfilesize,sqprivilege,pay_type_sq,bitrate,pkg_price_sq,has_accompany,musical,album_name,pay_type_320,topic_url_320,privilege_high,filesize_super,extname_super,sqhash,composer_info,fail_process,pkg_price,duration_super,rp_type,album_id,bitrate_super,mvhash,extname,hash_super,topic_url_sq,pay_type,320hash,bitrate_high,price_sq,old_cpy,hash_high,inlist,publish_date,m4afilesize,duration,filename,320filesize,pkg_price_320,identity,feetype,price,price_320,album_audio_id,duration_high,fail_process_320,trans_param,audio_id,lyrics_info,topic_url,filesize,rp_publish,privilege,filesize_high,remark,320privilege,privilege_super,fail_process_sq
+[OK]  singer/album → getArtistAlbums HTTP http=200 len=1395 230ms json status=1
+       item fields: sum_ownercount,album_tag,trans_param,singerid,songcount,publishtime,singername,albumname,privilege,isfirst,albumid,buycount,intro,imgurl
+[OK]  album/info → getAlbumDetail HTTP http=200 len=798 92ms json status=1
+[OK]  album/song → getAlbumSongs HTTP http=200 len=3546 140ms json status=1
+       item fields: hash,sqfilesize,sqprivilege,pay_type_sq,bitrate,pkg_price_sq,has_accompany,musical,topic_url_320,sqhash,fail_process,pkg_price,rp_type,album_id,mvhash,extname,topic_url_sq,320hash,price_sq,inlist,m4afilesize,audio_id,320filesize,origin_hash,album_audio_id,feetype,price,price_320,old_cpy,pay_type_320,fail_process_320,trans_param,pkg_price_320,duration,topic_url,privilege,rp_publish,filesize,remark,pay_type,320privilege,filename,fail_process_sq
+
+-- 推荐换源 --
+[OK]  homepage → 酷狗推荐来源 HTTP http=200 len=369378 100ms json status=null
+       item fields: last_sort,authors,rank_count,rank_id_publish_date,songname,topic_url_320,sqhash,fail_process,pkg_price,addtime,rp_type,album_id,privilege_high,topic_url_sq,rank_cid,inlist,320filesize,pkg_price_320,feetype,filename,duration_high,fail_process_320,zone,topic_url,rp_publish,hash,sqfilesize,sqprivilege,pay_type_sq,bitrate,pkg_price_sq,has_accompany,musical,pay_type_320,extname_super,duration_super,bitrate_super,hash_high,duration,album_sizable_cover,price_sq,old_cpy,filesize_super,m4afilesize,filesize_high,320privilege,remark,isfirst,privilege,320hash,price,extname,price_320,mvhash,sort,trans_param,recommend_reason,album_audio_id,bitrate_high,issue,pay_type,filesize,hash_super,audio_id,first,privilege_super,fail_process_sq,song_url,singer_name,song_name
+[CHK] recommend（预期仍被服务端拒绝） HTTP http=200 len=27 183ms NON-JSON: Access Deny ! No Actions !
+
+-- 本次改为 HTTPS 的端点 --
+[OK]  songInfo（播放地址，MITM 落盘面） HTTPS http=200 len=2706 82ms json status=1
+[OK]  lyrics.kugou.com/search HTTPS http=200 len=220 194ms json status=200
+[OK]  krcs.kugou.com/search HTTPS http=200 len=2225 78ms json status=200
+
+-- 仍为 HTTP（必须留在 cleartext 白名单） --
+[OK]  send_mobile_code（HTTPS 不可用） HTTP http=200 len=44 23ms json status=0
+[OK]  search/song（仍为 http） HTTP http=200 len=2013 94ms json status=1
+       item fields: hash,sqfilesize,sourceid,pay_type_sq,bitrate,ownercount,pkg_price_sq,songname,album_name,songname_original,Accompany,sqhash,fail_process,pay_type,rp_type,album_id,othername_original,mvhash,extname,group,price_320,320hash,topic,othername,isnew,fold_type,old_cpy,srctype,singername,album_audio_id,duration,320filesize,pkg_price_320,audio_id,feetype,price,filename,source,price_sq,fail_process_320,trans_param,pkg_price,pay_type_320,topic_url,m4afilesize,rp_publish,privilege,filesize,isoriginal,320privilege,sqprivilege,fail_process_sq
+[OK]  singer/info 走 http 主机（对照） HTTP http=200 len=2462 69ms json status=1
+
+-- 播放地址真实 host（cleartext 白名单依据，见 probe #3） --
+playable: scheme=https host=sharefs.kugou.com
+Running build hooks...Running build hooks...

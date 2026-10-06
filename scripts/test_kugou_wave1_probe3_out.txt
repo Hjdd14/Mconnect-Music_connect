@@ -1,0 +1,79 @@
+
+============ 榜单名称（全部） ============
+
+total=25 count=25
+    rankid=8888 name=TOP500 update=每天 all_total=500 img=http://imge.kugou.com/mcommon/{size}/20241219/20241219164209670219.png
+    rankid=85897 name=国潮音乐榜 update=周五凌晨更新周榜 all_total=100 img=http://imge.kugou.com/mcommon/{size}/20241120/20241120202644296668.jpg
+    rankid=100530 name=视频号热歌酷狗榜 update=每天 all_total=100 img=http://imge.kugou.com/mcommon/{size}/20260701/20260701213145443732.jpg
+    rankid=51341 name=民谣榜 update=周四 all_total=100 img=http://imge.kugou.com/mcommon/{size}/20241211/20241211184719475668.jpg
+    rankid=33160 name=电音榜 update=周四 all_total=100 img=http://imge.kugou.com/mcommon/{size}/20241211/20241211184628349205.jpg
+    rankid=24971 name=DJ热歌榜 update=周四 all_total=100 img=http://imge.kugou.com/mcommon/{size}/20241219/20241219194419154116.png
+    rankid=80025 name=国乐榜 update=周四更新 all_total=100 img=http://imge.kugou.com/mcommon/{size}/20241211/20241211184535924138.png
+    rankid=52767 name=短视频收藏人气榜 update=每天 all_total=100 img=http://imge.kugou.com/mcommon/{size}/20260702/20260702101133223934.png
+    rankid=31308 name=内地榜 update=工作日 all_total=100 img=http://imge.kugou.com/mcommon/{size}/20241211/20241211192146592398.png
+    rankid=51340 name=伤感榜 update=周三 all_total=100 img=http://imge.kugou.com/mcommon/{size}/20241219/20241219195213930623.png
+    rankid=31311 name=韩国榜 update=工作日 all_total=100 img=http://imge.kugou.com/mcommon/{size}/20241211/20241211192536531946.jpg
+    rankid=31312 name=日本榜 update=工作日 all_total=100 img=http://imge.kugou.com/mcommon/{size}/20241211/20241211192703831514.jpg
+    rankid=49225 name=80后热歌榜 update=每天 all_total=100 img=http://imge.kugou.com/mcommon/{size}/20241211/20241211185822886829.jpg
+    rankid=54848 name=台湾地区榜 update=工作日 all_total=100 img=http://imge.kugou.com/mcommon/{size}/20241211/20241211192349409526.jpg
+    rankid=49224 name=00后热歌榜 update=每天 all_total=100 img=http://imge.kugou.com/mcommon/{size}/20241211/20241211185955370846.jpg
+    rankid=33162 name=ACG新歌榜 update=周四 all_total=100 img=http://imge.kugou.com/mcommon/{size}/20241211/20241211184809101184.jpg
+    rankid=33166 name=欧美金曲榜 update=周三 all_total=100 img=http://imge.kugou.com/mcommon/{size}/20241211/20241211190352819248.jpg
+    rankid=33163 name=影视金曲榜 update=周三 all_total=100 img=http://imge.kugou.com/mcommon/{size}/20241211/20241211190457598263.jpg
+    rankid=65234 name=儿歌榜 update=周二 all_total=100 img=http://imge.kugou.com/mcommon/{size}/20241211/20241211191500485663.png
+    rankid=60170 name=闽南语榜 update=周二 all_total=100 img=http://imge.kugou.com/mcommon/{size}/20241211/20241211191332657103.jpg
+    rankid=59899 name=古典榜 update=周四 all_total=100 img=http://imge.kugou.com/mcommon/{size}/20241211/20241211185545620318.jpg
+    rankid=108332 name=粤剧榜 update=每周二更新 all_total=50 img=http://imge.kugou.com/mcommon/{size}/20260318/20260318165457262501.jpg
+    rankid=108333 name=京剧榜 update=每周二更新 all_total=50 img=http://imge.kugou.com/mcommon/{size}/20260318/20260318165621528435.jpg
+    rankid=108335 name=南音榜 update=每周二更新 all_total=50 img=http://imge.kugou.com/mcommon/{size}/20260318/20260318165732662096.jpg
+    rankid=36107 name=小语种热歌榜 update=周二 all_total=100 img=http://imge.kugou.com/mcommon/{size}/20241129/20241129184735526204.jpg
+
+============ 首页模块规模 ============
+
+data(recommend) count=10
+special count=2 type=_Map<String, dynamic>
+rank count=2 type=_Map<String, dynamic>
+singers count=3
+special keys=list,pagesize
+special[list]=...
+rank keys=total,list
+rank[total]=55
+data[0] keys=last_sort,authors,rank_count,rank_id_publish_date,songname,topic_url_320,sqhash,fail_process,pkg_price,addtime,rp_type,album_id,privilege_high,topic_url_sq,rank_cid,inlist,320filesize,pkg_price_320,feetype,filename,duration_high,fail_process_320,zone,topic_url,rp_publish,hash,sqfilesize,sqprivilege,pay_type_sq,bitrate,pkg_price_sq,has_accompany,musical,pay_type_320,extname_super,duration_super,bitrate_super,hash_high,duration,album_sizable_cover,price_sq,old_cpy,filesize_super,m4afilesize,filesize_high,320privilege,remark,isfirst,privilege,320hash,price,extname,price_320,mvhash,sort,trans_param,recommend_reason,album_audio_id,bitrate_high,issue,pay_type,filesize,hash_super,audio_id,first,privilege_super,fail_process_sq,song_url,singer_name,song_name
+
+============ 播放 CDN 真实 host ============
+
+--- v5 android 128
+    HTTP 200 len=56
+    status=0 errcode=20006 error=null
+    no playable url; body={"errcode":"20006","status":0,"errmsg":"err signature"}
+
+
+--- v5 android 320
+    HTTP 200 len=56
+    status=0 errcode=20006 error=null
+    no playable url; body={"errcode":"20006","status":0,"errmsg":"err signature"}
+
+
+--- v5 lite 128
+    HTTP 200 len=56
+    status=0 errcode=20006 error=null
+    no playable url; body={"errcode":"20006","status":0,"errmsg":"err signature"}
+
+
+--- v5 android 128 + album ids
+    HTTP 200 len=56
+    status=0 errcode=20006 error=null
+    no playable url; body={"errcode":"20006","status":0,"errmsg":"err signature"}
+
+
+
+============ getSongInfo 返回的 host ============
+
+    E2948B4513F34F7A4C7767EAD15BC4F8 status=1 url=https://sharefs.kugou.com/202610062217/0dd20021431be1f2034c2609f612031d/v3/e2948b4513f34f7a4c7767ead15bc4f8/yp/full/ap1000_us0_pi409_s1660748814.mp3
+        playable -> scheme=https host=sharefs.kugou.com port=-
+        backup -> scheme=https host=sharefs.tx.kugou.com port=-
+    097E777171F692855EAE98B6965F9477 status=0 url=
+    AB9F4F0054263A3521E83D50CB9DF818 status=1 url=https://sharefs.kugou.com/202610062217/7d625bf75f4d80cd15aa3e4fedc77427/v3/ab9f4f0054263a3521e83d50cb9df818/yp/full/ap1000_us0_pi409_s560537538.mp3
+        playable -> scheme=https host=sharefs.kugou.com port=-
+        backup -> scheme=https host=sharefs.tx.kugou.com port=-
+Running build hooks...Running build hooks...

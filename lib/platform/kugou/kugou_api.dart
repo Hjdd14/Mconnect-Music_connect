@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:crypto/crypto.dart';
+import '../../core/network/api_exception.dart';
+import '../../core/network/platform_http.dart';
 import '../../models/audio_quality.dart';
 import 'kugou_endpoints.dart';
 
@@ -20,18 +22,20 @@ class KugouApi {
   String? _uuid;
   KugouPlaybackClient _clientMode = KugouPlaybackClient.android;
 
+  /// [dio] is injectable for tests; production always goes through
+  /// [createPlatformDio] so the shared retry / error-translation interceptors
+  /// apply. Retries are restricted to idempotent methods there, so the POST
+  /// writes in this class (`song/collect`, `createPlaylist`, …) are never
+  /// replayed.
   KugouApi({Dio? dio})
     : _dio =
           dio ??
-          Dio(
-            BaseOptions(
-              connectTimeout: const Duration(seconds: 15),
-              receiveTimeout: const Duration(seconds: 15),
-              headers: {
-                'User-Agent':
-                    'Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36',
-              },
-            ),
+          createPlatformDio(
+            label: '酷狗音乐',
+            headers: {
+              'User-Agent':
+                  'Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36',
+            },
           );
 
   void setToken(String token) {
@@ -112,13 +116,83 @@ class KugouApi {
     setSessionFields(token: token);
   }
 
-  /// Decode response data - handles both Map and String (JSON) responses
+  /// Drops the cached session fields.
+  ///
+  /// [setSessionFields] cannot be used for this: it deliberately **skips empty
+  /// values**, so calling `setSessionFields()` would leave the old token in
+  /// place. Before this method existed, `KugouPlatform.logout()` only cleared
+  /// `_currentUser`, and the stale `_token` kept being injected into every
+  /// request by [_signedAndroidParams] until the process restarted.
+  ///
+  /// Account-scoped fields (`token`/`userid`/`vipToken`/`vipType`) are always
+  /// cleared. Device-scoped fields (`dfid`/`mid`/`uuid`) are kept by default:
+  /// they are not credentials, and rotating the fingerprint on every logout is
+  /// exactly the kind of sudden device change Kugou's risk control reacts to.
+  /// Pass [keepDeviceIds] `false` when the caller really wants anonymity.
+  void clearSession({bool keepDeviceIds = true}) {
+    _token = null;
+    _userid = null;
+    _vipToken = null;
+    _vipType = null;
+    if (!keepDeviceIds) {
+      _dfid = null;
+      _mid = null;
+      _uuid = null;
+    }
+  }
+
+  /// Decode response data - handles both Map and String (JSON) responses.
+  ///
+  /// Kugou answers WAF-rejected requests with **HTTP 200 and a non-JSON body**
+  /// (`Access Deny ! No Actions !`), which used to surface as a generic
+  /// `FormatException`. It is translated into an [ApiException] here so a
+  /// refused endpoint can never be mistaken for an empty-but-successful list.
   Map<String, dynamic> _decodeResponse(dynamic data) {
     if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
     if (data is String) {
-      return jsonDecode(data) as Map<String, dynamic>;
+      final cleaned = _stripResourceTags(data);
+      try {
+        final decoded = jsonDecode(cleaned);
+        if (decoded is Map<String, dynamic>) return decoded;
+        if (decoded is Map) return Map<String, dynamic>.from(decoded);
+        throw ApiException(
+          message: '酷狗接口返回了意外的数据结构',
+          details: '${decoded.runtimeType}',
+        );
+      } on FormatException {
+        if (cleaned.contains('Access Deny')) {
+          throw ApiException(
+            message: '酷狗接口拒绝访问',
+            details: cleaned.trim(),
+          );
+        }
+        throw ApiException(
+          message: '酷狗接口返回了非 JSON 响应',
+          details: cleaned.length > 120 ? cleaned.substring(0, 120) : cleaned,
+        );
+      }
     }
-    throw Exception('响应格式异常: ${data.runtimeType}');
+    throw ApiException(
+      message: '酷狗接口返回了意外的数据结构',
+      details: '${data.runtimeType}',
+    );
+  }
+
+  /// Some Kugou endpoints wrap the JSON document in
+  /// `<!--KG_TAG_RES_START-->…<!--KG_TAG_RES_END-->` (seen on `singer/info`
+  /// when `with_res_tag=1` is sent, and on payloads returned by an edge node).
+  String _stripResourceTags(String body) {
+    var cleaned = body;
+    const startTag = '<!--KG_TAG_RES_START-->';
+    const endTag = '<!--KG_TAG_RES_END-->';
+    if (cleaned.contains(startTag)) {
+      cleaned = cleaned.replaceAll(startTag, '');
+    }
+    if (cleaned.contains(endTag)) {
+      cleaned = cleaned.replaceAll(endTag, '');
+    }
+    return cleaned.trim();
   }
 
   /// Search songs
@@ -484,11 +558,126 @@ class KugouApi {
     }
   }
 
-  /// Get daily recommendations
+  /// Legacy 官方每日推荐 endpoint.
+  ///
+  /// The server answers HTTP 200 with the WAF page `Access Deny ! No Actions !`
+  /// (probed 2026-10-06 with five signing variants), so [_decodeResponse] turns
+  /// it into an [ApiException] instead of a silent empty result. Callers are
+  /// expected to treat that as "official source unavailable" and fall back to
+  /// [getHomepage] — see `KugouPlatform.getDailyRecommendation`.
   Future<Map<String, dynamic>> getRecommend() async {
     final res = await _dio.get(
       KugouEndpoints.recommend,
       queryParameters: {'format': 'json'},
+    );
+    return _decodeResponse(res.data);
+  }
+
+  /// Mobile homepage modules (`m.kugou.com/?json=true`).
+  ///
+  /// `data` is 10 recommended songs (same song shape as `rank/song`), and
+  /// `special.list.info[].songs` carries more. This is the source behind the
+  /// 酷狗推荐 list now that [getRecommend] is refused server-side.
+  Future<Map<String, dynamic>> getHomepage() async {
+    final res = await _dio.get(KugouEndpoints.homepage);
+    return _decodeResponse(res.data);
+  }
+
+  /// Every chart Kugou publishes (`rank/list`, 25 rows).
+  Future<Map<String, dynamic>> getToplists({
+    int page = 1,
+    int pagesize = 100,
+  }) async {
+    final res = await _dio.get(
+      KugouEndpoints.rankList,
+      queryParameters: {
+        'format': 'json',
+        'withsong': 0,
+        'plat': 0,
+        'page': page,
+        'pagesize': pagesize,
+      },
+    );
+    return _decodeResponse(res.data);
+  }
+
+  /// Artist profile (`singer/info`).
+  ///
+  /// `with_res_tag` is deliberately not sent: the response is plain JSON
+  /// without it, and [_decodeResponse] strips the wrapper if a node adds it.
+  Future<Map<String, dynamic>> getArtistInfo(String singerId) async {
+    final res = await _dio.get(
+      KugouEndpoints.singerInfo,
+      queryParameters: {'singerid': singerId},
+    );
+    return _decodeResponse(res.data);
+  }
+
+  /// Artist songs (`singer/song`, `sorttype=2` = 最热).
+  Future<Map<String, dynamic>> getArtistSongs(
+    String singerId, {
+    int page = 1,
+    int pagesize = 100,
+    int sortType = 2,
+  }) async {
+    final res = await _dio.get(
+      KugouEndpoints.singerSongs,
+      queryParameters: {
+        'sorttype': sortType,
+        'version': 9108,
+        'identity': 3,
+        'plat': 0,
+        'pagesize': pagesize,
+        'singerid': singerId,
+        'area_code': 1,
+        'page': page,
+      },
+    );
+    return _decodeResponse(res.data);
+  }
+
+  /// Artist albums (`singer/album`; `singer/albumlist` is refused).
+  Future<Map<String, dynamic>> getArtistAlbums(
+    String singerId, {
+    int page = 1,
+    int pagesize = 100,
+  }) async {
+    final res = await _dio.get(
+      KugouEndpoints.singerAlbums,
+      queryParameters: {
+        'singerid': singerId,
+        'page': page,
+        'pagesize': pagesize,
+        'plat': 0,
+      },
+    );
+    return _decodeResponse(res.data);
+  }
+
+  /// Album metadata (`album/info`).
+  Future<Map<String, dynamic>> getAlbumInfo(String albumId) async {
+    final res = await _dio.get(
+      KugouEndpoints.albumInfo,
+      queryParameters: {'albumid': albumId, 'format': 'json'},
+    );
+    return _decodeResponse(res.data);
+  }
+
+  /// Album tracks (`album/song`).
+  Future<Map<String, dynamic>> getAlbumSongs(
+    String albumId, {
+    int page = 1,
+    int pagesize = 100,
+  }) async {
+    final res = await _dio.get(
+      KugouEndpoints.albumSongs,
+      queryParameters: {
+        'albumid': albumId,
+        'page': page,
+        'pagesize': pagesize,
+        'plat': 0,
+        'version': 11309,
+      },
     );
     return _decodeResponse(res.data);
   }
@@ -554,8 +743,7 @@ class KugouApi {
       'appid': 1001,
       'type': 1,
       'plat': 4,
-      'qrcode_txt':
-          'https://h5.kugou.com/apps/loginQRCode/html/index.html?appid=$appid&',
+      'qrcode_txt': '${KugouEndpoints.qrLoginPage}?appid=$appid&',
       'srcappid': 2919,
     }, _clientMode);
     final res = await _dio.get(KugouEndpoints.qrKey, queryParameters: params);
@@ -705,9 +893,11 @@ class KugouApi {
       'token': _token ?? '',
     });
     final res = await _dio.get(
-      'https://pubsongscdn.kugou.com/v2/get_other_list_file',
+      KugouEndpoints.sharedPlaylistSongs,
       queryParameters: params,
-      options: Options(headers: {'Referer': 'https://activity.kugou.com/'}),
+      options: Options(
+        headers: {'Referer': KugouEndpoints.sharedPlaylistReferer},
+      ),
     );
     return _decodeResponse(res.data);
   }
@@ -793,13 +983,17 @@ class KugouApi {
   }
 
   /// Get ranking songs
-  Future<Map<String, dynamic>> getRankList({int rankId = 8888}) async {
+  Future<Map<String, dynamic>> getRankList({
+    int rankId = 8888,
+    int page = 1,
+    int pagesize = 100,
+  }) async {
     final res = await _dio.get(
       KugouEndpoints.rankSong,
       queryParameters: {
         'rankid': rankId,
-        'page': 1,
-        'pagesize': 100,
+        'page': page,
+        'pagesize': pagesize,
         'plat': 0,
         'version': 11309,
       },
