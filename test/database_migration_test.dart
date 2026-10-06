@@ -158,6 +158,105 @@ void main() {
     expect(db.schemaVersion, 2);
   });
 
+  test('the v2 tables are usable through their DAOs after an upgrade', () async {
+    // Same "real v1 database" trick, then exercise each new DAO: an upgrade that
+    // created a table with the wrong columns would only show up here.
+    final db = AppDatabase.forTesting(
+      NativeDatabase(
+        dbFile,
+        setup: (raw) {
+          raw.execute('''
+            CREATE TABLE songs (
+              id TEXT NOT NULL,
+              platform TEXT NOT NULL,
+              name TEXT NOT NULL,
+              artists TEXT NOT NULL,
+              album_name TEXT,
+              album_cover TEXT,
+              duration_ms INTEGER NOT NULL DEFAULT 0,
+              fingerprint TEXT NOT NULL,
+              PRIMARY KEY (id, platform)
+            );
+          ''');
+          raw.execute('''
+            CREATE TABLE listening_history (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              song_id TEXT NOT NULL,
+              platform TEXT NOT NULL,
+              listened_at INTEGER NOT NULL,
+              duration_listened INTEGER NOT NULL DEFAULT 0
+            );
+          ''');
+          raw.execute('''
+            CREATE TABLE user_likes (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              song_id TEXT NOT NULL,
+              platform TEXT NOT NULL,
+              added_at INTEGER NOT NULL
+            );
+          ''');
+          raw.execute('''
+            CREATE TABLE lyrics_cache (
+              song_id TEXT NOT NULL,
+              platform TEXT NOT NULL,
+              content TEXT NOT NULL,
+              format TEXT NOT NULL,
+              synced_at INTEGER NOT NULL,
+              PRIMARY KEY (song_id, platform)
+            );
+          ''');
+          raw.execute('PRAGMA user_version = 1');
+        },
+      ),
+    );
+    addTearDown(db.close);
+
+    await db.statsDao.recordPlayStart(
+      songId: 's1',
+      platform: 'netease',
+      startedAt: DateTime(2026, 5, 30, 10),
+    );
+    await db.statsDao.addListenedDuration(
+      songId: 's1',
+      platform: 'netease',
+      duration: const Duration(minutes: 3),
+    );
+    expect(await db.statsDao.countPlayEvents(), 1);
+    expect(await db.statsDao.activeDayCount(), 1);
+    expect(
+      (await db.statsDao.songAggregate('s1', 'netease'))!.listenMs,
+      const Duration(minutes: 3).inMilliseconds,
+    );
+
+    await db.localTracksDao.upsertAll([
+      LocalTracksCompanion.insert(
+        path: 'C:/music/upgraded.mp3',
+        mtime: 1,
+        size: 2,
+      ),
+    ]);
+    expect(await db.localTracksDao.count(), 1);
+
+    await db.toplistsCacheDao.replaceForPlatform('qq', [
+      ToplistsCacheCompanion.insert(
+        platform: 'qq',
+        toplistId: '26',
+        name: '热歌榜',
+        fetchedAt: 1,
+      ),
+    ]);
+    expect(await db.toplistsCacheDao.byPlatform('qq'), hasLength(1));
+
+    await db.smartPlaylistSnapshotsDao.saveSnapshot(
+      ruleId: 'rule-1',
+      songKeys: const ['netease:s1'],
+    );
+    expect(
+      await db.smartPlaylistSnapshotsDao.songKeys('rule-1'),
+      ['netease:s1'],
+    );
+  });
+
   test('a fresh database is created at v2 with every table', () async {
     final db = AppDatabase.forTesting(NativeDatabase.memory());
     addTearDown(db.close);

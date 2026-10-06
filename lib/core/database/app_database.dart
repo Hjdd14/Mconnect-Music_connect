@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
@@ -45,6 +46,18 @@ class ListeningHistory extends Table {
   IntColumn get listenedAt => integer()(); // epoch ms
   IntColumn get durationListened => integer().withDefault(const Constant(0))();
 
+  /// Kept for historical schema compatibility only.
+  ///
+  /// This constraint can **never** fire: [listenedAt] is the *current* epoch
+  /// millisecond value, so two rows about the same song always differ. It used
+  /// to give the false impression that duplicate history rows were impossible
+  /// while pause/resume/seek storms happily stacked identical entries.
+  ///
+  /// The real "same stretch of playback" rule is now enforced in
+  /// [HistoryDao.recordListen] with a time window, which is the only place that
+  /// can tell a genuine replay from a resume. Removing the constraint would
+  /// change the created schema for fresh installs and require a v3 table
+  /// rebuild; the frozen v2 contract is kept intact instead.
   @override
   List<Set<Column>> get uniqueKeys => [{songId, platform, listenedAt}];
 }
@@ -92,6 +105,32 @@ class LocalTracks extends Table {
   @override
   Set<Column> get primaryKey => {path};
 }
+
+/// What produced a [PlayEvents] row.
+///
+/// Persisted by [name]; the statistics tracker uses it to keep a
+/// pause-and-resume from being counted as a brand-new play.
+enum PlayEventSource { play, resume, skip, seek }
+
+/// One song's rolled-up playback totals.
+typedef SongPlayAggregate = ({
+  String songId,
+  String platform,
+  int playCount,
+  int listenMs,
+  int lastPlayedAt,
+});
+
+/// Global totals over every [PlayEvents] row.
+typedef StatsTotals = ({
+  int playCount,
+  int listenMs,
+  int distinctSongs,
+  int eventCount,
+});
+
+/// A labelled dimension row (artist / album / platform).
+typedef StatsDimensionEntry = ({String label, int playCount, int listenMs});
 
 /// Cached chart listings (榜单中心), so the hub renders offline and does not
 /// re-hit three platforms on every visit.
@@ -195,19 +234,140 @@ class SongsDao extends DatabaseAccessor<AppDatabase> with _$SongsDaoMixin {
     }
     return results;
   }
+
+  /// Every cached song row. Used by backup export, so it must **not** paginate.
+  Future<List<SongRecord>> getAllSongs() => select(songs).get();
+
+  /// Replaces [SongRecord]s coming back from a backup. Conflicts are resolved by
+  /// the `(id, platform)` primary key, so an import merges instead of wiping.
+  Future<void> replaceSongRecords(List<SongRecord> records) async {
+    if (records.isEmpty) return;
+    await batch((batch) {
+      batch.insertAll(
+        songs,
+        records.map(
+          (r) => SongsCompanion(
+            id: Value(r.id),
+            platform: Value(r.platform),
+            name: Value(r.name),
+            artists: Value(r.artists),
+            albumName: Value(r.albumName),
+            albumCover: Value(r.albumCover),
+            durationMs: Value(r.durationMs),
+            fingerprint: Value(r.fingerprint),
+            albumId: Value(r.albumId),
+            artistId: Value(r.artistId),
+            trackNumber: Value(r.trackNumber),
+          ),
+        ),
+        mode: InsertMode.insertOrReplace,
+      );
+    });
+  }
 }
 
 @DriftAccessor(tables: [Songs, ListeningHistory])
 class HistoryDao extends DatabaseAccessor<AppDatabase> with _$HistoryDaoMixin {
   HistoryDao(super.db);
 
-  Future<void> recordListen(String songId, String platform, {int durationMs = 0}) async {
-    await into(listeningHistory).insert(ListeningHistoryCompanion.insert(
-      songId: songId,
-      platform: platform,
-      listenedAt: DateTime.now().millisecondsSinceEpoch,
-      durationListened: Value(durationMs),
-    ));
+  /// Two listens of the same song closer than this are treated as one stretch of
+  /// playback, so a pause/resume or a seek does not create a second row.
+  static const Duration dedupeWindow = Duration(seconds: 10);
+
+  /// How long after the last row a duration update still targets that row.
+  static const Duration backfillWindow = Duration(minutes: 30);
+
+  /// Records one listen.
+  ///
+  /// Consecutive listens of the same song inside [dedupeWindow] are merged into
+  /// the newest row instead of inserted again. The table-level
+  /// `uniqueKeys` could never fire (see [ListeningHistory]), so this window is
+  /// what actually enforces "one row per contiguous stretch".
+  Future<void> recordListen(
+    String songId,
+    String platform, {
+    int durationMs = 0,
+    DateTime? at,
+  }) async {
+    final now = at ?? DateTime.now();
+    final timestamp = now.millisecondsSinceEpoch;
+    await transaction(() async {
+      final newest = await _newest(songId, platform);
+      if (newest != null &&
+          timestamp >= newest.listenedAt &&
+          timestamp - newest.listenedAt <= dedupeWindow.inMilliseconds) {
+        await (update(listeningHistory)
+              ..where((t) => t.id.equals(newest.id)))
+            .write(
+              ListeningHistoryCompanion(
+                durationListened: Value(
+                  durationMs > newest.durationListened
+                      ? durationMs
+                      : newest.durationListened,
+                ),
+              ),
+            );
+        return;
+      }
+      await into(listeningHistory).insert(
+        ListeningHistoryCompanion.insert(
+          songId: songId,
+          platform: platform,
+          listenedAt: timestamp,
+          durationListened: Value(durationMs),
+        ),
+      );
+    });
+  }
+
+  /// Adds listened time to the newest history row for the song.
+  ///
+  /// This is the data-layer half of the "history always shows 0:00" fix: the
+  /// history provider records a row when playback starts (it cannot know the
+  /// duration yet), and the statistics tracker feeds the elapsed time back in
+  /// here. Creates a row if none exists inside [backfillWindow].
+  Future<void> backfillListenedDuration(
+    String songId,
+    String platform,
+    Duration duration, {
+    DateTime? at,
+  }) async {
+    if (duration <= Duration.zero) return;
+    final now = at ?? DateTime.now();
+    final timestamp = now.millisecondsSinceEpoch;
+    await transaction(() async {
+      final newest = await _newest(songId, platform);
+      if (newest != null &&
+          timestamp >= newest.listenedAt &&
+          timestamp - newest.listenedAt <= backfillWindow.inMilliseconds) {
+        await (update(listeningHistory)
+              ..where((t) => t.id.equals(newest.id)))
+            .write(
+              ListeningHistoryCompanion(
+                durationListened: Value(
+                  newest.durationListened + duration.inMilliseconds,
+                ),
+              ),
+            );
+        return;
+      }
+      await into(listeningHistory).insert(
+        ListeningHistoryCompanion.insert(
+          songId: songId,
+          platform: platform,
+          listenedAt: timestamp,
+          durationListened: Value(duration.inMilliseconds),
+        ),
+      );
+    });
+  }
+
+  Future<ListeningHistoryEntry?> _newest(String songId, String platform) {
+    return (select(listeningHistory)
+          ..where((t) => t.songId.equals(songId) & t.platform.equals(platform))
+          ..orderBy([(t) => OrderingTerm.desc(t.listenedAt)])
+          ..limit(1))
+        .getSingleOrNull();
   }
 
   Future<List<ListeningHistoryEntry>> getRecentHistory({int limit = 50}) async {
@@ -215,6 +375,12 @@ class HistoryDao extends DatabaseAccessor<AppDatabase> with _$HistoryDaoMixin {
           ..orderBy([(t) => OrderingTerm.desc(t.listenedAt)])
           ..limit(limit))
         .get();
+  }
+
+  Future<int> countHistory() async {
+    final count = listeningHistory.id.count();
+    final row = await (selectOnly(listeningHistory)..addColumns([count])).getSingle();
+    return row.read(count) ?? 0;
   }
 
   Future<void> clearHistory() async {
@@ -257,6 +423,36 @@ class LikesDao extends DatabaseAccessor<AppDatabase> with _$LikesDaoMixin {
           ..limit(limit))
         .get();
   }
+
+  /// Every like row, unpaginated — backup export must not silently drop rows
+  /// past the UI page size (the likes page itself pages at 500).
+  Future<List<UserLike>> getAllLikeRows() =>
+      (select(userLikes)..orderBy([(t) => OrderingTerm.asc(t.addedAt)])).get();
+
+  Future<int> countLikes() async {
+    final count = userLikes.id.count();
+    final row = await (selectOnly(userLikes)..addColumns([count])).getSingle();
+    return row.read(count) ?? 0;
+  }
+
+  /// Restores like rows. `(songId, platform)` is unique, so re-importing the
+  /// same backup is idempotent and never duplicates a favourite.
+  Future<void> restoreLikeRows(List<UserLike> rows) async {
+    if (rows.isEmpty) return;
+    await batch((batch) {
+      batch.insertAll(
+        userLikes,
+        rows.map(
+          (r) => UserLikesCompanion.insert(
+            songId: r.songId,
+            platform: r.platform,
+            addedAt: r.addedAt,
+          ),
+        ),
+        mode: InsertMode.insertOrReplace,
+      );
+    });
+  }
 }
 
 @DriftAccessor(tables: [LyricsCache])
@@ -294,6 +490,620 @@ class LyricsCacheDao extends DatabaseAccessor<AppDatabase> with _$LyricsCacheDao
   }
 }
 
+// --- Statistics ---
+
+/// Read/write access to the play-event detail table and its daily roll-up.
+///
+/// This is the replacement for the old "Hive snapshot of the top 100 songs"
+/// statistics store. Aggregates are always computed from the raw detail, so
+/// **no song's history can be pushed out and destroyed** by adding a 101st one:
+/// the display list is a ranked *view*, never the storage.
+@DriftAccessor(tables: [Songs, PlayEvents, DailyStats])
+class StatsDao extends DatabaseAccessor<AppDatabase> with _$StatsDaoMixin {
+  StatsDao(super.db);
+
+  /// Records the start of a playback stretch and bumps today's roll-up.
+  Future<int> recordPlayStart({
+    required String songId,
+    required String platform,
+    required DateTime startedAt,
+    PlayEventSource source = PlayEventSource.play,
+  }) async {
+    final id = await into(playEvents).insert(
+      PlayEventsCompanion.insert(
+        songId: songId,
+        platform: platform,
+        startedAt: startedAt.millisecondsSinceEpoch,
+        source: Value(source.name),
+      ),
+    );
+    await _bumpDailyStat(
+      day: dayKey(startedAt),
+      songId: songId,
+      platform: platform,
+      playDelta: 1,
+    );
+    return id;
+  }
+
+  /// Adds listened time to the newest event of [songId]/[platform].
+  ///
+  /// [songDurationMs] lets the event carry a completion ratio; pass null when
+  /// the platform did not report a duration.
+  Future<void> addListenedDuration({
+    required String songId,
+    required String platform,
+    required Duration duration,
+    int? songDurationMs,
+    DateTime? at,
+  }) async {
+    if (duration <= Duration.zero) return;
+    final now = at ?? DateTime.now();
+    final listenMs = duration.inMilliseconds;
+    await transaction(() async {
+      final newest =
+          await (select(playEvents)
+                ..where(
+                  (t) =>
+                      t.songId.equals(songId) & t.platform.equals(platform),
+                )
+                ..orderBy([(t) => OrderingTerm.desc(t.id)])
+                ..limit(1))
+              .getSingleOrNull();
+
+      if (newest == null) {
+        // A duration without a recorded start (e.g. restored/backfilled data):
+        // keep the time instead of dropping it, and mark the source honestly.
+        await into(playEvents).insert(
+          PlayEventsCompanion.insert(
+            songId: songId,
+            platform: platform,
+            startedAt: now.millisecondsSinceEpoch,
+            endedAt: Value(now.millisecondsSinceEpoch),
+            durationListened: Value(listenMs),
+            source: Value(PlayEventSource.seek.name),
+          ),
+        );
+        await _bumpDailyStat(
+          day: dayKey(now),
+          songId: songId,
+          platform: platform,
+          listenMs: listenMs,
+        );
+        return;
+      }
+
+      final totalMs = newest.durationListened + listenMs;
+      final ratio = (songDurationMs != null && songDurationMs > 0)
+          ? (totalMs / songDurationMs).clamp(0.0, 1.0)
+          : newest.completedRatio;
+      await (update(playEvents)..where((t) => t.id.equals(newest.id))).write(
+        PlayEventsCompanion(
+          durationListened: Value(totalMs),
+          completedRatio: Value(ratio),
+          endedAt: Value(now.millisecondsSinceEpoch),
+        ),
+      );
+      // Roll up against the *event's* day so a stretch crossing midnight still
+      // lands in the day it started.
+      await _bumpDailyStat(
+        day: dayKey(DateTime.fromMillisecondsSinceEpoch(newest.startedAt)),
+        songId: songId,
+        platform: platform,
+        listenMs: listenMs,
+      );
+    });
+  }
+
+  /// `'YYYY-MM-DD'` in local time, matching the [DailyStats.day] contract.
+  static String dayKey(DateTime time) {
+    final local = time.toLocal();
+    final month = local.month.toString().padLeft(2, '0');
+    final day = local.day.toString().padLeft(2, '0');
+    return '${local.year}-$month-$day';
+  }
+
+  Future<void> _bumpDailyStat({
+    required String day,
+    required String songId,
+    required String platform,
+    int playDelta = 0,
+    int listenMs = 0,
+  }) async {
+    final existing =
+        await (select(dailyStats)..where(
+              (t) =>
+                  t.day.equals(day) &
+                  t.songId.equals(songId) &
+                  t.platform.equals(platform),
+            ))
+            .getSingleOrNull();
+    if (existing == null) {
+      await into(dailyStats).insert(
+        DailyStatsCompanion.insert(
+          day: day,
+          songId: songId,
+          platform: platform,
+          playCount: Value(playDelta),
+          listenMs: Value(listenMs),
+        ),
+      );
+      return;
+    }
+    await (update(dailyStats)..where(
+          (t) =>
+              t.day.equals(day) &
+              t.songId.equals(songId) &
+              t.platform.equals(platform),
+        ))
+        .write(
+          DailyStatsCompanion(
+            playCount: Value(existing.playCount + playDelta),
+            listenMs: Value(existing.listenMs + listenMs),
+          ),
+        );
+  }
+
+  /// Global totals, computed over **every** event row.
+  Future<StatsTotals> totals() async {
+    final playCount = playEvents.id.count();
+    final listenMs = playEvents.durationListened.sum();
+    final row =
+        await (selectOnly(playEvents)
+              ..addColumns([playCount, listenMs]))
+            .getSingle();
+    final distinct = await customSelect(
+      'SELECT COUNT(*) AS c FROM '
+      '(SELECT DISTINCT song_id, platform FROM play_events)',
+    ).getSingle();
+    return (
+      playCount: row.read(playCount) ?? 0,
+      listenMs: row.read(listenMs) ?? 0,
+      distinctSongs: distinct.read<int>('c'),
+      eventCount: row.read(playCount) ?? 0,
+    );
+  }
+
+  /// Per-song aggregates, ranked by listened time.
+  Future<List<SongPlayAggregate>> songAggregates({int? limit}) async {
+    final playCount = playEvents.id.count();
+    final listenMs = playEvents.durationListened.sum();
+    final lastPlayedAt = playEvents.startedAt.max();
+    final query = selectOnly(playEvents)
+      ..addColumns([
+        playEvents.songId,
+        playEvents.platform,
+        playCount,
+        listenMs,
+        lastPlayedAt,
+      ])
+      ..groupBy([playEvents.songId, playEvents.platform])
+      ..orderBy([
+        OrderingTerm.desc(listenMs),
+        OrderingTerm.desc(playCount),
+        OrderingTerm.desc(lastPlayedAt),
+      ]);
+    if (limit != null) query.limit(limit);
+    final rows = await query.get();
+    return rows
+        .map(
+          (row) => (
+            songId: row.read(playEvents.songId)!,
+            platform: row.read(playEvents.platform)!,
+            playCount: row.read(playCount) ?? 0,
+            listenMs: row.read(listenMs) ?? 0,
+            lastPlayedAt: row.read(lastPlayedAt) ?? 0,
+          ),
+        )
+        .toList();
+  }
+
+  /// One song's aggregate, or null when it has never been played.
+  ///
+  /// This is the lookup that proves the old top-100 truncation is gone: a song
+  /// that is not in the ranked view is still fully retrievable.
+  Future<SongPlayAggregate?> songAggregate(String songId, String platform) async {
+    final playCount = playEvents.id.count();
+    final listenMs = playEvents.durationListened.sum();
+    final lastPlayedAt = playEvents.startedAt.max();
+    final query = selectOnly(playEvents)
+      ..addColumns([playCount, listenMs, lastPlayedAt])
+      ..where(playEvents.songId.equals(songId) & playEvents.platform.equals(platform));
+    final row = await query.getSingleOrNull();
+    if (row == null || (row.read(playCount) ?? 0) == 0) return null;
+    return (
+      songId: songId,
+      platform: platform,
+      playCount: row.read(playCount) ?? 0,
+      listenMs: row.read(listenMs) ?? 0,
+      lastPlayedAt: row.read(lastPlayedAt) ?? 0,
+    );
+  }
+
+  /// Artists ranked by listened time (joined with the cached song metadata,
+  /// because an artist is not a column on [PlayEvents]).
+  Future<List<StatsDimensionEntry>> topArtists({int limit = 20}) {
+    return _dimension(songs.artists, limit: limit);
+  }
+
+  /// Albums ranked by listened time. Songs without an album are skipped.
+  Future<List<StatsDimensionEntry>> topAlbums({int limit = 20}) {
+    return _dimension(songs.albumName, limit: limit, skipNull: true);
+  }
+
+  /// Platforms ranked by listened time; always readable even with no metadata.
+  Future<List<StatsDimensionEntry>> platformBreakdown() async {
+    final playCount = playEvents.id.count();
+    final listenMs = playEvents.durationListened.sum();
+    final query = selectOnly(playEvents)
+      ..addColumns([playEvents.platform, playCount, listenMs])
+      ..groupBy([playEvents.platform])
+      ..orderBy([OrderingTerm.desc(listenMs)]);
+    final rows = await query.get();
+    return rows
+        .map(
+          (row) => (
+            label: row.read(playEvents.platform)!,
+            playCount: row.read(playCount) ?? 0,
+            listenMs: row.read(listenMs) ?? 0,
+          ),
+        )
+        .toList();
+  }
+
+  Future<List<StatsDimensionEntry>> _dimension(
+    Column<String> column, {
+    required int limit,
+    bool skipNull = false,
+  }) async {
+    final playCount = playEvents.id.count();
+    final listenMs = playEvents.durationListened.sum();
+    final query = selectOnly(playEvents)
+      ..join([
+        innerJoin(
+          songs,
+          songs.id.equalsExp(playEvents.songId) &
+              songs.platform.equalsExp(playEvents.platform),
+        ),
+      ])
+      ..addColumns([column, playCount, listenMs])
+      ..groupBy([column])
+      ..orderBy([OrderingTerm.desc(listenMs)]);
+    if (skipNull) query.where(column.isNotNull());
+    query.limit(limit);
+    final rows = await query.get();
+    return rows
+        .where((row) => row.read(column) != null)
+        .map(
+          (row) => (
+            label: row.read(column)!,
+            playCount: row.read(playCount) ?? 0,
+            listenMs: row.read(listenMs) ?? 0,
+          ),
+        )
+        .toList();
+  }
+
+  /// `'YYYY-MM-DD'` roll-ups, newest first.
+  Future<List<({String day, int playCount, int listenMs})>> dailySeries({
+    int limit = 30,
+  }) async {
+    final playCount = dailyStats.playCount.sum();
+    final listenMs = dailyStats.listenMs.sum();
+    final query = selectOnly(dailyStats)
+      ..addColumns([dailyStats.day, playCount, listenMs])
+      ..groupBy([dailyStats.day])
+      ..orderBy([OrderingTerm.desc(dailyStats.day)])
+      ..limit(limit);
+    final rows = await query.get();
+    return rows
+        .map(
+          (row) => (
+            day: row.read(dailyStats.day)!,
+            playCount: row.read(playCount) ?? 0,
+            listenMs: row.read(listenMs) ?? 0,
+          ),
+        )
+        .toList();
+  }
+
+  /// Plays bucketed by local hour of day (0–23).
+  ///
+  /// Bucketing happens in Dart on purpose: doing it in SQL would need SQLite's
+  /// `localtime` modifier, which makes the result depend on the host time zone
+  /// configuration instead of the Dart clock the rest of the app uses.
+  Future<List<({int hour, int playCount, int listenMs})>> hourHistogram() async {
+    final rows = await select(playEvents).get();
+    final plays = List<int>.filled(24, 0);
+    final listenMs = List<int>.filled(24, 0);
+    for (final row in rows) {
+      final hour =
+          DateTime.fromMillisecondsSinceEpoch(row.startedAt).toLocal().hour;
+      plays[hour] += 1;
+      listenMs[hour] += row.durationListened;
+    }
+    return [
+      for (var hour = 0; hour < 24; hour++)
+        (hour: hour, playCount: plays[hour], listenMs: listenMs[hour]),
+    ];
+  }
+
+  /// Every event row, oldest first (backup export).
+  Future<List<PlayEvent>> allPlayEvents() =>
+      (select(playEvents)..orderBy([(t) => OrderingTerm.asc(t.id)])).get();
+
+  /// Restores event rows, skipping `(songId, platform, startedAt)` duplicates so
+  /// importing the same backup twice does not double the statistics.
+  Future<int> restorePlayEvents(List<PlayEvent> rows) async {
+    if (rows.isEmpty) return 0;
+    var inserted = 0;
+    await transaction(() async {
+      for (final row in rows) {
+        final exists =
+            await (select(playEvents)
+                  ..where(
+                    (t) =>
+                        t.songId.equals(row.songId) &
+                        t.platform.equals(row.platform) &
+                        t.startedAt.equals(row.startedAt),
+                  )
+                  ..limit(1))
+                .getSingleOrNull();
+        if (exists != null) continue;
+        await into(playEvents).insert(
+          PlayEventsCompanion.insert(
+            songId: row.songId,
+            platform: row.platform,
+            startedAt: row.startedAt,
+            endedAt: Value(row.endedAt),
+            durationListened: Value(row.durationListened),
+            completedRatio: Value(row.completedRatio),
+            source: Value(row.source),
+          ),
+        );
+        await _bumpDailyStat(
+          day: dayKey(DateTime.fromMillisecondsSinceEpoch(row.startedAt)),
+          songId: row.songId,
+          platform: row.platform,
+          playDelta: 1,
+          listenMs: row.durationListened,
+        );
+        inserted += 1;
+      }
+    });
+    return inserted;
+  }
+
+  Future<int> countPlayEvents() async {
+    final count = playEvents.id.count();
+    final row = await (selectOnly(playEvents)..addColumns([count])).getSingle();
+    return row.read(count) ?? 0;
+  }
+
+  /// Distinct days that carry at least one play.
+  Future<int> activeDayCount() async {
+    final row = await customSelect(
+      'SELECT COUNT(*) AS c FROM (SELECT DISTINCT day FROM daily_stats)',
+    ).getSingle();
+    return row.read<int>('c');
+  }
+
+  Future<void> clearAll() async {
+    await transaction(() async {
+      await delete(playEvents).go();
+      await delete(dailyStats).go();
+    });
+  }
+}
+
+// --- Local file cache (DAO only; the scanner lives in WS-J) ---
+
+typedef LocalTrackStamp = ({int mtime, int size});
+
+/// Persistence for the local-file scanner. Deliberately contains **no** scanning
+/// or tag-reading logic: that belongs to the local-music feature, which owns the
+/// walk and only uses this DAO to skip unchanged files.
+@DriftAccessor(tables: [LocalTracks])
+class LocalTracksDao extends DatabaseAccessor<AppDatabase> with _$LocalTracksDaoMixin {
+  LocalTracksDao(super.db);
+
+  Future<void> upsert(LocalTracksCompanion track) async {
+    await into(localTracks).insert(track, mode: InsertMode.insertOrReplace);
+  }
+
+  Future<void> upsertAll(List<LocalTracksCompanion> tracks) async {
+    if (tracks.isEmpty) return;
+    await batch((batch) {
+      batch.insertAll(localTracks, tracks, mode: InsertMode.insertOrReplace);
+    });
+  }
+
+  Future<List<LocalTrack>> all({int? limit}) async {
+    final query = select(localTracks)..orderBy([(t) => OrderingTerm.asc(t.path)]);
+    if (limit != null) query.limit(limit);
+    return query.get();
+  }
+
+  Future<LocalTrack?> byPath(String path) {
+    return (select(localTracks)..where((t) => t.path.equals(path)))
+        .getSingleOrNull();
+  }
+
+  /// `path → (mtime, size)` for the incremental-rescan comparison.
+  Future<Map<String, LocalTrackStamp>> stamps() async {
+    final rows = await (select(localTracks)
+          ..orderBy([(t) => OrderingTerm.asc(t.path)]))
+        .get();
+    return {
+      for (final row in rows) row.path: (mtime: row.mtime, size: row.size),
+    };
+  }
+
+  Future<List<String>> allPaths() async {
+    final query = selectOnly(localTracks)..addColumns([localTracks.path]);
+    final rows = await query.get();
+    return rows.map((row) => row.read(localTracks.path)!).toList();
+  }
+
+  Future<int> deleteByPath(String path) {
+    return (delete(localTracks)..where((t) => t.path.equals(path))).go();
+  }
+
+  /// Deletes every row whose path is **not** in [keepPaths].
+  ///
+  /// Chunked because a music library can hold far more paths than SQLite accepts
+  /// variables in one statement.
+  Future<int> deleteMissing(Set<String> keepPaths) async {
+    final existing = await allPaths();
+    final stale = existing.where((path) => !keepPaths.contains(path)).toList();
+    if (stale.isEmpty) return 0;
+    var deleted = 0;
+    for (var i = 0; i < stale.length; i += 400) {
+      final chunk = stale.skip(i).take(400).toList();
+      deleted += await (delete(localTracks)..where((t) => t.path.isIn(chunk))).go();
+    }
+    return deleted;
+  }
+
+  Future<int> count() async {
+    final count = localTracks.path.count();
+    final row = await (selectOnly(localTracks)..addColumns([count])).getSingle();
+    return row.read(count) ?? 0;
+  }
+
+  Future<int> clear() => delete(localTracks).go();
+}
+
+// --- Chart cache (DAO only; the hub UI lives in WS-H) ---
+
+@DriftAccessor(tables: [ToplistsCache])
+class ToplistsCacheDao extends DatabaseAccessor<AppDatabase> with _$ToplistsCacheDaoMixin {
+  ToplistsCacheDao(super.db);
+
+  /// Replaces every cached row of one platform in a single transaction, so a
+  /// failed refresh never leaves a half-updated chart list behind.
+  Future<void> replaceForPlatform(
+    String platform,
+    List<ToplistsCacheCompanion> rows,
+  ) async {
+    await transaction(() async {
+      await (delete(toplistsCache)..where((t) => t.platform.equals(platform))).go();
+      if (rows.isEmpty) return;
+      await batch((batch) {
+        batch.insertAll(
+          toplistsCache,
+          rows,
+          mode: InsertMode.insertOrReplace,
+        );
+      });
+    });
+  }
+
+  Future<List<ToplistCacheRow>> byPlatform(String platform) {
+    return (select(toplistsCache)
+          ..where((t) => t.platform.equals(platform))
+          ..orderBy([(t) => OrderingTerm.asc(t.fetchedAt)]))
+        .get();
+  }
+
+  Future<List<ToplistCacheRow>> all() =>
+      (select(toplistsCache)..orderBy([(t) => OrderingTerm.asc(t.platform)])).get();
+
+  Future<DateTime?> lastFetchedAt(String platform) async {
+    final newest = toplistsCache.fetchedAt.max();
+    final row =
+        await (selectOnly(toplistsCache)
+              ..addColumns([newest])
+              ..where(toplistsCache.platform.equals(platform)))
+            .getSingleOrNull();
+    final value = row?.read(newest);
+    return value == null ? null : DateTime.fromMillisecondsSinceEpoch(value);
+  }
+
+  Future<int> clearPlatform(String platform) {
+    return (delete(toplistsCache)..where((t) => t.platform.equals(platform))).go();
+  }
+
+  Future<int> clearAll() => delete(toplistsCache).go();
+}
+
+// --- Saved smart-playlist results ---
+
+@DriftAccessor(tables: [SmartPlaylistSnapshots])
+class SmartPlaylistSnapshotsDao
+    extends DatabaseAccessor<AppDatabase>
+    with _$SmartPlaylistSnapshotsDaoMixin {
+  SmartPlaylistSnapshotsDao(super.db);
+
+  /// Saves a generated result. Previously the only way to "use" a smart playlist
+  /// was to play the preview immediately — the generation was thrown away on
+  /// screen exit.
+  Future<void> saveSnapshot({
+    required String ruleId,
+    required List<String> songKeys,
+    DateTime? generatedAt,
+  }) async {
+    final at = generatedAt ?? DateTime.now();
+    await into(smartPlaylistSnapshots).insert(
+      SmartPlaylistSnapshotsCompanion.insert(
+        ruleId: ruleId,
+        songKeys: jsonEncode(songKeys),
+        generatedAt: at.millisecondsSinceEpoch,
+      ),
+      mode: InsertMode.insertOrReplace,
+    );
+  }
+
+  Future<SmartPlaylistSnapshot?> snapshot(String ruleId) {
+    return (select(smartPlaylistSnapshots)
+          ..where((t) => t.ruleId.equals(ruleId)))
+        .getSingleOrNull();
+  }
+
+  Future<List<SmartPlaylistSnapshot>> all() =>
+      (select(smartPlaylistSnapshots)
+            ..orderBy([(t) => OrderingTerm.desc(t.generatedAt)]))
+          .get();
+
+  /// Decoded `songKeys` for [ruleId], or an empty list when unsaved/corrupt.
+  Future<List<String>> songKeys(String ruleId) async {
+    final row = await snapshot(ruleId);
+    if (row == null) return const [];
+    return decodeSongKeys(row.songKeys);
+  }
+
+  static List<String> decodeSongKeys(String raw) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return const [];
+      return decoded.map((item) => item.toString()).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Drops snapshots whose rule no longer exists.
+  Future<int> deleteMissing(Set<String> ruleIds) async {
+    final rows = await all();
+    final stale = rows
+        .where((row) => !ruleIds.contains(row.ruleId))
+        .map((row) => row.ruleId)
+        .toList();
+    if (stale.isEmpty) return 0;
+    return (delete(smartPlaylistSnapshots)
+          ..where((t) => t.ruleId.isIn(stale)))
+        .go();
+  }
+
+  Future<int> deleteSnapshot(String ruleId) {
+    return (delete(smartPlaylistSnapshots)
+          ..where((t) => t.ruleId.equals(ruleId)))
+        .go();
+  }
+
+  Future<int> clear() => delete(smartPlaylistSnapshots).go();
+}
+
 // --- Main Database ---
 
 @DriftDatabase(
@@ -308,7 +1118,16 @@ class LyricsCacheDao extends DatabaseAccessor<AppDatabase> with _$LyricsCacheDao
     DailyStats,
     SmartPlaylistSnapshots,
   ],
-  daos: [SongsDao, HistoryDao, LikesDao, LyricsCacheDao],
+  daos: [
+    SongsDao,
+    HistoryDao,
+    LikesDao,
+    LyricsCacheDao,
+    StatsDao,
+    LocalTracksDao,
+    ToplistsCacheDao,
+    SmartPlaylistSnapshotsDao,
+  ],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());

@@ -74,6 +74,65 @@ class LyricsCacheDaoManager {
       $$LyricsCacheTableTableManager(_db.attachedDatabase, _db.lyricsCache);
 }
 
+mixin _$StatsDaoMixin on DatabaseAccessor<AppDatabase> {
+  $SongsTable get songs => attachedDatabase.songs;
+  $PlayEventsTable get playEvents => attachedDatabase.playEvents;
+  $DailyStatsTable get dailyStats => attachedDatabase.dailyStats;
+  StatsDaoManager get managers => StatsDaoManager(this);
+}
+
+class StatsDaoManager {
+  final _$StatsDaoMixin _db;
+  StatsDaoManager(this._db);
+  $$SongsTableTableManager get songs =>
+      $$SongsTableTableManager(_db.attachedDatabase, _db.songs);
+  $$PlayEventsTableTableManager get playEvents =>
+      $$PlayEventsTableTableManager(_db.attachedDatabase, _db.playEvents);
+  $$DailyStatsTableTableManager get dailyStats =>
+      $$DailyStatsTableTableManager(_db.attachedDatabase, _db.dailyStats);
+}
+
+mixin _$LocalTracksDaoMixin on DatabaseAccessor<AppDatabase> {
+  $LocalTracksTable get localTracks => attachedDatabase.localTracks;
+  LocalTracksDaoManager get managers => LocalTracksDaoManager(this);
+}
+
+class LocalTracksDaoManager {
+  final _$LocalTracksDaoMixin _db;
+  LocalTracksDaoManager(this._db);
+  $$LocalTracksTableTableManager get localTracks =>
+      $$LocalTracksTableTableManager(_db.attachedDatabase, _db.localTracks);
+}
+
+mixin _$ToplistsCacheDaoMixin on DatabaseAccessor<AppDatabase> {
+  $ToplistsCacheTable get toplistsCache => attachedDatabase.toplistsCache;
+  ToplistsCacheDaoManager get managers => ToplistsCacheDaoManager(this);
+}
+
+class ToplistsCacheDaoManager {
+  final _$ToplistsCacheDaoMixin _db;
+  ToplistsCacheDaoManager(this._db);
+  $$ToplistsCacheTableTableManager get toplistsCache =>
+      $$ToplistsCacheTableTableManager(_db.attachedDatabase, _db.toplistsCache);
+}
+
+mixin _$SmartPlaylistSnapshotsDaoMixin on DatabaseAccessor<AppDatabase> {
+  $SmartPlaylistSnapshotsTable get smartPlaylistSnapshots =>
+      attachedDatabase.smartPlaylistSnapshots;
+  SmartPlaylistSnapshotsDaoManager get managers =>
+      SmartPlaylistSnapshotsDaoManager(this);
+}
+
+class SmartPlaylistSnapshotsDaoManager {
+  final _$SmartPlaylistSnapshotsDaoMixin _db;
+  SmartPlaylistSnapshotsDaoManager(this._db);
+  $$SmartPlaylistSnapshotsTableTableManager get smartPlaylistSnapshots =>
+      $$SmartPlaylistSnapshotsTableTableManager(
+        _db.attachedDatabase,
+        _db.smartPlaylistSnapshots,
+      );
+}
+
 class $SongsTable extends Songs with TableInfo<$SongsTable, SongRecord> {
   @override
   final GeneratedDatabase attachedDatabase;
@@ -4181,6 +4240,15 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final LyricsCacheDao lyricsCacheDao = LyricsCacheDao(
     this as AppDatabase,
   );
+  late final StatsDao statsDao = StatsDao(this as AppDatabase);
+  late final LocalTracksDao localTracksDao = LocalTracksDao(
+    this as AppDatabase,
+  );
+  late final ToplistsCacheDao toplistsCacheDao = ToplistsCacheDao(
+    this as AppDatabase,
+  );
+  late final SmartPlaylistSnapshotsDao smartPlaylistSnapshotsDao =
+      SmartPlaylistSnapshotsDao(this as AppDatabase);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();

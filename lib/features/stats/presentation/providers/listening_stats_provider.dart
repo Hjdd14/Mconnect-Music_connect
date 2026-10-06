@@ -2,235 +2,63 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 
-import '../../../../models/platform_type.dart';
+import '../../../../core/database/app_database.dart';
 import '../../../../models/song.dart';
 import '../../../player/presentation/providers/player_provider.dart';
+import '../../data/listening_stats_repository.dart';
+import '../../domain/listening_stats.dart';
 
-const _statsBoxName = 'listening_stats';
-const _statsSnapshotKey = 'snapshot';
+export '../../data/listening_stats_repository.dart';
+export '../../domain/listening_stats.dart';
 
-@immutable
-class ListeningStatsSongEntry {
-  final String songId;
-  final PlatformType platform;
-  final String songName;
-  final String artistNames;
-  final int playCount;
-  final Duration listenDuration;
-  final DateTime lastListenedAt;
-
-  const ListeningStatsSongEntry({
-    required this.songId,
-    required this.platform,
-    required this.songName,
-    required this.artistNames,
-    required this.playCount,
-    required this.listenDuration,
-    required this.lastListenedAt,
-  });
-
-  String get key => '${platform.name}_$songId';
-
-  ListeningStatsSongEntry copyWith({
-    String? songName,
-    String? artistNames,
-    int? playCount,
-    Duration? listenDuration,
-    DateTime? lastListenedAt,
-  }) {
-    return ListeningStatsSongEntry(
-      songId: songId,
-      platform: platform,
-      songName: songName ?? this.songName,
-      artistNames: artistNames ?? this.artistNames,
-      playCount: playCount ?? this.playCount,
-      listenDuration: listenDuration ?? this.listenDuration,
-      lastListenedAt: lastListenedAt ?? this.lastListenedAt,
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'songId': songId,
-      'platform': platform.name,
-      'songName': songName,
-      'artistNames': artistNames,
-      'playCount': playCount,
-      'listenDurationMs': listenDuration.inMilliseconds,
-      'lastListenedAt': lastListenedAt.toIso8601String(),
-    };
-  }
-
-  static ListeningStatsSongEntry? fromJson(dynamic value) {
-    if (value is! Map) return null;
-    final songId = value['songId']?.toString() ?? '';
-    if (songId.isEmpty) return null;
-    final platformName = value['platform']?.toString();
-    final platform = PlatformType.values.firstWhere(
-      (item) => item.name == platformName,
-      orElse: () => PlatformType.netease,
-    );
-    return ListeningStatsSongEntry(
-      songId: songId,
-      platform: platform,
-      songName: value['songName']?.toString() ?? '',
-      artistNames: value['artistNames']?.toString() ?? '',
-      playCount: _intValue(value['playCount']) ?? 0,
-      listenDuration: Duration(
-        milliseconds: _intValue(value['listenDurationMs']) ?? 0,
-      ),
-      lastListenedAt:
-          DateTime.tryParse(value['lastListenedAt']?.toString() ?? '') ??
-          DateTime.fromMillisecondsSinceEpoch(0),
-    );
-  }
-}
-
-@immutable
-class ListeningStatsState {
-  final bool isLoading;
-  final String? error;
-  final int totalPlayCount;
-  final Duration totalListenDuration;
-  final List<ListeningStatsSongEntry> topSongs;
-
-  const ListeningStatsState({
-    this.isLoading = false,
-    this.error,
-    this.totalPlayCount = 0,
-    this.totalListenDuration = Duration.zero,
-    this.topSongs = const [],
-  });
-
-  ListeningStatsState copyWith({
-    bool? isLoading,
-    String? Function()? error,
-    int? totalPlayCount,
-    Duration? totalListenDuration,
-    List<ListeningStatsSongEntry>? topSongs,
-  }) {
-    return ListeningStatsState(
-      isLoading: isLoading ?? this.isLoading,
-      error: error != null ? error() : this.error,
-      totalPlayCount: totalPlayCount ?? this.totalPlayCount,
-      totalListenDuration: totalListenDuration ?? this.totalListenDuration,
-      topSongs: topSongs ?? this.topSongs,
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'totalPlayCount': totalPlayCount,
-      'totalListenMs': totalListenDuration.inMilliseconds,
-      'topSongs': topSongs.map((song) => song.toJson()).toList(),
-    };
-  }
-
-  static ListeningStatsState fromJson(dynamic value) {
-    if (value is! Map) return const ListeningStatsState();
-    final rawSongs = value['topSongs'];
-    final songs = rawSongs is List
-        ? rawSongs
-              .map(ListeningStatsSongEntry.fromJson)
-              .whereType<ListeningStatsSongEntry>()
-              .toList()
-        : <ListeningStatsSongEntry>[];
-    songs.sort(_sortSongEntries);
-    return ListeningStatsState(
-      totalPlayCount: _intValue(value['totalPlayCount']) ?? 0,
-      totalListenDuration: Duration(
-        milliseconds: _intValue(value['totalListenMs']) ?? 0,
-      ),
-      topSongs: songs,
-    );
-  }
-}
-
-abstract class ListeningStatsRepository {
-  Future<ListeningStatsState> load();
-  Future<ListeningStatsState> recordSongStarted(Song song);
-  Future<ListeningStatsState> addListenedDuration(Song song, Duration duration);
-  Future<void> clear();
-}
-
-class HiveListeningStatsRepository implements ListeningStatsRepository {
-  Future<Box<dynamic>> _box() => Hive.openBox(_statsBoxName);
-
-  @override
-  Future<ListeningStatsState> load() async {
-    final box = await _box();
-    return ListeningStatsState.fromJson(box.get(_statsSnapshotKey));
-  }
-
-  @override
-  Future<ListeningStatsState> recordSongStarted(Song song) async {
-    final current = await load();
-    final next = _recordSongStarted(current, song);
-    await _save(next);
-    return next;
-  }
-
-  @override
-  Future<ListeningStatsState> addListenedDuration(
-    Song song,
-    Duration duration,
-  ) async {
-    final current = await load();
-    final next = _addListenedDuration(current, song, duration);
-    await _save(next);
-    return next;
-  }
-
-  @override
-  Future<void> clear() async {
-    final box = await _box();
-    await box.delete(_statsSnapshotKey);
-  }
-
-  Future<void> _save(ListeningStatsState state) async {
-    final box = await _box();
-    await box.put(_statsSnapshotKey, state.toJson());
-  }
-}
-
-class MemoryListeningStatsRepository implements ListeningStatsRepository {
-  ListeningStatsState _state = const ListeningStatsState();
-
-  @override
-  Future<ListeningStatsState> load() async => _state;
-
-  @override
-  Future<ListeningStatsState> recordSongStarted(Song song) async {
-    _state = _recordSongStarted(_state, song);
-    return _state;
-  }
-
-  @override
-  Future<ListeningStatsState> addListenedDuration(
-    Song song,
-    Duration duration,
-  ) async {
-    _state = _addListenedDuration(_state, song, duration);
-    return _state;
-  }
-
-  @override
-  Future<void> clear() async {
-    _state = const ListeningStatsState();
-  }
-}
-
+/// Statistics for the whole app, backed by the `PlayEvents` detail table.
+///
+/// History of this file: until v1.4.0 the store was a Hive snapshot that kept
+/// only the **top 100 songs** and rebuilt its index from that truncated list, so
+/// the 101st distinct song permanently erased the least-played song's statistics
+/// while `totalPlayCount`/`totalListenDuration` stayed global — the totals could
+/// not be reconciled with the detail. Detail now lives in `PlayEvents` (with a
+/// `DailyStats` roll-up); the ranked list below is only a view.
 final listeningStatsProvider =
     StateNotifierProvider<ListeningStatsNotifier, ListeningStatsState>((ref) {
-      return ListeningStatsNotifier(HiveListeningStatsRepository());
+      return ListeningStatsNotifier(
+        DriftListeningStatsRepository(database),
+        legacyStore: const LegacyListeningStatsStore(),
+      );
     });
+
+/// Multi-dimensional report (artists / albums / platforms / days / hours).
+final listeningStatsReportProvider = FutureProvider<ListeningStatsReport>((
+  ref,
+) async {
+  // Re-read whenever the detail changes; otherwise the dimension sections would
+  // keep showing the values from the first build.
+  ref.watch(listeningStatsProvider.select((state) => state.totalPlayCount));
+  final repository = DriftListeningStatsRepository(database);
+  return repository.loadReport();
+});
 
 final listeningStatsTrackerProvider = Provider<ListeningStatsTracker>((ref) {
   final tracker = ListeningStatsTracker(
     notifier: ref.read(listeningStatsProvider.notifier),
   );
+  // Data-layer half of the "history shows 0:00" fix. The history provider
+  // records a row when playback starts and has no duration yet; this feeds the
+  // elapsed time back into that same row. Kept here (not in the history
+  // provider) so the statistics tracker stays the single source of listened
+  // time.
+  tracker.onListenedDuration = (songId, platform, duration) async {
+    try {
+      await database.historyDao.backfillListenedDuration(
+        songId,
+        platform,
+        duration,
+      );
+    } catch (e) {
+      debugPrint('history duration backfill failed: $e');
+    }
+  };
   ref.listen<PlayerState>(playerProvider, (previous, next) {
     unawaited(
       tracker.handlePlaybackSnapshot(
@@ -247,16 +75,35 @@ final listeningStatsTrackerProvider = Provider<ListeningStatsTracker>((ref) {
 });
 
 class ListeningStatsNotifier extends StateNotifier<ListeningStatsState> {
-  final ListeningStatsRepository _repository;
-  late final Future<void> ready;
-
-  ListeningStatsNotifier(this._repository)
-    : super(const ListeningStatsState(isLoading: true)) {
+  ListeningStatsNotifier(
+    this._repository, {
+    this.legacyStore,
+    this.importLegacySnapshot = true,
+  }) : super(const ListeningStatsState(isLoading: true)) {
     ready = load();
   }
 
+  final ListeningStatsRepository _repository;
+  final LegacyStatsSource? legacyStore;
+
+  /// Whether [load] should first move a v1.3.2 Hive snapshot into the event
+  /// table. On by default in the app; tests that seed the repository directly
+  /// turn it off.
+  final bool importLegacySnapshot;
+
+  late final Future<void> ready;
+
+  ListeningStatsRepository get repository => _repository;
+
   Future<void> load() async {
     try {
+      final legacy = legacyStore;
+      if (importLegacySnapshot && legacy != null) {
+        await ListeningStatsLegacyMigration(
+          legacyStore: legacy,
+          target: _repository,
+        ).run();
+      }
       final snapshot = await _repository.load();
       if (!mounted) return;
       state = snapshot.copyWith(isLoading: false, error: () => null);
@@ -269,9 +116,15 @@ class ListeningStatsNotifier extends StateNotifier<ListeningStatsState> {
     }
   }
 
-  Future<void> recordSongStarted(Song song) async {
+  Future<void> recordSongStarted(
+    Song song, {
+    PlayEventSource source = PlayEventSource.play,
+  }) async {
     try {
-      final snapshot = await _repository.recordSongStarted(song);
+      final snapshot = await _repository.recordSongStarted(
+        song,
+        source: source,
+      );
       if (mounted) state = snapshot.copyWith(error: () => null);
     } catch (e, s) {
       debugPrint('ListeningStatsNotifier record start failed: $e');
@@ -296,6 +149,10 @@ class ListeningStatsNotifier extends StateNotifier<ListeningStatsState> {
   }
 }
 
+/// The slice of `PlayerState` the tracker reacts to.
+///
+/// Lives here rather than in the domain layer so the statistics domain/data
+/// layers stay free of any dependency on the player feature.
 @immutable
 class ListeningPlaybackSnapshot {
   final Song? song;
@@ -318,16 +175,30 @@ class ListeningPlaybackSnapshot {
   }
 }
 
-class ListeningStatsTracker {
+/// Turns `PlayerState` transitions into play events.
+class ListeningStatsTracker {  ListeningStatsTracker({
+    required this.notifier,
+    this.flushInterval = const Duration(seconds: 10),
+  });
+
+  /// A position this close to the start counts as "playing from the top".
+  static const Duration restartThreshold = Duration(seconds: 5);
+
+  /// A position delta larger than this is a seek, not listening.
+  static const Duration maxProgressDelta = Duration(seconds: 10);
+
   final ListeningStatsNotifier notifier;
   final Duration flushInterval;
   final Map<String, _PendingDuration> _pendingDurations = {};
   Timer? _flushTimer;
 
-  ListeningStatsTracker({
-    required this.notifier,
-    this.flushInterval = const Duration(seconds: 10),
-  });
+  /// Feeds the elapsed time back into the history row as well, so the history
+  /// page stops showing `0:00` for every entry.
+  ///
+  /// Set by the composition root to [HistoryDao.backfillListenedDuration]; left
+  /// null in unit tests.
+  Future<void> Function(String songId, String platform, Duration duration)?
+  onListenedDuration;
 
   Future<void> handlePlaybackSnapshot({
     required ListeningPlaybackSnapshot previous,
@@ -336,22 +207,33 @@ class ListeningStatsTracker {
     final song = next.song;
     if (song == null) return;
 
-    final changedSong =
-        previous.song?.id != song.id ||
-        previous.song?.platform != song.platform;
-    if (next.isPlaying && (!previous.isPlaying || changedSong)) {
-      await notifier.recordSongStarted(song);
+    final sameSong =
+        previous.song != null &&
+        previous.song!.id == song.id &&
+        previous.song!.platform == song.platform;
+    // A pause-and-resume is NOT a new play. Only a different song, or playback
+    // that actually restarted from the beginning, counts as one.
+    final restarted =
+        next.isPlaying &&
+        sameSong &&
+        next.position <= restartThreshold &&
+        previous.position > restartThreshold;
+    if (next.isPlaying && (!sameSong || restarted)) {
+      await notifier.recordSongStarted(
+        song,
+        source: sameSong ? PlayEventSource.resume : PlayEventSource.play,
+      );
     }
 
     final canCount =
         previous.isPlaying &&
         next.isPlaying &&
-        !changedSong &&
+        sameSong &&
         previous.song != null;
     if (!canCount) return;
 
     final delta = next.position - previous.position;
-    if (delta <= Duration.zero || delta > const Duration(seconds: 10)) {
+    if (delta <= Duration.zero || delta > maxProgressDelta) {
       return;
     }
     _addPending(song, delta);
@@ -379,6 +261,10 @@ class ListeningStatsTracker {
     _pendingDurations.clear();
     for (final item in pending) {
       await notifier.addListenedDuration(item.song, item.duration);
+      final backfill = onListenedDuration;
+      if (backfill != null) {
+        await backfill(item.song.id, item.song.platform.name, item.duration);
+      }
     }
   }
 
@@ -392,92 +278,4 @@ class _PendingDuration {
   final Duration duration;
 
   const _PendingDuration({required this.song, required this.duration});
-}
-
-ListeningStatsState _recordSongStarted(ListeningStatsState state, Song song) {
-  final entries = _entriesByKey(state);
-  final key = '${song.platform.name}_${song.id}';
-  final now = DateTime.now();
-  final existing = entries[key];
-  entries[key] = existing == null
-      ? ListeningStatsSongEntry(
-          songId: song.id,
-          platform: song.platform,
-          songName: song.name,
-          artistNames: song.artistNames,
-          playCount: 1,
-          listenDuration: Duration.zero,
-          lastListenedAt: now,
-        )
-      : existing.copyWith(
-          songName: song.name,
-          artistNames: song.artistNames,
-          playCount: existing.playCount + 1,
-          lastListenedAt: now,
-        );
-  final songs = _sortedEntries(entries);
-  return state.copyWith(
-    totalPlayCount: state.totalPlayCount + 1,
-    topSongs: songs,
-    error: () => null,
-  );
-}
-
-ListeningStatsState _addListenedDuration(
-  ListeningStatsState state,
-  Song song,
-  Duration duration,
-) {
-  if (duration <= Duration.zero) return state;
-  final entries = _entriesByKey(state);
-  final key = '${song.platform.name}_${song.id}';
-  final existing = entries[key];
-  entries[key] = existing == null
-      ? ListeningStatsSongEntry(
-          songId: song.id,
-          platform: song.platform,
-          songName: song.name,
-          artistNames: song.artistNames,
-          playCount: 0,
-          listenDuration: duration,
-          lastListenedAt: DateTime.now(),
-        )
-      : existing.copyWith(
-          songName: song.name,
-          artistNames: song.artistNames,
-          listenDuration: existing.listenDuration + duration,
-          lastListenedAt: DateTime.now(),
-        );
-  return state.copyWith(
-    totalListenDuration: state.totalListenDuration + duration,
-    topSongs: _sortedEntries(entries),
-    error: () => null,
-  );
-}
-
-Map<String, ListeningStatsSongEntry> _entriesByKey(ListeningStatsState state) {
-  return {for (final entry in state.topSongs) entry.key: entry};
-}
-
-List<ListeningStatsSongEntry> _sortedEntries(
-  Map<String, ListeningStatsSongEntry> entries,
-) {
-  final songs = entries.values.toList()..sort(_sortSongEntries);
-  return songs.take(100).toList();
-}
-
-int _sortSongEntries(
-  ListeningStatsSongEntry left,
-  ListeningStatsSongEntry right,
-) {
-  final durationCompare = right.listenDuration.compareTo(left.listenDuration);
-  if (durationCompare != 0) return durationCompare;
-  final playCompare = right.playCount.compareTo(left.playCount);
-  if (playCompare != 0) return playCompare;
-  return right.lastListenedAt.compareTo(left.lastListenedAt);
-}
-
-int? _intValue(dynamic value) {
-  if (value is int) return value;
-  return int.tryParse(value?.toString() ?? '');
 }
