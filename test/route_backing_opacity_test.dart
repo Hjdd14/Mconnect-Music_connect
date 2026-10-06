@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -502,7 +503,7 @@ void main() {
 
       expect(plates().every((a) => a <= 0.15), isTrue);
 
-      appRouter.push('/likes');
+      unawaited(appRouter.push('/likes'));
       await tester.pump();
       for (final step in [60, 120, 180, 240]) {
         await tester.pump(const Duration(milliseconds: 60));

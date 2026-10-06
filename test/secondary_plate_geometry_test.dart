@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -175,7 +176,7 @@ void main() {
       final onHome = canvasRects(tester);
       expect(onHome, hasLength(1));
 
-      appRouter.push('/likes');
+      unawaited(appRouter.push('/likes'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
 
@@ -253,7 +254,7 @@ void main() {
     appRouter.go('/');
     await pumpApp(tester);
 
-    appRouter.push('/likes');
+    unawaited(appRouter.push('/likes'));
     await tester.pump();
     for (final step in [60, 120, 180]) {
       await tester.pump(const Duration(milliseconds: 60));

@@ -318,7 +318,7 @@ void main() {
       );
 
       await tester.pump();
-      appRouter.push('/likes');
+      unawaited(appRouter.push('/likes'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 90));
 
@@ -352,7 +352,7 @@ void main() {
     );
 
     await tester.pump();
-    appRouter.push('/likes');
+    unawaited(appRouter.push('/likes'));
     await tester.pump();
 
     final likesPage = tester
@@ -576,7 +576,7 @@ void main() {
       );
 
       await tester.pump();
-      router.push(route.path);
+      unawaited(router.push(route.path));
       await tester.pumpAndSettle();
       expect(find.text(route.label), findsWidgets);
 

@@ -23,8 +23,29 @@ analyzer:
     - web/**
     - windows/**
 
+  # `strict-casts` / `strict-raw-types` were evaluated and deliberately NOT
+  # enabled: they report a large number of pre-existing findings across the
+  # platform adapters (which decode loosely-typed JSON by design, e.g.
+  # `jsonDecode(...) as Map<String, dynamic>`), and the repository gate is
+  # "0 issues". Turning them on would require rewriting unrelated business code,
+  # so they are recorded as a follow-up in docs/mconnect-improvement-plan.md
+  # rather than enabled here.
+
 linter:
   rules:
     # `lib/` is shipped code: stdout printing is not acceptable there.
     # (Requires the analyzer exclude above, otherwise the scripts/ probes fail.)
     avoid_print: true
+
+    # The app is full of deliberately fire-and-forget async work (progress
+    # listeners, persistence writes, notification updates). Without this rule a
+    # forgotten `await` is silent; with it, an intentionally unawaited future
+    # has to say so.
+    unawaited_futures: true
+
+    # `BuildContext` used after an `await` is a real crash source in this
+    # codebase: several providers await a network call and then show a SnackBar
+    # or navigate. Only findings that already exist are suppressed, never the
+    # rule itself.
+    use_build_context_synchronously: true
+

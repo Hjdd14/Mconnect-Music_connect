@@ -26,13 +26,13 @@ Mconnect 是一个 Flutter Android 音乐聚合应用，用同一套界面聚合
 - 智能歌单：支持按平台、关键词、最低播放次数、最近播放、仅喜欢、仅缓存等规则自动生成本地歌单。
 - 诊断：包含慢操作日志和 UI 卡顿监控，日志文件有大小上限，避免无限增长。
 
-当前每日推荐只启用已验证稳定的网易云入口；QQ 音乐和酷狗的每日推荐接口可用性不稳定时不会作为稳定功能承诺。
+每日推荐会并行加载三个平台，并**标注每条列表的来源**：网易云是真正个性化的每日推荐；QQ 音乐登录后取「今日私享」，未登录时回退到榜单（新歌榜/热歌榜）并在界面上注明；酷狗的官方推荐接口已被服务端下线，改为取首页推荐模块，界面同样会标注。任一平台失败都不会影响其他平台，失败原因按平台单独展示，不再静默显示为空。
 
 ## 技术栈
 
 | 模块 | 技术 |
 | --- | --- |
-| 框架 | Flutter 3.38.4 / Dart 3.10.3 |
+| 框架 | Flutter 3.47.5 / Dart 3.13.4 |
 | 平台 | Android |
 | 状态管理 | Riverpod |
 | 路由 | GoRouter |
@@ -80,17 +80,21 @@ flutter test --no-pub --reporter expanded -j 1
 flutter analyze --no-pub
 ```
 
-5. 打包 release APK：
+5. 打包 release APK —— **必须分包**（`AGENTS.md` §1）：
 
 ```powershell
-flutter build apk --release --no-pub
+flutter build apk --release --split-per-abi
 ```
 
-APK 输出路径：
+产物路径：
 
 ```text
-build/app/outputs/flutter-apk/app-release.apk
+build/app/outputs/flutter-apk/app-arm64-v8a-release.apk      # 2016 年后的真机，发给别人基本都给这个
+build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk    # 更老的 32 位机
+build/app/outputs/flutter-apk/app-x86_64-release.apk         # 模拟器 / x86 平板
 ```
+
+**不要**用 `flutter build apk --release`（universal 包）：三套 ABI 的 `lib/` 会一起打进同一个 APK，一台 arm64 真机要为用不到的两套架构多下载约 50 MB。另外分包会把 `versionCode` 按架构加权（arm64 是 `build × 2 + 10` 这种量级），装过分包之后 universal 包会被判为降级而装不上。
 
 ## 项目作用
 

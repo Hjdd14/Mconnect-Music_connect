@@ -21,4 +21,13 @@ class AppConstants {
   /// `installer/mconnect.iss`, `windows/runner/Runner.rc`, `PROJECT.md` and
   /// `test/settings_page_test.dart` (see `AGENTS.md` §2).
   static const String appVersion = 'v1.3.2';
+
+  /// Image cache budget, applied by `main.dart` to
+  /// `PaintingBinding.instance.imageCache.maximumSizeBytes`.
+  ///
+  /// This value existed before but nothing ever read it, so the app silently
+  /// ran on the framework's default 100 MB while the source claimed 200 MB.
+  /// It is declared here **and** read in `main.dart` in the same change, so it
+  /// is a real tunable rather than pretend configuration.
+  static const int imageCacheSizeMb = 200;
 }
