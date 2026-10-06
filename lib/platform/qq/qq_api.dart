@@ -1,29 +1,44 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import '../../core/network/platform_http.dart';
 import '../../models/audio_quality.dart';
 import 'qq_endpoints.dart';
+import 'qq_toplist_ids.dart';
 
 class QqApi {
   final Dio _dio;
   String? _cookie;
   String? _playbackGuid;
 
+  /// Builds the QQ adapter.
+  ///
+  /// The default [Dio] comes from [createPlatformDio], so QQ requests get the
+  /// shared interceptor chain: idempotent-only retry, `sendTimeout`, and typed
+  /// error translation. That guard is what keeps the many **POST** calls here
+  /// (`musicu.fcg`, like/playlist writes) from being replayed — a retried
+  /// "add song to playlist" would add it twice — while GETs still retry.
   QqApi({Dio? dio})
     : _dio =
           dio ??
-          Dio(
-            BaseOptions(
-              connectTimeout: const Duration(seconds: 15),
-              receiveTimeout: const Duration(seconds: 15),
-              headers: {
-                'User-Agent':
-                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Referer': 'https://y.qq.com/portal/player.html',
-                'Origin': 'https://y.qq.com',
-              },
-            ),
+          createPlatformDio(
+            label: 'QQ音乐',
+            headers: {
+              'User-Agent':
+                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+              'Referer': 'https://y.qq.com/',
+              'Origin': 'https://y.qq.com',
+            },
           );
+
+  /// The Dio this adapter actually uses.
+  ///
+  /// Exposed so tests can prove the shared interceptor chain is installed (a
+  /// bare, interceptor-less `Dio` is the pre-v1.4.0 state that made retry and
+  /// error translation dead code) and so a scripted adapter can be attached to
+  /// observe retry behaviour.
+  @visibleForTesting
+  Dio get dioForTest => _dio;
 
   void setCookie(String cookie) {
     if (cookie.isEmpty) {
@@ -154,6 +169,30 @@ class QqApi {
     _dio.options.headers['cookie'] = cookie;
   }
 
+  /// Normalises a QQ response body into a map.
+  ///
+  /// QQ answers some JSON endpoints with a JSON *string* (and occasionally with
+  /// a double-encoded one), and a failed/empty body can arrive as `null` or an
+  /// empty string. The pre-v1.4.0 code did `res.data as Map<String, dynamic>`,
+  /// which threw a raw `TypeError` on every one of those cases and crashed the
+  /// caller instead of degrading to "no data". Callers now always get a map.
+  static Map<String, dynamic> responseMapOf(dynamic data) {
+    if (data == null) return <String, dynamic>{};
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    if (data is List) return <String, dynamic>{};
+    if (data is String) {
+      final text = data.trim();
+      if (text.isEmpty) return <String, dynamic>{};
+      try {
+        return responseMapOf(jsonDecode(text));
+      } catch (_) {
+        return <String, dynamic>{};
+      }
+    }
+    return <String, dynamic>{};
+  }
+
   /// Generic musicu request
   Future<Map<String, dynamic>> musicu(Map<String, dynamic> data) async {
     final res = await _dio.post(
@@ -164,10 +203,19 @@ class QqApi {
         responseType: ResponseType.json,
       ),
     );
-    if (res.data is String) {
-      return jsonDecode(res.data as String) as Map<String, dynamic>;
-    }
-    return res.data as Map<String, dynamic>;
+    return responseMapOf(res.data);
+  }
+
+  /// Content of one musicu module response (`res[key]`).
+  ///
+  /// The response key always equals the request key (`toplist`, `singer`,
+  /// `newsong`, `req_0`, …), so the caller must pass the key it sent.
+  static Map<String, dynamic> moduleOf(
+    Map<String, dynamic> response,
+    String key,
+  ) {
+    final module = response[key];
+    return module is Map ? Map<String, dynamic>.from(module) : <String, dynamic>{};
   }
 
   /// Search songs
@@ -198,7 +246,7 @@ class QqApi {
     int limit = 30,
   }) async {
     final res = await _dio.get(
-      'https://c.y.qq.com/soso/fcgi-bin/client_music_search_songlist',
+      QqEndpoints.searchPlaylist,
       queryParameters: {
         'remoteplace': 'txt.yqq.playlist',
         'page_no': page - 1,
@@ -211,10 +259,7 @@ class QqApi {
         headers: {'Referer': 'https://y.qq.com'},
       ),
     );
-    if (res.data is String) {
-      return jsonDecode(res.data as String) as Map<String, dynamic>;
-    }
-    return res.data as Map<String, dynamic>;
+    return responseMapOf(res.data);
   }
 
   /// Get song URL via CDN dispatch
@@ -335,7 +380,8 @@ class QqApi {
       if (data is String) {
         data = jsonDecode(data);
       }
-      return data as Map<String, dynamic>?;
+      final map = data is Map ? data : const <String, dynamic>{};
+      return map.isEmpty ? null : responseMapOf(map);
     } catch (_) {
       return null;
     }
@@ -377,7 +423,7 @@ class QqApi {
       final res = await _dio.get(
         QqEndpoints.qrLogin,
         queryParameters: {
-          'u1': 'https://graph.qq.com/oauth2.0/login_jump',
+          'u1': QqEndpoints.graphLoginJump,
           'ptqrtoken': _getQrHash(_extractCookie('qrsig') ?? ''),
           'ptredirect': 1,
           'h': 1,
@@ -446,14 +492,13 @@ class QqApi {
           uri.queryParameters['surl'] ?? uri.queryParameters['uin'] ?? '';
       debugPrint('QQ OAuth: calling oauth2.0/show, surl=$surl');
       final authRes = await _dio.get(
-        'https://graph.qq.com/oauth2.0/show',
+        QqEndpoints.graphShow,
         queryParameters: {
           'which': 'Login',
           'display': 'pc',
           'response_type': 'code',
           'client_id': 100497308,
-          'redirect_uri':
-              'https://y.qq.com/portal/wx_redirect.html?login_type=1',
+          'redirect_uri': QqEndpoints.oauthRedirectUri,
           'surl': surl,
           'state': DateTime.now().millisecondsSinceEpoch ~/ 1000,
           'scope': 'get_user_info',
@@ -472,10 +517,10 @@ class QqApi {
       // POST to authorize endpoint to get the auth code
       debugPrint('QQ OAuth: calling oauth2.0/authorize');
       final authCodeRes = await _dio.post(
-        'https://graph.qq.com/oauth2.0/authorize',
+        QqEndpoints.graphAuthorize,
         data:
             'response_type=code&client_id=100497308'
-            '&redirect_uri=https://y.qq.com/portal/wx_redirect.html?login_type=1'
+            '&redirect_uri=${QqEndpoints.oauthRedirectUri}'
             '&g_tk=$gTk&from_ptlogin=1&src=1&update_auth=1&openapi=1010&g_tk=$gTk'
             '&q_login_code=&q_state=&from=login',
         options: Options(
@@ -585,7 +630,7 @@ class QqApi {
   /// Get user profile homepage.
   Future<Map<String, dynamic>> getUserInfo(String uin) async {
     final res = await _dio.get(
-      'https://c.y.qq.com/rsc/fcgi-bin/fcg_get_profile_homepage.fcg',
+      QqEndpoints.profileHomepage,
       queryParameters: {'cid': 205360838, 'userid': uin, 'reqfrom': 1},
       options: Options(
         responseType: ResponseType.json,
@@ -595,16 +640,13 @@ class QqApi {
         },
       ),
     );
-    if (res.data is String) {
-      return jsonDecode(res.data as String) as Map<String, dynamic>;
-    }
-    return res.data as Map<String, dynamic>;
+    return responseMapOf(res.data);
   }
 
   /// Get user playlists
   Future<Map<String, dynamic>> getUserPlaylists(String uin) async {
     final res = await _dio.get(
-      'https://c.y.qq.com/rsc/fcgi-bin/fcg_user_created_diss',
+      QqEndpoints.userCreatedDiss,
       queryParameters: {
         'hostUin': 0,
         'hostuin': uin,
@@ -627,10 +669,7 @@ class QqApi {
         },
       ),
     );
-    if (res.data is String) {
-      return jsonDecode(res.data as String) as Map<String, dynamic>;
-    }
-    return res.data as Map<String, dynamic>;
+    return responseMapOf(res.data);
   }
 
   /// Get playlist detail (song list)
@@ -660,7 +699,7 @@ class QqApi {
   /// playlists whose PC page requires a logged-in browser session.
   Future<Map<String, dynamic>> getLegacyPlaylistDetail(String disstid) async {
     final res = await _dio.get(
-      'https://c.y.qq.com/qzone/fcg-bin/fcg_ucc_getcdinfo_byids_cp.fcg',
+      QqEndpoints.legacyPlaylistDetail,
       queryParameters: {
         'type': 1,
         'json': 1,
@@ -682,10 +721,7 @@ class QqApi {
         headers: {'Referer': 'https://y.qq.com/'},
       ),
     );
-    if (res.data is String) {
-      return jsonDecode(res.data as String) as Map<String, dynamic>;
-    }
-    return res.data as Map<String, dynamic>;
+    return responseMapOf(res.data);
   }
 
   /// Get liked/favorite songs
@@ -721,7 +757,7 @@ class QqApi {
     String songMid,
   ) async {
     final res = await _dio.get(
-      'https://c.y.qq.com/splcloud/fcgi-bin/fcg_music_add2songdir.fcg',
+      QqEndpoints.addSongToDir,
       queryParameters: {
         'g_tk': 5381,
         'midlist': songMid,
@@ -741,10 +777,7 @@ class QqApi {
         },
       ),
     );
-    if (res.data is String) {
-      return jsonDecode(res.data as String) as Map<String, dynamic>;
-    }
-    return res.data as Map<String, dynamic>;
+    return responseMapOf(res.data);
   }
 
   /// Create a QQ Music playlist.
@@ -754,7 +787,7 @@ class QqApi {
         _extractCookie('qqmusic_uin')?.replaceAll(RegExp(r'\D'), '') ??
         '';
     final res = await _dio.post(
-      'https://c.y.qq.com/splcloud/fcgi-bin/create_playlist.fcg',
+      QqEndpoints.createPlaylist,
       data: {
         'loginUin': uin,
         'hostUin': 0,
@@ -782,10 +815,7 @@ class QqApi {
         },
       ),
     );
-    if (res.data is String) {
-      return jsonDecode(res.data as String) as Map<String, dynamic>;
-    }
-    return res.data as Map<String, dynamic>;
+    return responseMapOf(res.data);
   }
 
   /// Collect or uncollect a QQ Music playlist.
@@ -798,7 +828,7 @@ class QqApi {
         _extractCookie('qqmusic_uin')?.replaceAll(RegExp(r'\D'), '') ??
         '';
     final res = await _dio.post(
-      'https://c.y.qq.com/folder/fcgi-bin/fcg_qm_order_diss.fcg',
+      QqEndpoints.collectPlaylist,
       data: {
         'loginUin': uin,
         'hostUin': 0,
@@ -825,10 +855,7 @@ class QqApi {
         },
       ),
     );
-    if (res.data is String) {
-      return jsonDecode(res.data as String) as Map<String, dynamic>;
-    }
-    return res.data as Map<String, dynamic>;
+    return responseMapOf(res.data);
   }
 
   /// Unlike a song
@@ -843,23 +870,17 @@ class QqApi {
     });
   }
 
-  /// Get daily recommendations
-  Future<Map<String, dynamic>> getDailyRecommend() async {
-    return musicu({
-      'comm': {'ct': 19, 'cv': 1845},
-      'req_0': {
-        'module': QqEndpoints.moduleChartInfo,
-        'method': QqEndpoints.methodGetDailyRecommend,
-        'param': {},
-      },
-    });
-  }
-
-  /// QQ Music "daily 30" is exposed on the PC page as the "today private"
-  /// playlist. This returns that playlist id when the logged-in cookie can see it.
+  /// QQ Music's personalised daily list is exposed on the PC page as the
+  /// 「今日私享」playlist. Returns that playlist id when a cookie can see it.
+  ///
+  /// Verified anonymously 2026-10: the page is 8269 bytes and does not contain
+  /// 今日私享 at all, so an anonymous caller gets `null` and must fall back to a
+  /// chart. The old anonymous fallback (`musicToplist.ChartInfo/
+  /// GetDailyRecommend`) was removed because it now answers
+  /// `code 500003 / subcode 860100005` (dead endpoint, no data for any caller).
   Future<String?> getDailyPlaylistId() async {
     final res = await _dio.get(
-      'https://c.y.qq.com/node/musicmac/v6/index.html',
+      QqEndpoints.dailyPrivatePage,
       options: Options(
         responseType: ResponseType.plain,
         headers: {'Referer': 'https://y.qq.com/', 'cookie': _cookie ?? ''},
@@ -899,18 +920,200 @@ class QqApi {
     });
   }
 
-  /// Get toplist detail (ranking songs)
+  /// Every chart QQ publishes, with its group (巅峰榜/地区榜/特色榜/全球榜).
+  ///
+  /// Request key must match the response key — this one is `toplist`.
+  Future<Map<String, dynamic>> getToplistCatalogue() async {
+    return musicu({
+      'comm': {'ct': 19, 'cv': 1845},
+      'toplist': {
+        'module': QqEndpoints.moduleToplist,
+        'method': QqEndpoints.methodGetToplistCatalogue,
+        'param': <String, dynamic>{},
+      },
+    });
+  }
+
+  /// Chart detail through the modern musicu module.
+  ///
+  /// Returns the chart definition in `toplist.data.data` (title, intro, period,
+  /// totalNum, `song[]` with real `rank`/`rankValue`) and the songs in
+  /// `toplist.data.songInfoList[]` (full song objects, **no** rank field, so the
+  /// rank comes from `songInfoList`'s index or from the parallel `song[]`).
   Future<Map<String, dynamic>> getToplistDetail(
     int topId, {
     int offset = 0,
     int num = 100,
+    String? period,
   }) async {
     return musicu({
       'comm': {'ct': 19, 'cv': 1845},
       'toplist': {
         'module': QqEndpoints.moduleToplist,
         'method': QqEndpoints.methodGetToplistDetail,
-        'param': {'topId': topId, 'offset': offset, 'num': num},
+        'param': {
+          'topId': topId,
+          'offset': offset,
+          'num': num,
+          // Weekly charts (地区榜/特色榜/全球榜) are addressed by period
+          // ("2026_40"); empty means "current".
+          if (period != null && period.isNotEmpty) 'period': period,
+        },
+      },
+    });
+  }
+
+  /// One page of a chart through the legacy `toplist_cp` endpoint.
+  ///
+  /// Unlike [getToplistDetail] this returns per-track movement
+  /// (`cur_count` = rank, `old_count` = previous rank, so
+  /// `rankChange = old_count - cur_count`) plus `Franking_value`. The endpoint
+  /// serves at most [QqToplistIds.pageSize] tracks per call regardless of
+  /// `num`, so callers page with [offset].
+  Future<Map<String, dynamic>> getToplistCp({
+    required int topId,
+    int offset = 0,
+    int num = QqToplistIds.pageSize,
+  }) async {
+    final res = await _dio.get(
+      QqEndpoints.toplistCp,
+      queryParameters: {
+        'topid': topId,
+        'format': 'json',
+        'page': 'detail',
+        'tpl': 3,
+        'type': 'top',
+        'song_begin': offset,
+        'song_num': num.clamp(1, QqToplistIds.pageSize),
+      },
+      options: Options(
+        responseType: ResponseType.json,
+        headers: {'Referer': 'https://y.qq.com/'},
+      ),
+    );
+    return responseMapOf(res.data);
+  }
+
+  /// Artist profile (legacy endpoint): `getSingerInfo`, `singerBrief`,
+  /// `total_song`, `total_album` and a first page of hot songs in
+  /// `getSongInfo[]`.
+  Future<Map<String, dynamic>> getSingerDetail(String singerMid) async {
+    final res = await _dio.get(
+      QqEndpoints.singerDetail,
+      queryParameters: {
+        'singermid': singerMid,
+        'format': 'json',
+        'utf8': 1,
+        'outCharset': 'utf-8',
+      },
+      options: Options(
+        responseType: ResponseType.json,
+        headers: {'Referer': 'https://y.qq.com/'},
+      ),
+    );
+    return responseMapOf(res.data);
+  }
+
+  /// Artist avatar source: musicu `singer` module, whose
+  /// `basic_info.singer_pmid` is what the `T001R300x300M000<pmid>.jpg` cover
+  /// template needs (the legacy endpoint has no picture at all).
+  Future<Map<String, dynamic>> getSingerProfile(String singerMid) async {
+    return musicu({
+      'comm': {'ct': 19, 'cv': 1845},
+      'singer': {
+        'module': QqEndpoints.moduleSinger,
+        'method': QqEndpoints.methodGetSingerDetail,
+        'param': {
+          'singer_mids': [singerMid],
+          'ex_singer': 1,
+          'wiki_singer': 1,
+          'group_singer': 1,
+          'pic': 1,
+        },
+      },
+    });
+  }
+
+  /// Artist album list. `req_0.data.albumList[]` (verified live);
+  /// `music.musichallAlbum.AlbumListInter` — the module many older clients
+  /// used — answers `code 500003` instead.
+  Future<Map<String, dynamic>> getSingerAlbums(
+    String singerMid, {
+    int begin = 0,
+    int num = 30,
+    int order = 1,
+  }) async {
+    return musicu({
+      'comm': {'ct': 19, 'cv': 1845},
+      'req_0': {
+        'module': QqEndpoints.moduleAlbumList,
+        'method': QqEndpoints.methodGetAlbumList,
+        'param': {
+          'singerMid': singerMid,
+          'begin': begin,
+          'num': num,
+          'order': order,
+        },
+      },
+    });
+  }
+
+  /// Album search (`search_type: 2`), used as the artist-albums fallback when
+  /// the album-list module is unavailable. The mobile search method is the one
+  /// that actually returns rows (`body.item_album.list[]`); the desktop method
+  /// answers `code 2001` with an empty album list.
+  Future<Map<String, dynamic>> searchAlbums(
+    String keyword, {
+    int page = 1,
+    int limit = 30,
+  }) async {
+    return musicu({
+      'comm': {'ct': 19, 'cv': 1845},
+      'req_0': {
+        'module': QqEndpoints.moduleSearch,
+        'method': QqEndpoints.methodMobileSearch,
+        'param': {
+          'search_type': 2,
+          'query': keyword,
+          'num_per_page': limit,
+          'page_num': page,
+          'grp': 1,
+        },
+      },
+    });
+  }
+
+  /// Album detail (legacy): `data.list[]` are the album's tracks, plus
+  /// `aDate`/`company`/`genre`/`lan`/`desc`/`singermid` metadata.
+  Future<Map<String, dynamic>> getAlbumInfo(String albumMid) async {
+    final res = await _dio.get(
+      QqEndpoints.albumInfo,
+      queryParameters: {
+        'albummid': albumMid,
+        'format': 'json',
+        'utf8': 1,
+        'outCharset': 'utf-8',
+      },
+      options: Options(
+        responseType: ResponseType.json,
+        headers: {'Referer': 'https://y.qq.com/'},
+      ),
+    );
+    return responseMapOf(res.data);
+  }
+
+  /// New songs (新歌速递) for a QQ region `type`
+  /// (1 内地 / 2 欧美 / 3 日本 / 4 韩国 / 5 全部 / 6 港台).
+  ///
+  /// `num` is ignored by the server (verified: asking for 3 returns 32), so the
+  /// caller truncates client-side.
+  Future<Map<String, dynamic>> getNewSongs({int type = 5}) async {
+    return musicu({
+      'comm': {'ct': 19, 'cv': 1845},
+      'newsong': {
+        'module': QqEndpoints.moduleNewSong,
+        'method': QqEndpoints.methodGetNewSongInfo,
+        'param': {'type': type, 'num': 100},
       },
     });
   }

@@ -46,6 +46,9 @@ void main() {
     'QQ daily recommendations parse songInfo playlist detail rows',
     () async {
       final platform = QqPlatform(api: _FakeDailyQqApi());
+      // A cookie is what unlocks 「今日私享」; without one the platform skips the
+      // private probe and goes straight to the chart fallback.
+      platform.api.setCookie('qqmusic_uin=123456; qm_keyst=token');
 
       final songs = await platform.getDailyRecommendations();
 
@@ -216,7 +219,4 @@ class _FakeDailyQqApi extends QqApi {
       },
     };
   }
-
-  @override
-  Future<Map<String, dynamic>> getDailyRecommend() async => const {};
 }

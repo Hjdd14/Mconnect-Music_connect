@@ -7,9 +7,15 @@ import '../../models/user.dart';
 import '../../models/playlist.dart';
 import '../../models/audio_quality.dart';
 import '../../models/platform_type.dart';
+import '../../models/recommendation_source.dart';
+import '../../models/toplist.dart';
 import '../base/music_platform.dart';
+import '../../core/network/api_exception.dart';
+import '../../core/network/platform_http.dart';
 import '../../core/storage/session_storage.dart';
 import 'qq_api.dart';
+import 'qq_endpoints.dart';
+import 'qq_toplist_ids.dart';
 
 class QqPlatform extends MusicPlatform {
   final QqApi _api;
@@ -27,6 +33,25 @@ class QqPlatform extends MusicPlatform {
 
   @override
   bool get isLoggedIn => _currentUser != null;
+
+  // --- Capabilities --------------------------------------------------------
+  //
+  // All four are implemented below and verified against the live endpoints, so
+  // the UI may offer the entry points. `supportsDailyRecommendations` is true
+  // even though the anonymous list is a chart — [getDailyRecommendation]
+  // reports that provenance instead of pretending it is personalised.
+
+  @override
+  bool get supportsDailyRecommendations => true;
+
+  @override
+  bool get supportsArtistPage => true;
+
+  @override
+  bool get supportsAlbumPage => true;
+
+  @override
+  bool get supportsNewSongs => true;
 
   // --- Auth ---
 
@@ -329,37 +354,45 @@ class QqPlatform extends MusicPlatform {
     }
   }
 
-  Song _parseSong(dynamic s) {
+  Song _parseSong(dynamic raw) {
+    final s = _asMap(raw);
     final songId =
-        (s['mid'] ??
-                s['songmid'] ??
-                s['songMid'] ??
-                s['strMediaMid'] ??
-                s['id']?.toString() ??
-                s['songid']?.toString())
-            ?.toString() ??
+        _firstText([
+          s['mid'],
+          s['songmid'],
+          s['songMid'],
+          s['strMediaMid'],
+          s['id'],
+          s['songid'],
+        ]) ??
         '';
-    final songName =
-        (s['name'] ?? s['title'] ?? s['songname'] ?? s['songName'] ?? '')
-            .toString();
-    final singers =
-        (s['singer'] as List<dynamic>?)
-            ?.map(
-              (a) => Artist(
-                id: (a['mid'] ?? a['id'] ?? '').toString(),
-                name: (a['name'] ?? a['title'] ?? '').toString(),
-              ),
-            )
-            .toList() ??
-        [];
+    final songName = _firstText([s['name'], s['title'], s['songname'], s['songName']]) ?? '';
+    final singers = <Artist>[];
+    final singerRows = s['singer'];
+    if (singerRows is List) {
+      for (final row in singerRows) {
+        final singer = _asMap(row);
+        final name = _firstText([singer['name'], singer['title']]);
+        if (name == null) continue;
+        singers.add(
+          Artist(id: _firstText([singer['mid'], singer['id'], name]) ?? name, name: name),
+        );
+      }
+    }
 
-    final albumMid =
-        s['album']?['mid'] ?? s['albumMid'] ?? s['albummid'] ?? s['album_mid'];
+    final album = _asMap(s['album']);
+    final albumMid = _firstText([
+      album['mid'],
+      s['albumMid'],
+      s['albummid'],
+      s['album_mid'],
+    ]);
     final albumName =
-        s['album']?['name'] ?? s['albumName'] ?? s['albumname'] ?? '';
-    final coverUrl = albumMid != null
-        ? 'https://y.qq.com/music/photo_new/T002R300x300M000$albumMid.jpg'
-        : null;
+        _firstText([album['name'], album['title'], s['albumName'], s['albumname']]) ?? '';
+    final coverUrl =
+        (albumMid != null && albumMid.isNotEmpty
+            ? _albumCover(albumMid)
+            : _firstText([album['cover'], s['cover'], s['pic']]));
 
     return Song(
       id: songId,
@@ -371,7 +404,7 @@ class QqPlatform extends MusicPlatform {
           : null,
       duration: Duration(
         seconds:
-            int.tryParse((s['interval'] ?? s['duration'] ?? 0).toString()) ?? 0,
+            _asInt(s['interval'] ?? s['duration']) ?? 0,
       ),
       coverUrl: coverUrl,
     );
@@ -384,15 +417,22 @@ class QqPlatform extends MusicPlatform {
     String songId, {
     AudioLevel quality = AudioLevel.low,
   }) async {
-    final res = await _api.getSongUrl(songId, quality: quality);
+    Map<String, dynamic> res;
+    try {
+      res = await _api.getSongUrl(songId, quality: quality);
+    } on Object catch (e) {
+      // Never leak a bare DioException/Exception to the UI: the playback layer
+      // needs a typed error to decide between "retry" and "需要会员".
+      throw apiExceptionOf(e);
+    }
     final req1 = res['req_1']?['data']?['midurlinfo'] as List<dynamic>?;
     if (req1 == null || req1.isEmpty) {
-      throw Exception('无法获取播放地址，可能需要会员');
+      throw SongNotAvailableException(platform: platformName);
     }
     final purl = req1.first['purl'];
 
     if (purl == null || purl.isEmpty) {
-      throw Exception('无法获取播放地址，可能需要会员');
+      throw SongNotAvailableException(platform: platformName);
     }
 
     final sip = res['req_1']?['data']?['sip'] as List<dynamic>?;
@@ -491,7 +531,7 @@ class QqPlatform extends MusicPlatform {
       final res = await _api.getLikedSongs();
       final songlist = res['req_0']?['data']?['songlist'] as List<dynamic>?;
       if (songlist == null) return [];
-      return songlist.map((s) => _parseSong(s)).toList();
+      return songlist.map((s) => _parseSong(_songPayload(s))).toList();
     } catch (e) {
       debugPrint('QQ getLikedSongs error: $e');
       return [];
@@ -575,42 +615,630 @@ class QqPlatform extends MusicPlatform {
 
   @override
   Future<List<Song>> getDailyRecommendations() async {
-    try {
-      final playlistId = await _api.getDailyPlaylistId().timeout(
-        const Duration(seconds: 12),
-        onTimeout: () => null,
+    final result = await getDailyRecommendation();
+    return result.songs;
+  }
+
+  /// QQ's daily recommendation plus its **provenance**.
+  ///
+  /// Two sources, in order:
+  /// 1. the personalised 「今日私享」 playlist, which the PC page only renders for
+  ///    a signed-in cookie (verified anonymously 2026-10: the page is 8269 bytes
+  ///    and does not contain the 今日私享 marker at all) → [RecommendationKind
+  ///    .personalPrivate];
+  /// 2. an anonymous chart fallback (新歌榜, then 热歌榜) → [RecommendationKind
+  ///    .fallbackToplist] with an explanatory note, because "QQ 推荐" is not the
+  ///    same promise as "每日推荐".
+  ///
+  /// The old anonymous endpoint (`musicToplist.ChartInfo/GetDailyRecommend`) is
+  /// gone: it answers `code 500003 / subcode 860100005` for every caller.
+  @override
+  Future<RecommendationResult> getDailyRecommendation() async {
+    // A cookie — not just the in-memory user — is what unlocks 今日私享, and
+    // skipping the probe when there is none also saves an anonymous caller the
+    // page fetch (and its timeout) before the chart fallback.
+    final hasSession = _api.cookie?.isNotEmpty ?? false;
+    final loggedIn = hasSession || isLoggedIn;
+    final private = hasSession ? await _personalisedDaily() : const <Song>[];
+    if (private.isNotEmpty) {
+      return RecommendationResult(
+        songs: private,
+        source: RecommendationSource(
+          platform: platformType,
+          kind: RecommendationKind.personalPrivate,
+          label: '今日私享',
+        ),
       );
-      if (playlistId != null && playlistId.isNotEmpty) {
-        final songs = await getPlaylistDetail(playlistId);
-        if (songs.isNotEmpty) return songs.take(30).toList();
+    }
+
+    for (final chart in const [
+      (id: QqToplistIds.newSongs, name: QqToplistIds.newSongsName),
+      (id: QqToplistIds.hot, name: QqToplistIds.hotName),
+    ]) {
+      final ranked = await getRankedSongs('${chart.id}', num: 30);
+      if (ranked.isNotEmpty) {
+        return RecommendationResult(
+          songs: ranked.map((r) => r.song).toList(),
+          source: RecommendationSource(
+            platform: platformType,
+            kind: RecommendationKind.fallbackToplist,
+            label: chart.name,
+            note: loggedIn
+                ? '今日私享暂不可用，已回退到${chart.name}'
+                : '未登录，已回退到${chart.name}',
+          ),
+        );
+      }
+    }
+
+    return RecommendationResult(
+      source: RecommendationSource(
+        platform: platformType,
+        kind: RecommendationKind.unavailable,
+        label: '暂不可用',
+        note: loggedIn ? '今日私享与榜单均无数据' : '未登录，且榜单无数据',
+      ),
+      error: 'QQ 每日推荐暂不可用',
+    );
+  }
+
+  /// 「今日私享」 tracks, or an empty list when unavailable (any failure).
+  Future<List<Song>> _personalisedDaily() async {
+    try {
+      final playlistId = await _api
+          .getDailyPlaylistId()
+          .timeout(const Duration(seconds: 12), onTimeout: () => null);
+      if (playlistId == null || playlistId.isEmpty) return const [];
+      final songs = await getPlaylistDetail(playlistId);
+      return songs.take(30).toList();
+    } catch (e) {
+      debugPrint('QQ 今日私享 unavailable: $e');
+      return const [];
+    }
+  }
+
+  // --- Charts (榜单) ---
+
+  @override
+  Future<List<Toplist>> getToplists() async {
+    final res = await _api.getToplistCatalogue();
+    final data = QqApi.moduleOf(res, 'toplist')['data'];
+    if (data is! Map) return const [];
+    final groups = data['group'];
+    if (groups is! List) return const [];
+
+    final toplists = <Toplist>[];
+    for (final group in groups) {
+      if (group is! Map) continue;
+      final groupName = group['groupName']?.toString();
+      final items = group['toplist'];
+      if (items is! List) continue;
+      for (final item in items) {
+        if (item is! Map) continue;
+        final id = item['topId']?.toString();
+        if (id == null || id.isEmpty) continue;
+        toplists.add(
+          Toplist(
+            id: id,
+            name: _firstText([item['title'], item['titleDetail']]) ?? 'QQ榜单',
+            coverUrl: _firstText([
+              item['frontPicUrl'],
+              item['headPicUrl'],
+              item['mbFrontPicUrl'],
+            ]),
+            updateFrequency: _firstText([item['updateTips']]),
+            songCount: _asInt(item['totalNum']),
+            period: _firstText([item['period'], item['updateTime']]),
+            groupName: groupName,
+            intro: _firstText([item['intro']]),
+          ),
+        );
+      }
+    }
+    return _orderGroups(toplists);
+  }
+
+  /// Orders catalogue groups the way QQ's own 榜单中心 does (巅峰榜 first),
+  /// keeping any group the constant list does not know about at the end.
+  static List<Toplist> _orderGroups(List<Toplist> toplists) {
+    if (toplists.length < 2) return toplists;
+    final ordered = <Toplist>[];
+    for (final group in QqToplistIds.groupOrder) {
+      ordered.addAll(toplists.where((t) => t.groupName == group));
+    }
+    ordered.addAll(
+      toplists.where((t) => !QqToplistIds.groupOrder.contains(t.groupName)),
+    );
+    return ordered;
+  }
+
+  /// One chart, with each song's position and movement.
+  ///
+  /// Two live paths, chosen by what the caller needs:
+  /// * no [period] → the legacy `toplist_cp` endpoint, which is the only one
+  ///   that reports the previous position (`old_count - cur_count`), and is
+  ///   paged 50 tracks at a time to reach the 300-track 热歌榜;
+  /// * with [period] (weekly history, e.g. `2026_40`) → the modern musicu
+  ///   `GetDetail` module, whose `song[]` carries `rank` + `rankType`.
+  ///
+  /// Either path falls back to the other if it returns nothing. Failures
+  /// degrade to an empty list (logged) like the rest of this adapter, so a
+  /// chart page shows its empty state instead of crashing.
+  @override
+  Future<List<RankedSong>> getRankedSongs(
+    String toplistId, {
+    int offset = 0,
+    int num = 100,
+    String? period,
+  }) async {
+    final topId = int.tryParse(toplistId);
+    if (topId == null || num <= 0 || offset < 0) return const [];
+    final wantsPeriod = period != null && period.isNotEmpty;
+
+    if (wantsPeriod) {
+      final modern = await _rankedFromModernDetail(
+        topId,
+        offset: offset,
+        num: num,
+        period: period,
+      );
+      if (modern.isNotEmpty) return modern;
+      return _rankedFromLegacyCp(topId, offset: offset, num: num);
+    }
+
+    final legacy = await _rankedFromLegacyCp(topId, offset: offset, num: num);
+    if (legacy.isNotEmpty) return legacy;
+    return _rankedFromModernDetail(
+      topId,
+      offset: offset,
+      num: num,
+      period: period,
+    );
+  }
+
+  /// The 热歌榜 as reported by QQ's own endpoint, up to [num] tracks
+  /// (default: all 300).
+  Future<List<RankedSong>> getHotSongs({
+    int offset = 0,
+    int num = 300,
+  }) async {
+    return getRankedSongs('${QqToplistIds.hot}', offset: offset, num: num);
+  }
+
+  /// Legacy `toplist_cp` path: rank movement + `Franking_value`.
+  Future<List<RankedSong>> _rankedFromLegacyCp(
+    int topId, {
+    required int offset,
+    required int num,
+  }) async {
+    final ranked = <RankedSong>[];
+    final end = offset + num;
+    var begin = offset;
+    while (begin < end) {
+      final pageSize = (end - begin).clamp(1, QqToplistIds.pageSize);
+      Map<String, dynamic> page;
+      try {
+        page = await _api.getToplistCp(
+          topId: topId,
+          offset: begin,
+          num: pageSize,
+        );
+      } catch (e) {
+        debugPrint('QQ getToplistCp($topId, $begin) error: $e');
+        break;
+      }
+      final rows = page['songlist'];
+      if (rows is! List || rows.isEmpty) break;
+
+      // `cur_count` is the rank on rank-ordered charts (热歌榜/新歌榜) but a
+      // *score* on score-ordered ones (流行指数/飙升榜), so rank-like pages are
+      // detected instead of assumed.
+      final rankLike = _isRankOrderedPage(rows, begin);
+      var reportsMovement = false;
+      if (rankLike) {
+        for (final row in rows) {
+          final previous = _asInt(_asMap(row)['old_count']);
+          if (previous != null && previous > 0) {
+            reportsMovement = true;
+            break;
+          }
+        }
       }
 
-      final res = await _api.getDailyRecommend();
-      final data = res['req_0']?['data'];
-      final songlist =
-          data?['songlist'] as List<dynamic>? ??
-          data?['list'] as List<dynamic>? ??
-          data?['v_song'] as List<dynamic>?;
-      if (songlist == null) return [];
-      return songlist.map((s) => _parseSong(_songPayload(s))).take(30).toList();
-    } catch (e) {
-      debugPrint('QQ getDailyRecommendations error: $e');
-      return [];
+      for (var i = 0; i < rows.length; i++) {
+        final row = _asMap(rows[i]);
+        final song = _parseSong(_songPayload(row));
+        if (song.id.isEmpty) continue;
+        final current = _asInt(row['cur_count']);
+        final previous = _asInt(row['old_count']);
+        final rank = rankLike && current != null && current > 0
+            ? current
+            : begin + i + 1;
+        ranked.add(
+          RankedSong(
+            song: song,
+            rank: rank,
+            rankChange: reportsMovement && previous != null && current != null
+                ? previous - current
+                : null,
+            isNew: reportsMovement ? previous == 0 : null,
+            rankValue: _firstText([row['Franking_value']]),
+          ),
+        );
+      }
+
+      if (rows.length < pageSize) break;
+      begin += rows.length;
     }
+    return ranked;
+  }
+
+  /// Modern musicu `GetDetail` path: real `rank`/`rankType` per song.
+  ///
+  /// `rankType` (verified by diffing this endpoint against `toplist_cp` for
+  /// 特色榜·说唱榜): 1 = moved **up** by `rankValue`, 2 = moved **down** by
+  /// `rankValue`, 3 = unchanged, 4 = new entry, 6 = growth percentage (飙升榜,
+  /// no rank movement).
+  Future<List<RankedSong>> _rankedFromModernDetail(
+    int topId, {
+    required int offset,
+    required int num,
+    String? period,
+  }) async {
+    Map<String, dynamic> res;
+    try {
+      res = await _api.getToplistDetail(
+        topId,
+        offset: offset,
+        num: num,
+        period: period,
+      );
+    } catch (e) {
+      debugPrint('QQ getToplistDetail($topId) error: $e');
+      return const [];
+    }
+    final data = QqApi.moduleOf(res, 'toplist')['data'];
+    if (data is! Map) return const [];
+    final songs = data['songInfoList'];
+    if (songs is! List) return const [];
+    final inner = data['data'];
+    final rankRows = inner is Map ? inner['song'] : null;
+
+    final ranked = <RankedSong>[];
+    for (var i = 0; i < songs.length; i++) {
+      final song = _parseSong(_songPayload(songs[i]));
+      if (song.id.isEmpty) continue;
+      final rankRow = rankRows is List && i < rankRows.length
+          ? _asMap(rankRows[i])
+          : const <dynamic, dynamic>{};
+      final rankType = _asInt(rankRow['rankType']);
+      final value = _asInt(rankRow['rankValue']);
+      final rank = _asInt(rankRow['rank']) ?? offset + i + 1;
+      ranked.add(
+        RankedSong(
+          song: song,
+          rank: rank,
+          rankChange: switch (rankType) {
+            1 => value,
+            2 => value == null ? null : -value,
+            3 => 0,
+            _ => null,
+          },
+          isNew: rankType == null ? null : rankType == 4,
+          rankValue: _firstText([rankRow['rankValue']]),
+        ),
+      );
+    }
+    return ranked;
+  }
+
+  /// True when the page's `cur_count` values are exactly `begin+1 … begin+n`,
+  /// i.e. the field is a rank and not a score.
+  static bool _isRankOrderedPage(List<dynamic> rows, int begin) {
+    for (var i = 0; i < rows.length; i++) {
+      final current = _asInt(_asMap(rows[i])['cur_count']);
+      if (current == null || current != begin + i + 1) return false;
+    }
+    return true;
   }
 
   @override
   Future<List<Song>> getRankingList() async {
     try {
-      final res = await _api.getToplistDetail(4); // topId=4 热歌榜
-      final songlist = res['toplist']?['data']?['songList'] as List<dynamic>?;
-      if (songlist == null) return [];
-      return songlist.map((s) => _parseSong(s)).toList();
+      final ranked = await getHotSongs(num: 100);
+      return ranked.map((r) => r.song).toList();
     } catch (e) {
       debugPrint('QQ getRankingList error: $e');
       return [];
     }
   }
+
+  // --- Artist / album / new songs ---
+
+  @override
+  Future<Artist?> getArtistDetail(String artistId) async {
+    if (artistId.isEmpty) return null;
+    final profile = await _singerProfile(artistId);
+    if (profile == null) return null;
+    final info = _asMap(profile['getSingerInfo']);
+    final name = _firstText([
+      info['Fsinger_name'],
+      profile['singer_name'],
+      artistId,
+    ]);
+    return Artist(
+      id: _firstText([info['Fsinger_mid'], artistId]) ?? artistId,
+      name: name ?? artistId,
+      avatarUrl: await _artistAvatar(artistId, profile: profile),
+      briefDesc: _firstText([profile['singerBrief']]),
+      songCount: _asInt(profile['total_song']),
+      albumCount: _asInt(profile['total_album']),
+    );
+  }
+
+  /// Artist avatar. The legacy profile endpoint has no picture, so the
+  /// canonical `singer_pmid` is fetched from musicu and used with QQ's cover
+  /// template; the `pic` field is preferred when present.
+  Future<String?> _artistAvatar(
+    String artistId, {
+    Map<String, dynamic>? profile,
+  }) async {
+    try {
+      final res = await _api.getSingerProfile(artistId);
+      final list = QqApi.moduleOf(res, 'singer')['data']?['singer_list'];
+      if (list is List && list.isNotEmpty) {
+        final entry = _asMap(list.first);
+        final pic = _asMap(entry['pic']);
+        final direct = _firstText([pic['pic'], pic['big_black']]);
+        if (direct != null) return direct;
+        final pmid = _firstText([
+          _asMap(entry['basic_info'])['singer_pmid'],
+          artistId,
+        ]);
+        if (pmid != null) return '${QqEndpoints.artistCover}$pmid.jpg';
+      }
+    } catch (e) {
+      debugPrint('QQ getSingerProfile($artistId) error: $e');
+    }
+    // Last resort: QQ's generic artist-cover template accepts a singer mid.
+    return '${QqEndpoints.artistCover}$artistId.jpg';
+  }
+
+  Future<Map<String, dynamic>?> _singerProfile(String artistId) async {
+    try {
+      final res = await _api.getSingerDetail(artistId);
+      return res.isEmpty ? null : res;
+    } catch (e) {
+      debugPrint('QQ getSingerDetail($artistId) error: $e');
+      return null;
+    }
+  }
+
+  @override
+  Future<List<Song>> getArtistTopSongs(
+    String artistId, {
+    int limit = 50,
+  }) async {
+    if (artistId.isEmpty || limit <= 0) return const [];
+    final profile = await _singerProfile(artistId);
+    final rows = profile?['getSongInfo'];
+    if (rows is! List) return const [];
+    final songs = <({Song song, int plays})>[];
+    for (final row in rows) {
+      final song = _parseSong(_songPayload(row));
+      if (song.id.isEmpty) continue;
+      final extra = _asMap(_asMap(row)['extra']);
+      songs.add((song: song, plays: _asInt(extra['Flisten_count1']) ?? 0));
+    }
+    // QQ returns this list unordered; play counts make "top songs" meaningful.
+    songs.sort((a, b) => b.plays.compareTo(a.plays));
+    return songs.take(limit).map((e) => e.song).toList();
+  }
+
+  @override
+  Future<List<Album>> getArtistAlbums(
+    String artistId, {
+    int page = 1,
+    int limit = 30,
+  }) async {
+    if (artistId.isEmpty || limit <= 0) return const [];
+    final begin = (page <= 1 ? 0 : page - 1) * limit;
+
+    try {
+      final res = await _api.getSingerAlbums(
+        artistId,
+        begin: begin,
+        num: limit,
+      );
+      final module = QqApi.moduleOf(res, 'req_0');
+      final data = module['data'];
+      final rows = data is Map ? data['albumList'] : null;
+      if (rows is List && rows.isNotEmpty) {
+        return rows
+            .map(_parseCatalogueAlbum)
+            .where((album) => album.id.isNotEmpty)
+            .toList();
+      }
+    } catch (e) {
+      debugPrint('QQ getSingerAlbums($artistId) error: $e');
+    }
+
+    // Fallback: album search filtered down to this artist. The search rows do
+    // not carry the artist mid (`singer_list[].mid` is empty), so filtering is
+    // done on the numeric singer id / artist name.
+    return _artistAlbumsFromSearch(artistId, limit: limit);
+  }
+
+  Future<List<Album>> _artistAlbumsFromSearch(
+    String artistId, {
+    required int limit,
+  }) async {
+    try {
+      final profile = await _singerProfile(artistId);
+      final info = _asMap(profile?['getSingerInfo']);
+      final singerId = _firstText([info['Fsinger_id']]);
+      final name = _firstText([info['Fsinger_name']]);
+      final keyword = name ?? artistId;
+
+      final res = await _api.searchAlbums(keyword, limit: limit);
+      final body = QqApi.moduleOf(res, 'req_0')['data']?['body'];
+      final rows = body is Map ? _asMap(body['item_album'])['list'] : null;
+      if (rows is! List) return const [];
+      return rows
+          .map(_asMap)
+          .where(
+            (row) =>
+                _artistMatchesSearchRow(row, singerId: singerId, name: name),
+          )
+          .map(_parseSearchedAlbum)
+          .where((album) => album.id.isNotEmpty)
+          .take(limit)
+          .toList();
+    } catch (e) {
+      debugPrint('QQ album search fallback for $artistId error: $e');
+      return const [];
+    }
+  }
+
+  static bool _artistMatchesSearchRow(
+    Map<dynamic, dynamic> row, {
+    String? singerId,
+    String? name,
+  }) {
+    if (singerId != null && singerId.isNotEmpty) {
+      final rowSingerId = _firstText([row['singer_id']]);
+      if (rowSingerId == singerId) return true;
+    }
+    if (name == null || name.isEmpty) return false;
+    final singers = row['singer_list'];
+    if (singers is List) {
+      for (final singer in singers) {
+        if (_firstText([_asMap(singer)['name']]) == name) return true;
+      }
+    }
+    return _firstText([row['singer']]) == name;
+  }
+
+  @override
+  Future<Album?> getAlbumDetail(String albumId) async {
+    if (albumId.isEmpty) return null;
+    Map<String, dynamic> res;
+    try {
+      res = await _api.getAlbumInfo(albumId);
+    } catch (e) {
+      debugPrint('QQ getAlbumInfo($albumId) error: $e');
+      return null;
+    }
+    final data = _asMap(res['data']);
+    if (data.isEmpty) return null;
+    return _parseAlbumDetail(data);
+  }
+
+  @override
+  Future<List<Song>> getAlbumSongs(String albumId) async {
+    if (albumId.isEmpty) return const [];
+    Map<String, dynamic> res;
+    try {
+      res = await _api.getAlbumInfo(albumId);
+    } catch (e) {
+      debugPrint('QQ getAlbumInfo($albumId) error: $e');
+      return const [];
+    }
+    final rows = _asMap(res['data'])['list'];
+    if (rows is! List) return const [];
+    return rows
+        .map((row) => _parseSong(_songPayload(row)))
+        .where((song) => song.id.isNotEmpty)
+        .toList();
+  }
+
+  @override
+  Future<List<Song>> getNewSongs({
+    int limit = 100,
+    NewSongRegion region = NewSongRegion.all,
+  }) async {
+    if (limit <= 0) return const [];
+    Map<String, dynamic> res;
+    try {
+      res = await _api.getNewSongs(type: _qqNewSongType(region));
+    } catch (e) {
+      debugPrint('QQ getNewSongs error: $e');
+      return const [];
+    }
+    final rows = QqApi.moduleOf(res, 'newsong')['data']?['songlist'];
+    if (rows is! List) return const [];
+    // QQ ignores `num` (asking for 3 returns 32), so truncate here.
+    return rows
+        .map((row) => _parseSong(_songPayload(row)))
+        .where((song) => song.id.isNotEmpty)
+        .take(limit)
+        .toList();
+  }
+
+  /// Maps [NewSongRegion] onto QQ's `type` ids
+  /// (1 内地 / 2 欧美 / 3 日本 / 4 韩国 / 5 全部 / 6 港台).
+  static int _qqNewSongType(NewSongRegion region) {
+    return switch (region) {
+      NewSongRegion.all => 5,
+      NewSongRegion.chinese => 1,
+      NewSongRegion.western => 2,
+      NewSongRegion.japanese => 3,
+      NewSongRegion.korean => 4,
+      NewSongRegion.hongKongTaiwan => 6,
+    };
+  }
+
+  @visibleForTesting
+  static int qqNewSongTypeForTest(NewSongRegion region) =>
+      _qqNewSongType(region);
+
+  Album _parseCatalogueAlbum(dynamic raw) {
+    final row = _asMap(raw);
+    final mid = _firstText([row['albumMid'], row['albummid']]) ?? '';
+    return Album(
+      id: mid,
+      name: _firstText([row['albumName'], row['albumTranName']]) ?? '未知专辑',
+      artistName: _firstText([row['singerName']]),
+      coverUrl: mid.isEmpty ? null : _albumCover(mid),
+      releaseDate: DateTime.tryParse(
+        _firstText([row['publishDate']]) ?? '',
+      ),
+    );
+  }
+
+  Album _parseSearchedAlbum(dynamic raw) {
+    final row = _asMap(raw);
+    final mid = _firstText([row['albummid'], row['albumMid']]) ?? '';
+    return Album(
+      id: mid,
+      name: _firstText([row['name'], row['albumName']]) ?? '未知专辑',
+      artistName: _firstText([row['singer']]),
+      coverUrl: _firstText([row['pic']]) ??
+          (mid.isEmpty ? null : _albumCover(mid)),
+      releaseDate: DateTime.tryParse(_firstText([row['publish_date']]) ?? ''),
+      songCount: _asInt(row['song_num']),
+    );
+  }
+
+  Album _parseAlbumDetail(Map<dynamic, dynamic> data) {
+    final mid = _firstText([data['mid']]) ?? '';
+    return Album(
+      id: mid,
+      name: _firstText([data['name']]) ?? '未知专辑',
+      artistName: _firstText([data['singername']]),
+      artistId: _firstText([data['singermid']]),
+      coverUrl: mid.isEmpty ? null : _albumCover(mid),
+      releaseDate: DateTime.tryParse(_firstText([data['aDate']]) ?? ''),
+      description: _firstText([data['desc']]),
+      songCount: _asInt(data['total_song_num']) ?? _asInt(data['cur_song_num']),
+      company: _firstText([data['company']]),
+      genre: _firstText([data['genre']]),
+      language: _firstText([data['lan']]),
+    );
+  }
+
+  static String _albumCover(String albumMid) =>
+      '${QqEndpoints.songCover}$albumMid.jpg';
 
   // --- VIP ---
 
@@ -854,10 +1482,51 @@ class QqPlatform extends MusicPlatform {
     );
   }
 
+  /// Unwraps the container some QQ endpoints put around a song object.
+  ///
+  /// Playlist detail wraps songs in `songInfo`, modern chart detail returns them
+  /// bare, and the legacy `toplist_cp` chart endpoint wraps them in **`data`** —
+  /// the case the pre-v1.4.0 code missed, which is why 热歌榜/排行榜 rows parsed
+  /// as empty songs. The unwrap is guarded by a shape check so a genuine song
+  /// that happens to carry a `data` field is not mistaken for a wrapper.
   dynamic _songPayload(dynamic value) {
-    if (value is Map) {
-      return value['songInfo'] ?? value['song'] ?? value['musicData'] ?? value;
+    if (value is! Map) return value;
+    for (final key in const ['songInfo', 'song', 'musicData', 'data']) {
+      final inner = value[key];
+      if (inner is Map && _looksLikeSong(inner)) return inner;
     }
     return value;
+  }
+
+  static bool _looksLikeSong(Map<dynamic, dynamic> value) {
+    return value.containsKey('songmid') ||
+        value.containsKey('songname') ||
+        value.containsKey('mid') ||
+        value.containsKey('songId') ||
+        value.containsKey('singer');
+  }
+
+  static Map<dynamic, dynamic> _asMap(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) return value;
+    return const <dynamic, dynamic>{};
+  }
+
+  static int? _asInt(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value.toString());
+  }
+
+  /// First non-empty, non-`"null"` value as text — the QQ payloads use several
+  /// alternative key names for the same field and sprinkle empty strings.
+  static String? _firstText(List<dynamic> values) {
+    for (final value in values) {
+      if (value == null) continue;
+      final text = value.toString().trim();
+      if (text.isNotEmpty && text != 'null') return text;
+    }
+    return null;
   }
 }
