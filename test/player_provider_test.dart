@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mconnect/core/diagnostics/diagnostics_service.dart';
@@ -536,6 +537,58 @@ void main() {
     expect(keepAlive.disposed, isTrue);
   });
 
+  test('dispose drops the audio controller reference', () {
+    final notifier = PlayerNotifier(
+      audioController: _FakeAudioController(),
+      platformResolver: (_) => _FakeMusicPlatform(),
+      audioControllerFactory: () => _FakeAudioController(),
+      keepAliveController: const NoopPlaybackKeepAliveController(),
+    );
+
+    expect(notifier.hasAudioControllerForTest, isTrue);
+
+    notifier.dispose();
+
+    // 置空后才不会有遗留回调复用已 dispose 的控制器（复活死掉的平台通道）。
+    expect(notifier.hasAudioControllerForTest, isFalse);
+  });
+
+  test('a recreated controller receives the equalizer settings and volume', () async {
+    final hangingAudio = _FakeAudioController(hangOnStop: true);
+    final recreated = _FakeAudioController();
+    final notifier = PlayerNotifier(
+      audioController: hangingAudio,
+      platformResolver: (_) => _FakeMusicPlatform(),
+      audioOperationTimeout: const Duration(milliseconds: 20),
+      audioDisposeTimeout: const Duration(milliseconds: 20),
+      audioControllerFactory: () => recreated,
+      keepAliveController: const NoopPlaybackKeepAliveController(),
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.applyEqualizerSettings(
+      const AudioEffectsSettings(
+        equalizerEnabled: true,
+        equalizerPreset: EqualizerPreset.rock,
+      ),
+    );
+    expect(recreated.equalizerEnabledChanges, isEmpty);
+
+    // stop() 挂起 → playSong 内部走 _recreatePlayer，新控制器是全新的
+    // （EQ 关闭、音量回默认），必须把用户设置补推上去。
+    await notifier.playSong(_song('recreate-settings'));
+
+    expect(recreated.equalizerEnabledChanges, [true]);
+    expect(recreated.equalizerBandGainChanges, [
+      const EqualizerBandGain(0, 4),
+      const EqualizerBandGain(1, 2),
+      const EqualizerBandGain(2, 0),
+      const EqualizerBandGain(3, 3),
+      const EqualizerBandGain(4, 5),
+    ]);
+    expect(recreated.volumeChanges, contains(1.0));
+  });
+
   test('a hanging seek does not block playing another song', () async {
     final hangingSeekAudio = _FakeAudioController(hangOnSeek: true);
     final notifier = PlayerNotifier(
@@ -578,6 +631,219 @@ void main() {
     await notifier.togglePlay().timeout(const Duration(milliseconds: 200));
 
     expect(notifier.state.isTransitioning, isFalse);
+  });
+
+  test(
+    'a quality switch interrupted by playSong does not latch the quality gate',
+    () async {
+      // S-1 回归：换音质飞行中 playSong 推走质量纪元，旧代码的
+      // `finally { if (requestId == _qualityRequestId) ... }` 于是永不复位，
+      // `_isSwitchingQuality` 保持 true —— 之后所有换音质都在闸门处静默返回，
+      // 并连带关闭健康监测（:457）与音量守护（:510）。
+      final switchCompleter = Completer<String>();
+      final audio = _FakeAudioController();
+      final platform = _QualityHangPlatform(
+        normalUrl: 'https://example.test/gate-a.mp3',
+        qualityCompleter: switchCompleter,
+      );
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        audioControllerFactory: () => _FakeAudioController(),
+        platformResolver: (_) => platform,
+        audioOperationTimeout: const Duration(seconds: 5),
+        qualitySwitchTimeout: const Duration(seconds: 5),
+      );
+      addTearDown(notifier.dispose);
+
+      await notifier.playSong(_song('gate-a'));
+
+      final switchCall = notifier.switchQuality(AudioLevel.lossless);
+      await pumpEventQueue();
+
+      final nextSongCall = notifier.playSong(_song('gate-b'));
+      await pumpEventQueue();
+
+      switchCompleter.complete('https://example.test/gate-a-lossless.flac');
+      await switchCall.timeout(const Duration(milliseconds: 500));
+      await nextSongCall.timeout(const Duration(milliseconds: 500));
+      await pumpEventQueue();
+
+      await notifier
+          .switchQuality(AudioLevel.medium)
+          .timeout(const Duration(milliseconds: 500));
+
+      expect(notifier.state.currentQuality, AudioLevel.medium);
+    },
+  );
+
+  test('fadeOutAndPause ramps to silence before pausing', () async {
+    final audio = _FakeAudioController();
+    final notifier = PlayerNotifier(
+      audioController: audio,
+      platformResolver: (_) => _FakeMusicPlatform(),
+      audioControllerFactory: () => _FakeAudioController(),
+      keepAliveController: const NoopPlaybackKeepAliveController(),
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.playSong(_song('sleep-fade'));
+    audio.volumeChanges.clear();
+
+    await notifier.fadeOutAndPause(
+      duration: const Duration(milliseconds: 30),
+    );
+
+    expect(audio.pauseCalls, 1);
+    expect(notifier.state.isPlaying, isFalse);
+    expect(audio.volumeChanges, contains(0.0));
+    // 淡出后必须把音量复位，否则下一次播放是静音的。
+    expect(audio.volumeChanges.last, 1.0);
+  });
+
+  test('setPlaybackSpeed forwards the speed to a capable backend', () async {
+    final audio = _FakeCapableAudioController();
+    final notifier = PlayerNotifier(
+      audioController: audio,
+      platformResolver: (_) => _FakeMusicPlatform(),
+      audioControllerFactory: () => _FakeCapableAudioController(),
+      keepAliveController: const NoopPlaybackKeepAliveController(),
+    );
+    addTearDown(notifier.dispose);
+
+    expect(notifier.supportsPlaybackSpeed, isTrue);
+
+    await notifier.setPlaybackSpeed(1.5);
+    expect(audio.speedChanges, [1.5]);
+    expect(notifier.state.playbackSpeed, 1.5);
+
+    // 越界值被夹到 0.5–2.0。
+    await notifier.setPlaybackSpeed(9);
+    expect(audio.speedChanges.last, 2.0);
+    expect(notifier.state.playbackSpeed, 2.0);
+  });
+
+  test('setPlaybackSpeed degrades honestly on a plain backend', () async {
+    final notifier = PlayerNotifier(
+      audioController: _FakeAudioController(),
+      platformResolver: (_) => _FakeMusicPlatform(),
+      audioControllerFactory: () => _FakeAudioController(),
+      keepAliveController: const NoopPlaybackKeepAliveController(),
+    );
+    addTearDown(notifier.dispose);
+
+    expect(notifier.supportsPlaybackSpeed, isFalse);
+    expect(notifier.supportsSkipSilence, isFalse);
+
+    await notifier.setPlaybackSpeed(1.5);
+    expect(notifier.state.error, contains('不支持'));
+    expect(notifier.state.playbackSpeed, 1.0);
+
+    await notifier.setSkipSilence(true);
+    expect(notifier.state.error, contains('不支持'));
+    expect(notifier.state.skipSilence, isFalse);
+  });
+
+  test('setSkipSilence forwards the flag to a capable backend', () async {
+    final audio = _FakeCapableAudioController();
+    final notifier = PlayerNotifier(
+      audioController: audio,
+      platformResolver: (_) => _FakeMusicPlatform(),
+      audioControllerFactory: () => _FakeCapableAudioController(),
+      keepAliveController: const NoopPlaybackKeepAliveController(),
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.setSkipSilence(true);
+
+    expect(audio.skipSilenceChanges, [true]);
+    expect(notifier.state.skipSilence, isTrue);
+  });
+
+  test('A-B loop seeks back to A once playback passes B', () async {
+    final audio = _FakeAudioController();
+    final notifier = PlayerNotifier(
+      audioController: audio,
+      platformResolver: (_) => _FakeMusicPlatform(),
+      audioControllerFactory: () => _FakeAudioController(),
+      keepAliveController: const NoopPlaybackKeepAliveController(),
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.playSong(_song('ab-loop'));
+    notifier.setAbLoopStart(const Duration(seconds: 10));
+    notifier.setAbLoopEnd(const Duration(seconds: 20));
+    expect(notifier.state.hasAbLoop, isTrue);
+
+    audio.seekCalls = 0;
+    audio.emitPosition(const Duration(seconds: 21));
+    await pumpEventQueue();
+    await pumpEventQueue();
+
+    expect(audio.seekCalls, 1);
+    expect(audio.position, const Duration(seconds: 10));
+  });
+
+  test('A-B loop ignores a B point that is not after A', () async {
+    final notifier = PlayerNotifier(
+      audioController: _FakeAudioController(),
+      platformResolver: (_) => _FakeMusicPlatform(),
+      audioControllerFactory: () => _FakeAudioController(),
+      keepAliveController: const NoopPlaybackKeepAliveController(),
+    );
+    addTearDown(notifier.dispose);
+
+    notifier.setAbLoopStart(const Duration(seconds: 30));
+    notifier.setAbLoopEnd(const Duration(seconds: 10));
+
+    expect(notifier.state.hasAbLoop, isFalse);
+    expect(notifier.state.error, contains('B 点'));
+  });
+
+  test('a new song clears the A-B loop', () async {
+    final notifier = PlayerNotifier(
+      audioController: _FakeAudioController(),
+      platformResolver: (_) => _FakeMusicPlatform(),
+      audioControllerFactory: () => _FakeAudioController(),
+      keepAliveController: const NoopPlaybackKeepAliveController(),
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.playSong(_song('ab-first'));
+    notifier.setAbLoopStart(const Duration(seconds: 5));
+    notifier.setAbLoopEnd(const Duration(seconds: 15));
+    expect(notifier.state.hasAbLoop, isTrue);
+
+    await notifier.playSong(_song('ab-second'));
+
+    expect(notifier.state.hasAbLoop, isFalse);
+  });
+
+  test('shuffle plays every song before repeating any', () async {
+    // 旧实现每次 skipToNext 都新建 Random() 且只排除 currentIndex，
+    // 长队列里反复播同一批歌（有放回抽样）。
+    final notifier = PlayerNotifier(
+      audioController: _FakeAudioController(),
+      platformResolver: (_) => _FakeMusicPlatform(),
+      audioControllerFactory: () => _FakeAudioController(),
+      random: _ScriptedRandom(const [1, 2]),
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.playPlaylist([
+      _song('shuffle-1'),
+      _song('shuffle-2'),
+      _song('shuffle-3'),
+      _song('shuffle-4'),
+    ]);
+    notifier.toggleShuffle();
+
+    final played = <String>{notifier.state.currentSong!.id};
+    for (var i = 0; i < 3; i++) {
+      await notifier.skipToNext();
+      played.add(notifier.state.currentSong!.id);
+    }
+
+    expect(played.length, 4);
   });
 
   test('keeps a manually selected fixed quality for the next song', () async {
@@ -824,6 +1090,63 @@ void main() {
       expect(audio.position, const Duration(seconds: 20));
       expect(audio.playCalls, 2);
       expect(audio.volumeChanges.last, 1);
+    },
+  );
+
+  test(
+    'stall recovery holds the audio mutex so playSong cannot interleave',
+    () async {
+      // S-6 回归：自愈做的是 stop/setUrl/seek/play 这一整套传输序列，以前被当作
+      // "内部恢复"豁免 _AudioMutex 而裸奔执行，于是能和持锁的 playSong 交错，
+      // 表现为「点了 B 却在放 A」。
+      PlatformUtils.setDebugOverride(AppPlatform.android);
+      addTearDown(() => PlatformUtils.setDebugOverride(null));
+      final clock = _FakeClock();
+      final audio = _FakeAudioController();
+      final recoveryCompleter = Completer<String>();
+      final platform = _RecoveryHangPlatform(
+        recoveryCompleter: recoveryCompleter,
+      );
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        audioControllerFactory: () => _FakeAudioController(),
+        platformResolver: (_) => platform,
+        playbackHealthCheckInterval: Duration.zero,
+        playbackStallThreshold: const Duration(milliseconds: 10),
+        playbackRecoveryCooldown: Duration.zero,
+        playbackStartupGracePeriod: Duration.zero,
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+        now: clock.now,
+      );
+      addTearDown(notifier.dispose);
+
+      await notifier.playSong(_song('stall-a'));
+      audio.emitPosition(const Duration(seconds: 20));
+      await pumpEventQueue();
+      platform.requestedSongIds.clear();
+
+      clock.advance(const Duration(milliseconds: 11));
+      final healthCheck = notifier.runPlaybackHealthCheckForTest();
+      await pumpEventQueue();
+      await pumpEventQueue();
+
+      // 自愈已进入 _mutex，卡在取 URL 上。
+      expect(platform.requestedSongIds, ['stall-a']);
+
+      final playCall = notifier.playSong(_song('stall-b'));
+      await pumpEventQueue();
+      await pumpEventQueue();
+
+      // 自愈仍持锁 → playSong 不得抢在它之前调用平台。
+      expect(platform.requestedSongIds, isNot(contains('stall-b')));
+
+      recoveryCompleter.complete('https://example.test/stall-a-recovered.mp3');
+      await healthCheck.timeout(const Duration(milliseconds: 500));
+      await playCall.timeout(const Duration(milliseconds: 500));
+      await pumpEventQueue();
+
+      expect(notifier.state.currentSong?.id, 'stall-b');
+      expect(audio.lastUrl, contains('stall-b'));
     },
   );
 
@@ -1288,6 +1611,27 @@ class _FakeClock {
   }
 }
 
+/// Deterministic [Random] that cycles a fixed script, so shuffle tests do not
+/// depend on dart:math's implementation staying stable.
+class _ScriptedRandom implements Random {
+  final List<int> _values;
+  int _cursor = 0;
+
+  _ScriptedRandom(this._values);
+
+  @override
+  int nextInt(int max) {
+    final value = _values[_cursor++ % _values.length];
+    return max <= 1 ? 0 : value % max;
+  }
+
+  @override
+  bool nextBool() => false;
+
+  @override
+  double nextDouble() => 0;
+}
+
 class _FakeAudioController implements PlayerAudioController {
   final _positionController = StreamController<Duration>.broadcast();
   final _durationController = StreamController<Duration?>.broadcast();
@@ -1437,6 +1781,27 @@ class _FakeAudioController implements PlayerAudioController {
     await _positionController.close();
     await _durationController.close();
     await _playerStateController.close();
+  }
+}
+
+class _FakeCapableAudioController extends _FakeAudioController
+    implements PlaybackSpeedCapable, SkipSilenceCapable {
+  final List<double> speedChanges = [];
+  final List<bool> skipSilenceChanges = [];
+  double _speed = 1.0;
+
+  @override
+  double get playbackSpeed => _speed;
+
+  @override
+  Future<void> setPlaybackSpeed(double speed) async {
+    _speed = speed;
+    speedChanges.add(speed);
+  }
+
+  @override
+  Future<void> setSkipSilence(bool enabled) async {
+    skipSilenceChanges.add(enabled);
   }
 }
 
@@ -1675,6 +2040,29 @@ class _QualityHangPlatform extends _FakeMusicPlatform {
       return qualityCompleter.future;
     }
     return Future.value(normalUrl);
+  }
+}
+
+/// `getSongUrl` hangs on every 'stall-a' request after the first one, so the
+/// stall-recovery sequence is forced to sit inside `_AudioMutex`.
+class _RecoveryHangPlatform extends _FakeMusicPlatform {
+  final Completer<String> recoveryCompleter;
+  final List<String> requestedSongIds = [];
+  int _stallCalls = 0;
+
+  _RecoveryHangPlatform({required this.recoveryCompleter});
+
+  @override
+  Future<String> getSongUrl(
+    String songId, {
+    AudioLevel quality = AudioLevel.low,
+  }) {
+    requestedSongIds.add(songId);
+    if (songId == 'stall-a') {
+      _stallCalls++;
+      if (_stallCalls > 1) return recoveryCompleter.future;
+    }
+    return super.getSongUrl(songId, quality: quality);
   }
 }
 

@@ -37,7 +37,24 @@ abstract class PlayerAudioController {
   Future<void> dispose();
 }
 
-class JustAudioController implements PlayerAudioController {
+/// Optional playback capabilities.
+///
+/// Deliberately separate interfaces instead of more members on
+/// [PlayerAudioController]: that interface is implemented by nine test doubles
+/// across the repo, so a new abstract member would break every one of them at
+/// once. Backends that cannot do something (media_kit has no skip-silence)
+/// simply don't implement the interface, and the UI degrades honestly.
+abstract class PlaybackSpeedCapable {
+  double get playbackSpeed;
+  Future<void> setPlaybackSpeed(double speed);
+}
+
+abstract class SkipSilenceCapable {
+  Future<void> setSkipSilence(bool enabled);
+}
+
+class JustAudioController
+    implements PlayerAudioController, PlaybackSpeedCapable, SkipSilenceCapable {
   static const double _maxAndroidLoudnessCompensationDb = 6.0;
 
   final AudioPlayer _player;
@@ -164,6 +181,16 @@ class JustAudioController implements PlayerAudioController {
 
   @override
   Future<void> setVolume(double volume) => _player.setVolume(volume);
+
+  @override
+  double get playbackSpeed => _player.speed;
+
+  @override
+  Future<void> setPlaybackSpeed(double speed) => _player.setSpeed(speed);
+
+  @override
+  Future<void> setSkipSilence(bool enabled) =>
+      _player.setSkipSilenceEnabled(enabled);
 
   @override
   Future<void> applyEqualizer({

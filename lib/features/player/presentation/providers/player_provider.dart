@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart' show AudioPlayer, ProcessingState;
 import '../../../../core/diagnostics/diagnostics_service.dart';
+import '../../../../core/network/platform_http.dart';
 import '../../../../core/platform/platform_utils.dart';
 import '../../../audio_effects/presentation/providers/audio_effects_provider.dart';
 import '../../../floating_lyrics/presentation/providers/floating_lyrics_provider.dart';
@@ -70,6 +71,16 @@ class PlayerState {
   final RepeatMode repeatMode;
   final bool isTransitioning;
 
+  /// 播放倍速（1.0 = 原速）。仅当后端实现 [PlaybackSpeedCapable] 时可改。
+  final double playbackSpeed;
+
+  /// 是否跳过静音段（仅 Android/just_audio 后端支持）。
+  final bool skipSilence;
+
+  /// A-B 循环区间；两者都为非 null 时才生效。
+  final Duration? abLoopStart;
+  final Duration? abLoopEnd;
+
   const PlayerState({
     this.currentSong,
     this.playlist = const [],
@@ -83,7 +94,13 @@ class PlayerState {
     this.isShuffle = false,
     this.repeatMode = RepeatMode.off,
     this.isTransitioning = false,
+    this.playbackSpeed = 1.0,
+    this.skipSilence = false,
+    this.abLoopStart,
+    this.abLoopEnd,
   });
+
+  bool get hasAbLoop => abLoopStart != null && abLoopEnd != null;
 
   PlayerState copyWith({
     Song? currentSong,
@@ -98,6 +115,10 @@ class PlayerState {
     bool? isShuffle,
     RepeatMode? repeatMode,
     bool? isTransitioning,
+    double? playbackSpeed,
+    bool? skipSilence,
+    Duration? Function()? abLoopStart,
+    Duration? Function()? abLoopEnd,
   }) {
     return PlayerState(
       currentSong: currentSong ?? this.currentSong,
@@ -112,6 +133,10 @@ class PlayerState {
       isShuffle: isShuffle ?? this.isShuffle,
       repeatMode: repeatMode ?? this.repeatMode,
       isTransitioning: isTransitioning ?? this.isTransitioning,
+      playbackSpeed: playbackSpeed ?? this.playbackSpeed,
+      skipSilence: skipSilence ?? this.skipSilence,
+      abLoopStart: abLoopStart != null ? abLoopStart() : this.abLoopStart,
+      abLoopEnd: abLoopEnd != null ? abLoopEnd() : this.abLoopEnd,
     );
   }
 }
@@ -171,6 +196,11 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   final bool Function() _isFloatingLyricsEnabled;
   final List<StreamSubscription> _subscriptions = [];
   final _mutex = _AudioMutex();
+  final Random _random;
+  /// 随机播放的"已播集合"（本轮尚未播过的曲目之外不再挑）。
+  final Set<String> _shuffledPlayedSongKeys = {};
+  /// 随机播放的历史栈，供 skipToPrevious 回到真正听过的那首。
+  final List<int> _shuffleHistory = [];
   bool _isSwitchingQuality = false;
   bool _restoredSourceNeedsLoad = false;
   int _lastPositionSecond = -1;
@@ -182,6 +212,9 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   PlayerPlaybackMemory? _pendingPlaybackMemory;
   bool _fadeEnabled = false;
   Duration _fadeDuration = const Duration(milliseconds: 800);
+  AudioEffectsSettings? _lastEqualizerSettings;
+  bool _isSleepFadingOut = false;
+  bool _isSeekingAbLoop = false;
   bool _lastKeepAlivePlaying = false;
   int _fadeGeneration = 0;
   ProcessingState _lastProcessingState = ProcessingState.idle;
@@ -223,7 +256,9 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     this._playbackRecoveryCooldown = const Duration(seconds: 30),
     this._playbackStartupGracePeriod = const Duration(seconds: 8),
     DateTime Function()? now,
+    Random? random,
   }) : _audioController = audioController,
+       _random = random ?? Random(),
        _platformResolver = platformResolver ?? PlatformRegistry.get,
        _audioControllerFactory =
            audioControllerFactory ?? defaultPlayerAudioControllerFactory,
@@ -377,6 +412,11 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   @visibleForTesting
   Future<void> runPlaybackHealthCheckForTest() => _checkPlaybackHealth();
 
+  /// Whether a controller instance is still referenced. `dispose()` must leave
+  /// this false so nothing can resurrect the disposed platform channel.
+  @visibleForTesting
+  bool get hasAudioControllerForTest => _audioController != null;
+
   String? _songKey(Song? song) =>
       song == null ? null : '${song.platform.name}:${song.id}';
 
@@ -466,6 +506,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         !state.isTransitioning &&
         !_isSwitchingQuality &&
         !_restoredSourceNeedsLoad &&
+        !_isSleepFadingOut &&
         !_isRecoveringPlayback;
   }
 
@@ -520,6 +561,10 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     }
     final current = controller.volume;
     if (current >= 1.0) return;
+    if (_isSleepFadingOut) {
+      // 睡眠定时的淡出是合法的非满音量窗口（它不依赖用户的淡入淡出开关）。
+      return;
+    }
     if (_fadeEnabled) {
       final lastWriteAt = _lastVolumeWriteAt;
       if (lastWriteAt != null &&
@@ -592,58 +637,69 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       },
     );
 
+    // 自愈必须走 _AudioMutex：它做的是 stop/setUrl/seek/play 这一整套传输序列，
+    // 以前被当作"内部恢复"豁免、裸奔执行，于是和持锁的 playSong 并发抢同一个
+    // 控制器（可表现为点了 B 却在放 A）。锁自身不嵌套——内部没有任何
+    // `_mutex.run`。
     try {
-      final platform = _platformResolver(song.platform);
-      final url = await DiagnosticsService.instance.measure(
-        'platform.getSongUrl.stallRecovery',
-        () => platform
-            .getSongUrl(song.id, quality: quality)
-            .timeout(const Duration(seconds: 10)),
-        data: {
-          'platform': song.platform.name,
-          'song_id': song.id,
-          'quality': quality.name,
-        },
-      );
-      final stillSamePlayback =
-          mounted &&
-          requestId == _playRequestId &&
-          qualityRequestId == _qualityRequestId &&
-          state.currentSong?.id == song.id &&
-          state.currentSong?.platform == song.platform;
-      if (!stillSamePlayback) return;
+      await _mutex.run(() async {
+        // 等锁期间播放可能已经换曲/换音质，重新确认后立即放弃。
+        if (!mounted) return;
+        if (requestId != _playRequestId || qualityRequestId != _qualityRequestId) {
+          return;
+        }
+        final platform = _platformResolver(song.platform);
+        final url = await DiagnosticsService.instance.measure(
+          'platform.getSongUrl.stallRecovery',
+          () => platform
+              .getSongUrl(song.id, quality: quality)
+              .timeout(const Duration(seconds: 10)),
+          data: {
+            'platform': song.platform.name,
+            'song_id': song.id,
+            'quality': quality.name,
+          },
+        );
+        final stillSamePlayback =
+            mounted &&
+            requestId == _playRequestId &&
+            qualityRequestId == _qualityRequestId &&
+            state.currentSong?.id == song.id &&
+            state.currentSong?.platform == song.platform;
+        if (!stillSamePlayback) return;
 
-      final fadeGeneration = _cancelActiveFades();
-      await _safeStop();
-      if (requestId != _playRequestId) return;
-      await _setUrlWithRecovery(url, 'playbackStallRecovery');
-      if (requestId != _playRequestId) return;
-      if (resumePosition > Duration.zero) {
-        await _safeSeek(resumePosition);
-      }
-      if (requestId != _playRequestId) return;
-      await _safeSetVolume(1);
-      _safePlay(requestId: requestId);
-      _schedulePlaybackVolumeRecovery(fadeGeneration);
-      _setState(
-        state.copyWith(
-          isPlaying: true,
-          isTransitioning: false,
-          position: resumePosition,
-          error: () => null,
-        ),
-      );
-      _resetPlaybackHealthWindow(applyGrace: true);
-      DiagnosticsService.instance.record(
-        'player',
-        'playback_stall_recovery_success',
-        data: {
-          'song_id': song.id,
-          'platform': song.platform.name,
-          'position_ms': resumePosition.inMilliseconds,
-          'attempt': _recoveryAttemptsForSong,
-        },
-      );
+        final fadeGeneration = _cancelActiveFades();
+        await _safeStop();
+        if (requestId != _playRequestId) return;
+        await _setUrlWithRecovery(url, 'playbackStallRecovery');
+        if (requestId != _playRequestId) return;
+        if (resumePosition > Duration.zero) {
+          await _safeSeek(resumePosition);
+        }
+        if (requestId != _playRequestId) return;
+        await _safeSetVolume(1);
+        _safePlay(requestId: requestId);
+        _schedulePlaybackVolumeRecovery(fadeGeneration);
+        _setState(
+          state.copyWith(
+            isPlaying: true,
+            isTransitioning: false,
+            position: resumePosition,
+            error: () => null,
+          ),
+        );
+        _resetPlaybackHealthWindow(applyGrace: true);
+        DiagnosticsService.instance.record(
+          'player',
+          'playback_stall_recovery_success',
+          data: {
+            'song_id': song.id,
+            'platform': song.platform.name,
+            'position_ms': resumePosition.inMilliseconds,
+            'attempt': _recoveryAttemptsForSong,
+          },
+        );
+      }, label: 'stallRecovery');
     } catch (error, stack) {
       if (!mounted) return;
       DiagnosticsService.instance.recordError(
@@ -658,7 +714,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         },
       );
       _setState(
-        state.copyWith(error: () => 'Playback recovery failed: $error'),
+        state.copyWith(error: () => '播放恢复失败：${_userFacingError(error)}'),
       );
     } finally {
       _isRecoveringPlayback = false;
@@ -676,6 +732,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
           _setState(state.copyWith(position: pos));
           _observePlaybackHealthPosition(pos);
           _schedulePlaybackMemorySave();
+          _enforceAbLoop(pos);
         }
       }),
     );
@@ -749,7 +806,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
             state.copyWith(
               isPlaying: false,
               isTransitioning: false,
-              error: () => 'Playback failed: $e',
+              error: () => _userFacingError(e),
             ),
           );
         },
@@ -867,6 +924,9 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   }
 
   Future<void> applyEqualizerSettings(AudioEffectsSettings settings) async {
+    // Remembered so `_recreatePlayer` can push the same curve to the brand new
+    // controller: a recreated player starts with the equalizer disabled.
+    _lastEqualizerSettings = settings;
     try {
       await _ensureAudioController()
           .applyEqualizer(
@@ -883,6 +943,107 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         data: {'enabled': settings.equalizerEnabled},
       );
     }
+  }
+
+  /// Whether the current backend can change playback speed.
+  bool get supportsPlaybackSpeed =>
+      _ensureAudioController() is PlaybackSpeedCapable;
+
+  /// Whether the current backend can skip silent passages.
+  bool get supportsSkipSilence =>
+      _ensureAudioController() is SkipSilenceCapable;
+
+  /// Sets the playback speed, clamped to a sane range.
+  ///
+  /// Not routed through [_AudioMutex]: like the volume writes this is a single
+  /// property write, not part of the stop/setUrl/seek/play transport sequence
+  /// the mutex exists to serialize.
+  Future<void> setPlaybackSpeed(double speed) async {
+    final clamped = speed.clamp(0.5, 2.0).toDouble();
+    final controller = _ensureAudioController();
+    if (controller is! PlaybackSpeedCapable) {
+      _setState(state.copyWith(error: () => '当前播放后端不支持倍速播放'));
+      return;
+    }
+    // 显式转换：Dart 不会把 PlayerAudioController 提升为不相关的接口类型。
+    final speedController = controller as PlaybackSpeedCapable;
+    try {
+      await speedController
+          .setPlaybackSpeed(clamped)
+          .timeout(_audioOperationTimeout);
+      _setState(state.copyWith(playbackSpeed: clamped, error: () => null));
+    } catch (e, s) {
+      DiagnosticsService.instance.recordError(
+        'player.setPlaybackSpeed',
+        e,
+        s,
+        data: {'speed': clamped},
+      );
+      _setState(state.copyWith(error: () => '设置倍速失败：${_userFacingError(e)}'));
+    }
+  }
+
+  Future<void> setSkipSilence(bool enabled) async {
+    final controller = _ensureAudioController();
+    if (controller is! SkipSilenceCapable) {
+      _setState(state.copyWith(error: () => '当前播放后端不支持跳过静音'));
+      return;
+    }
+    final skipSilenceController = controller as SkipSilenceCapable;
+    try {
+      await skipSilenceController
+          .setSkipSilence(enabled)
+          .timeout(_audioOperationTimeout);
+      _setState(state.copyWith(skipSilence: enabled, error: () => null));
+    } catch (e, s) {
+      DiagnosticsService.instance.recordError(
+        'player.setSkipSilence',
+        e,
+        s,
+        data: {'enabled': enabled},
+      );
+      _setState(state.copyWith(error: () => '设置跳过静音失败：${_userFacingError(e)}'));
+    }
+  }
+
+  /// Marks the start of an A-B loop at [position] (defaults to the current
+  /// playback position).
+  void setAbLoopStart([Duration? position]) {
+    final start = position ?? state.position;
+    final end = state.abLoopEnd;
+    if (end != null && end <= start) {
+      // 新的 A 落在 B 之后：丢弃已经无效的 B 而不是留下一个空区间。
+      _setState(state.copyWith(abLoopStart: () => start, abLoopEnd: () => null));
+      return;
+    }
+    _setState(state.copyWith(abLoopStart: () => start));
+  }
+
+  void setAbLoopEnd([Duration? position]) {
+    final end = position ?? state.position;
+    final start = state.abLoopStart;
+    if (start == null || end <= start) {
+      _setState(state.copyWith(error: () => 'B 点必须晚于 A 点'));
+      return;
+    }
+    _setState(state.copyWith(abLoopEnd: () => end, error: () => null));
+  }
+
+  void clearAbLoop() {
+    if (!state.hasAbLoop && state.abLoopStart == null) return;
+    _setState(state.copyWith(abLoopStart: () => null, abLoopEnd: () => null));
+  }
+
+  void _enforceAbLoop(Duration position) {
+    final start = state.abLoopStart;
+    final end = state.abLoopEnd;
+    if (start == null || end == null) return;
+    if (position < end) return;
+    if (_isSeekingAbLoop) return;
+    _isSeekingAbLoop = true;
+    unawaited(
+      _safeSeek(start).whenComplete(() => _isSeekingAbLoop = false),
+    );
   }
 
   Future<void> _safeSetVolume(double volume) async {
@@ -975,6 +1136,65 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     return true;
   }
 
+  /// Fades the current playback out and then pauses it.
+  ///
+  /// Used by the sleep timer: the previous implementation called `pause()`
+  /// abruptly, cutting the audio mid-note. The ramp is written directly rather
+  /// than reusing [_runFade] because that helper no-ops unless the user turned
+  /// the regular fade-in/out setting on, and the sleep fade must always happen.
+  Future<void> fadeOutAndPause({
+    Duration duration = const Duration(milliseconds: 1500),
+  }) async {
+    return _mutex.run(() async {
+      try {
+        final controller = _ensureAudioController();
+        if (!controller.playing) return;
+        final generation = _cancelActiveFades();
+        _isSleepFadingOut = true;
+        await _rampVolume(
+          from: controller.volume.clamp(0.0, 1.0),
+          to: 0,
+          duration: duration,
+          generation: generation,
+        );
+        if (generation != _fadeGeneration) return;
+        await controller.pause().timeout(_audioOperationTimeout);
+        _setState(state.copyWith(isPlaying: false));
+        _resetPlaybackHealthWindow(applyGrace: false);
+        // 淡出到 0 后把播放器音量复位，否则下一次播放会静音。
+        await _safeSetVolume(1);
+      } catch (e, s) {
+        debugPrint('fadeOutAndPause failed: $e');
+        DiagnosticsService.instance.recordError('player.fadeOutAndPause', e, s);
+        await _recreatePlayer();
+      } finally {
+        _isSleepFadingOut = false;
+      }
+    }, label: 'fadeOutAndPause');
+  }
+
+  Future<void> _rampVolume({
+    required double from,
+    required double to,
+    required Duration duration,
+    required int generation,
+  }) async {
+    if (generation != _fadeGeneration) return;
+    if (from == to || duration <= Duration.zero) {
+      await _safeSetVolume(to);
+      return;
+    }
+    const steps = 6;
+    final stepDelay = Duration(
+      milliseconds: max(1, duration.inMilliseconds ~/ steps),
+    );
+    for (var i = 1; i <= steps; i++) {
+      await Future<void>.delayed(stepDelay);
+      if (generation != _fadeGeneration) return;
+      await _safeSetVolume(from + ((to - from) * i / steps));
+    }
+  }
+
   void _schedulePlaybackVolumeRecovery(int generation) {
     if (!_fadeEnabled) return;
     final delay = _fadeDuration + const Duration(milliseconds: 150);
@@ -1034,6 +1254,17 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     }
   }
 
+  /// User-facing playback error text.
+  ///
+  /// Wave 1 unified the platform layer on typed [ApiException]s, so the player
+  /// must surface `apiExceptionOf(e).message` (already localized) instead of
+  /// concatenating `'Playback failed: $e'`, which was the source of the
+  /// Chinese/English mixed strings in the UI.
+  String _userFacingError(Object error) {
+    if (error is TimeoutException) return '播放超时，请稍后重试';
+    return apiExceptionOf(error).message;
+  }
+
   void _handleAsyncPlayError(Object error, StackTrace stack, int? requestId) {
     if (!mounted) return;
     if (requestId != null && requestId != _playRequestId) return;
@@ -1043,7 +1274,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       state.copyWith(
         isPlaying: false,
         isTransitioning: false,
-        error: () => 'Playback failed: $error',
+        error: () => _userFacingError(error),
       ),
     );
     if (error is PlatformException || error is TimeoutException) {
@@ -1088,6 +1319,49 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     }
     _audioController = _audioControllerFactory();
     _setupListeners(_audioController!);
+    await _restoreControllerAudioSettings();
+  }
+
+  /// Pushes the audio settings the fresh controller cannot know about.
+  ///
+  /// A recreated player starts with the equalizer disabled and its volume at
+  /// the backend default; without this the user's EQ silently disappears and a
+  /// non-full volume left over from an interrupted fade sticks, which is
+  /// exactly the "progress moves but there is no sound" symptom the volume
+  /// watchdog exists for.
+  Future<void> _restoreControllerAudioSettings() async {
+    final settings = _lastEqualizerSettings;
+    if (settings != null) {
+      await applyEqualizerSettings(settings);
+    }
+    final controller = _audioController;
+    if (controller != null && controller is PlaybackSpeedCapable) {
+      final speedController = controller as PlaybackSpeedCapable;
+      if (state.playbackSpeed != 1.0) {
+        try {
+          await speedController
+              .setPlaybackSpeed(state.playbackSpeed)
+              .timeout(_audioOperationTimeout);
+        } catch (e) {
+          debugPrint('PlayerNotifier restore speed failed: $e');
+        }
+      }
+    }
+    if (controller != null && controller is SkipSilenceCapable) {
+      final skipSilenceController = controller as SkipSilenceCapable;
+      if (state.skipSilence) {
+        try {
+          await skipSilenceController
+              .setSkipSilence(true)
+              .timeout(_audioOperationTimeout);
+        } catch (e) {
+          debugPrint('PlayerNotifier restore skip silence failed: $e');
+        }
+      }
+    }
+    if (!_fadeEnabled) {
+      await _safeSetVolume(1);
+    }
   }
 
   Future<void> _setUrlWithRecovery(String url, String label) async {
@@ -1141,8 +1415,12 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   }
 
   Future<void> playSong(Song song) async {
-    _qualityRequestId++;
     return _mutex.run(() async {
+      // 质量纪元必须在锁内推进。锁外推进正是 S-1 的死锁源：switchQuality 飞行中
+      // 任意一次 playSong 都会把它的 requestId 推走，使 `finally` 里的复位条件
+      // 不成立，`_isSwitchingQuality` 于是永为 true —— 换音质静默失效，并连带
+      // 关闭健康监测（:457）与音量守护（:510），即"后台有进度没声音"的唯一自愈路径。
+      _qualityRequestId++;
       final requestId = ++_playRequestId;
       DiagnosticsService.instance.record(
         'player',
@@ -1162,6 +1440,12 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       );
       try {
         _restoredSourceNeedsLoad = false;
+        // 换曲即失效：A-B 循环属于上一首的时间轴。
+        if (state.abLoopStart != null || state.abLoopEnd != null) {
+          _setState(
+            state.copyWith(abLoopStart: () => null, abLoopEnd: () => null),
+          );
+        }
         final fadeGeneration = _cancelActiveFades();
         // Update UI immediately
         final newIndex = state.playlist.indexWhere(
@@ -1261,7 +1545,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
           state.copyWith(
             isPlaying: false,
             isTransitioning: false,
-            error: () => 'Playback failed: ${e.toString()}',
+            error: () => _userFacingError(e),
           ),
         );
         DiagnosticsService.instance.recordError(
@@ -1275,6 +1559,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   }
 
   Future<void> playPlaylist(List<Song> songs, {int startIndex = 0}) async {
+    _resetShuffleBookkeeping();
     _setState(state.copyWith(playlist: songs, currentIndex: startIndex));
     _schedulePlaybackMemorySave();
     if (startIndex < songs.length) {
@@ -1287,8 +1572,9 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     if (song == null) return;
     final resumePosition = state.position;
     final quality = state.currentQuality;
-    _qualityRequestId++;
     return _mutex.run(() async {
+      // 同 playSong：质量纪元只在锁内推进，避免把飞行中的换音质请求推走。
+      _qualityRequestId++;
       final requestId = ++_playRequestId;
       _startTransitionWatchdog(requestId);
       final platform = song.platform == PlatformType.local
@@ -1346,7 +1632,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
           state.copyWith(
             isPlaying: false,
             isTransitioning: false,
-            error: () => 'Playback failed: ${e.toString()}',
+            error: () => _userFacingError(e),
           ),
         );
         DiagnosticsService.instance.recordError(
@@ -1397,8 +1683,11 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     AudioLevel quality, {
     bool preferHighest = false,
   }) async {
-    final requestId = ++_qualityRequestId;
     return _mutex.run(() async {
+      // 质量纪元在锁内推进（S-1）：锁外推进会让正在飞行的换音质请求看到
+      // 「requestId != _qualityRequestId」而提前 return，其 finally 的复位条件
+      // 随即不成立。
+      final requestId = ++_qualityRequestId;
       final song = state.currentSong;
       final preference = preferHighest
           ? AudioQualityPreference.highest
@@ -1463,7 +1752,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         }
       } on TimeoutException {
         if (requestId == _qualityRequestId) {
-          _setState(state.copyWith(error: () => 'Quality switch timed out.'));
+          _setState(state.copyWith(error: () => '换音质超时，请重试'));
         }
       } catch (e) {
         debugPrint('Quality switch error: $e');
@@ -1480,31 +1769,85 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         if (requestId == _qualityRequestId) {
           _setState(
             state.copyWith(
-              error: () => 'Quality switch failed: ${e.toString()}',
+              error: () => '换音质失败：${_userFacingError(e)}',
             ),
           );
         }
       } finally {
-        if (requestId == _qualityRequestId) {
-          _isSwitchingQuality = false;
-        }
+        // 无条件复位。以前这里是 `if (requestId == _qualityRequestId)`，
+        // 一旦纪元被推走闸门就永远锁死：此后所有 switchQuality 都在上面
+        // `if (_isSwitchingQuality) return;` 处直接返回（该 return 在 try
+        // 之前，finally 不再执行），健康监测与音量守护也一起失效。
+        _isSwitchingQuality = false;
       }
     }, label: 'switchQuality');
   }
 
   void toggleShuffle() {
     final newShuffle = !state.isShuffle;
+    _resetShuffleBookkeeping();
     if (newShuffle && state.playlist.length > 1) {
       final current = state.currentSong;
       final others = List<Song>.from(state.playlist)
         ..removeAt(state.currentIndex);
-      others.shuffle();
+      others.shuffle(_random);
       final newPlaylist = <Song>[?current, ...others];
       _setState(
         state.copyWith(isShuffle: true, playlist: newPlaylist, currentIndex: 0),
       );
     } else {
       _setState(state.copyWith(isShuffle: newShuffle));
+    }
+  }
+
+  void _resetShuffleBookkeeping() {
+    _shuffledPlayedSongKeys.clear();
+    _shuffleHistory.clear();
+  }
+
+  /// Picks the next index for shuffle playback.
+  ///
+  /// Old implementation created a fresh `Random()` on every tick and only
+  /// excluded `currentIndex`, so a long queue kept re-playing the same few
+  /// tracks (sampling with replacement). This walks the queue without repeats,
+  /// only starting a new round once every track has been played.
+  int _pickShuffledIndex() {
+    final playlist = state.playlist;
+    final currentIndex = state.currentIndex;
+    final currentKey = currentIndex >= 0 && currentIndex < playlist.length
+        ? _songKey(playlist[currentIndex])
+        : null;
+    if (currentKey != null) {
+      _shuffledPlayedSongKeys.add(currentKey);
+    }
+
+    var candidates = <int>[
+      for (var i = 0; i < playlist.length; i++)
+        if (i != currentIndex &&
+            !_shuffledPlayedSongKeys.contains(_songKey(playlist[i])))
+          i,
+    ];
+    if (candidates.isEmpty) {
+      // 一整轮播完：重置已播集合，只排除当前曲。
+      _shuffledPlayedSongKeys.clear();
+      if (currentKey != null) {
+        _shuffledPlayedSongKeys.add(currentKey);
+      }
+      candidates = [
+        for (var i = 0; i < playlist.length; i++)
+          if (i != currentIndex) i,
+      ];
+    }
+    return candidates[_random.nextInt(candidates.length)];
+  }
+
+  void _pushShuffleHistory(int index) {
+    final limit = state.playlist.length;
+    if (limit == 0) return;
+    if (_shuffleHistory.isNotEmpty && _shuffleHistory.last == index) return;
+    _shuffleHistory.add(index);
+    while (_shuffleHistory.length > limit) {
+      _shuffleHistory.removeAt(0);
     }
   }
 
@@ -1529,10 +1872,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       if (state.playlist.length == 1) {
         nextIndex = 0;
       } else {
-        final rng = Random();
-        do {
-          nextIndex = rng.nextInt(state.playlist.length);
-        } while (nextIndex == state.currentIndex);
+        _pushShuffleHistory(state.currentIndex);
+        nextIndex = _pickShuffledIndex();
       }
     } else {
       nextIndex = state.currentIndex + 1;
@@ -1560,11 +1901,15 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     if (state.isShuffle) {
       if (state.playlist.length == 1) {
         prevIndex = 0;
+      } else if (_shuffleHistory.isNotEmpty) {
+        // 回到真正听过的那一首，而不是重新随机（随机回退必然重复）。
+        prevIndex = _shuffleHistory.removeLast();
+        if (prevIndex < 0 || prevIndex >= state.playlist.length) {
+          prevIndex = state.currentIndex;
+        }
       } else {
-        final rng = Random();
-        do {
-          prevIndex = rng.nextInt(state.playlist.length);
-        } while (prevIndex == state.currentIndex);
+        _pushShuffleHistory(state.currentIndex);
+        prevIndex = _pickShuffledIndex();
       }
     } else {
       prevIndex = state.currentIndex - 1;
@@ -1629,9 +1974,18 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     for (final sub in _subscriptions) {
       sub.cancel();
     }
+    _subscriptions.clear();
     _notificationController.detach();
     unawaited(_keepAliveController.dispose());
-    _audioController?.dispose();
+    // Null the reference immediately: listeners and `_ensureAudioController`
+    // consult `_audioController`, and a disposed-but-still-referenced player
+    // would be reused by anything that runs after `dispose()` (e.g. a pending
+    // timer callback), resurrecting a dead platform channel.
+    final controller = _audioController;
+    _audioController = null;
+    if (controller != null) {
+      unawaited(controller.dispose());
+    }
     super.dispose();
   }
 }

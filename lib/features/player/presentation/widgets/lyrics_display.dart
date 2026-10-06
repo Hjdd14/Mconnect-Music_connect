@@ -5,6 +5,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../lyrics/lyrics_progress.dart';
 import '../../../../lyrics/models/lyrics_line.dart';
+import '../providers/lyrics_offset_provider.dart';
 import '../providers/lyrics_provider.dart';
 import '../providers/player_provider.dart';
 import 'word_by_word_lyrics.dart';
@@ -38,6 +39,8 @@ class _LyricsDisplayState extends ConsumerState<LyricsDisplay>
   Timer? _scrollTimer;
   Timer? _positionTimer;
   Duration _position = Duration.zero;
+  /// Manual calibration; added to the playback position before matching lines.
+  Duration _lyricsOffset = Duration.zero;
   String? _lastSongId;
   String? _progressSongId;
   LyricsDocument? _lastDocument;
@@ -84,7 +87,7 @@ class _LyricsDisplayState extends ConsumerState<LyricsDisplay>
     final player = ref.read(playerProvider);
     if (!player.isPlaying) return;
     final position = _progressEstimator.estimate(
-      player.position,
+      player.position + _lyricsOffset,
       isPlaying: true,
       duration: player.duration,
     );
@@ -283,7 +286,10 @@ class _LyricsDisplayState extends ConsumerState<LyricsDisplay>
   @override
   Widget build(BuildContext context) {
     final lyricsAsync = ref.watch(lyricsProvider);
-    final position = _position;
+    // 手动校准：把播放位置整体平移，行匹配与逐字进度都跟着走。
+    final lyricsOffset = ref.watch(lyricsOffsetProvider);
+    _lyricsOffset = lyricsOffset;
+    final position = _position + lyricsOffset;
     final currentSongId = ref.watch(
       playerProvider.select((s) => s.currentSong?.id),
     );
@@ -404,7 +410,11 @@ class _LyricsDisplayState extends ConsumerState<LyricsDisplay>
   }
 
   void _seekToLine(LyricsLine line) {
-    ref.read(playerProvider.notifier).seek(line.timestamp);
+    // 校准偏移让"显示的时间"与"音频时间"相差 offset，回跳时要还原。
+    final target = line.timestamp - _lyricsOffset;
+    ref
+        .read(playerProvider.notifier)
+        .seek(target < Duration.zero ? Duration.zero : target);
   }
 }
 

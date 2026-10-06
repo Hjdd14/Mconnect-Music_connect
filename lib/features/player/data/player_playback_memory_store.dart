@@ -105,7 +105,10 @@ class PlayerPlaybackMemory {
     final id = value['id']?.toString() ?? '';
     final name = value['name']?.toString() ?? '';
     if (id.isEmpty || name.isEmpty) return null;
-    final platform = _platformFromName(value['platform']);
+    // 未知/已删除的平台名 → 丢弃这一行。以前这里回落 netease，会把别家平台的歌
+    // 伪装成网易云的歌去取流（恢复到错误平台）。
+    final platform = PlatformType.tryParse(value['platform']?.toString());
+    if (platform == null) return null;
     final rawArtists = value['artists'];
     final artists = rawArtists is List
         ? rawArtists.map(_artistFromJson).whereType<Artist>().toList()
@@ -159,14 +162,6 @@ class PlayerPlaybackMemory {
           ),
         )
         .toList();
-  }
-
-  static PlatformType _platformFromName(dynamic value) {
-    final name = value?.toString();
-    return PlatformType.values.firstWhere(
-      (platform) => platform.name == name,
-      orElse: () => PlatformType.netease,
-    );
   }
 
   static AudioLevel _audioLevelFromName(dynamic value) {

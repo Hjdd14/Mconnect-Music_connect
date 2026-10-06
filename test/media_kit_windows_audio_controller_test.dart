@@ -162,6 +162,19 @@ void main() {
       expect(states.last.processingState, just_audio.ProcessingState.idle);
     },
   );
+
+  test('playback speed is forwarded to the media_kit backend', () async {
+    final backend = _FakeMediaKitWindowsBackend();
+    final controller = MediaKitWindowsAudioController(
+      backendFactory: () => backend,
+    );
+    addTearDown(controller.dispose);
+
+    await controller.setPlaybackSpeed(1.5);
+
+    expect(backend.speedChanges, [1.5]);
+    expect(controller.playbackSpeed, 1.5);
+  });
 }
 
 class _FakeMediaKitWindowsBackend implements MediaKitWindowsBackend {
@@ -174,6 +187,7 @@ class _FakeMediaKitWindowsBackend implements MediaKitWindowsBackend {
   final Duration durationAfterOpen;
   final List<double> volumeChanges = [];
   final List<String> audioFilters = [];
+  final List<double> speedChanges = [];
   int durationReadCount = 0;
   bool _playing = false;
   Duration _position = Duration.zero;
@@ -263,6 +277,11 @@ class _FakeMediaKitWindowsBackend implements MediaKitWindowsBackend {
   @override
   Future<void> setAudioFilter(String filter) async {
     audioFilters.add(filter);
+  }
+
+  @override
+  Future<void> setSpeed(double speed) async {
+    speedChanges.add(speed);
   }
 
   @override

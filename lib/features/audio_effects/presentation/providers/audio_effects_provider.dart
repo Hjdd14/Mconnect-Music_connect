@@ -66,6 +66,11 @@ class AudioEffectsSettings {
   final bool fadeEnabled;
   final Duration fadeDuration;
   final Duration sleepTimerDuration;
+
+  /// Sleep-timer runtime state, persisted so the countdown survives a restart
+  /// (previously the switch and the remaining time were lost on every launch).
+  final bool sleepTimerEnabled;
+  final Duration sleepTimerRemaining;
   final bool equalizerEnabled;
   final EqualizerPreset equalizerPreset;
   final List<double> equalizerBandGains;
@@ -74,6 +79,8 @@ class AudioEffectsSettings {
     this.fadeEnabled = false,
     this.fadeDuration = const Duration(milliseconds: 800),
     this.sleepTimerDuration = const Duration(minutes: 30),
+    this.sleepTimerEnabled = false,
+    this.sleepTimerRemaining = Duration.zero,
     this.equalizerEnabled = false,
     this.equalizerPreset = EqualizerPreset.flat,
     this.equalizerBandGains = const [0, 0, 0, 0, 0],
@@ -83,6 +90,8 @@ class AudioEffectsSettings {
     bool? fadeEnabled,
     Duration? fadeDuration,
     Duration? sleepTimerDuration,
+    bool? sleepTimerEnabled,
+    Duration? sleepTimerRemaining,
     bool? equalizerEnabled,
     EqualizerPreset? equalizerPreset,
     List<double>? equalizerBandGains,
@@ -91,6 +100,8 @@ class AudioEffectsSettings {
       fadeEnabled: fadeEnabled ?? this.fadeEnabled,
       fadeDuration: fadeDuration ?? this.fadeDuration,
       sleepTimerDuration: sleepTimerDuration ?? this.sleepTimerDuration,
+      sleepTimerEnabled: sleepTimerEnabled ?? this.sleepTimerEnabled,
+      sleepTimerRemaining: sleepTimerRemaining ?? this.sleepTimerRemaining,
       equalizerEnabled: equalizerEnabled ?? this.equalizerEnabled,
       equalizerPreset: equalizerPreset ?? this.equalizerPreset,
       equalizerBandGains: equalizerBandGains ?? this.equalizerBandGains,
@@ -108,6 +119,8 @@ class AudioEffectsSettings {
       'fadeEnabled': fadeEnabled,
       'fadeDurationMs': fadeDuration.inMilliseconds,
       'sleepTimerDurationMinutes': sleepTimerDuration.inMinutes,
+      'sleepTimerEnabled': sleepTimerEnabled,
+      'sleepTimerRemainingSeconds': sleepTimerRemaining.inSeconds,
       'equalizerEnabled': equalizerEnabled,
       'equalizerPreset': equalizerPreset.name,
       'equalizerBandGains': equalizerBandGains,
@@ -133,6 +146,12 @@ class AudioEffectsSettings {
         value['sleepTimerDurationMinutes'],
         fallback: const Duration(minutes: 30),
         min: const Duration(minutes: 5),
+        max: const Duration(minutes: 120),
+      ),
+      sleepTimerEnabled: value['sleepTimerEnabled'] == true,
+      sleepTimerRemaining: _durationFromSeconds(
+        value['sleepTimerRemainingSeconds'],
+        fallback: Duration.zero,
         max: const Duration(minutes: 120),
       ),
       equalizerEnabled: value['equalizerEnabled'] == true,
@@ -165,6 +184,17 @@ class AudioEffectsSettings {
     final raw = value is int ? value : int.tryParse(value?.toString() ?? '');
     if (raw == null) return fallback;
     return Duration(minutes: raw.clamp(min.inMinutes, max.inMinutes));
+  }
+
+  static Duration _durationFromSeconds(
+    dynamic value, {
+    required Duration fallback,
+    required Duration max,
+  }) {
+    final raw = value is int ? value : int.tryParse(value?.toString() ?? '');
+    if (raw == null) return fallback;
+    final clamped = raw.clamp(0, max.inSeconds);
+    return Duration(seconds: clamped);
   }
 
   static List<double> _equalizerBandGainsFromJson(dynamic value) {
@@ -223,6 +253,19 @@ class AudioEffectsSettingsNotifier extends StateNotifier<AudioEffectsSettings> {
   Future<void> setSleepTimerDuration(Duration duration) {
     final clamped = Duration(minutes: duration.inMinutes.clamp(5, 120));
     return _save(state.copyWith(sleepTimerDuration: clamped));
+  }
+
+  /// Persists the sleep-timer runtime state (switch + remaining time).
+  Future<void> setSleepTimerState({
+    required bool enabled,
+    required Duration remaining,
+  }) {
+    final clamped = Duration(
+      seconds: remaining.inSeconds.clamp(0, const Duration(minutes: 120).inSeconds),
+    );
+    return _save(
+      state.copyWith(sleepTimerEnabled: enabled, sleepTimerRemaining: clamped),
+    );
   }
 
   Future<void> setEqualizerEnabled(bool enabled) {

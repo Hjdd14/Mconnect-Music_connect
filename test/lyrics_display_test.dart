@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart' as just_audio;
+import 'package:mconnect/features/player/presentation/providers/lyrics_offset_provider.dart';
 import 'package:mconnect/features/player/presentation/providers/lyrics_provider.dart';
 import 'package:mconnect/features/player/presentation/providers/player_provider.dart';
 import 'package:mconnect/features/player/presentation/widgets/lyrics_display.dart';
@@ -13,6 +14,35 @@ import 'package:mconnect/models/platform_type.dart';
 import 'package:mconnect/models/song.dart';
 
 void main() {
+  testWidgets('a manual lyrics offset shifts which line is current', (
+    tester,
+  ) async {
+    final notifier = _LyricsTestPlayerNotifier();
+    const document = LyricsDocument(
+      lines: [
+        LyricsLine(timestamp: Duration.zero, text: 'First line'),
+        LyricsLine(timestamp: Duration(seconds: 4), text: 'Next line'),
+      ],
+      format: LyricsFormat.lrc,
+    );
+
+    await _pumpLyricsDisplayWithOffset(
+      tester,
+      notifier,
+      document,
+      const Duration(seconds: 3),
+    );
+    notifier.setProgress(const Duration(seconds: 2));
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pumpAndSettle();
+
+    // 播放位置 2s + 偏移 3s = 5s，应当已经落在 4s 的第二行（当前行字号更大）。
+    expect(
+      _nearestAnimatedTextStyle(tester, 'Next line').style.fontSize,
+      20,
+    );
+  });
+
   testWidgets('lyrics display splits the current line at the played boundary', (
     tester,
   ) async {
@@ -392,6 +422,31 @@ Future<void> _pumpLyricsDisplay(
             height: 240,
             child: LyricsDisplay(isVisible: isVisible),
           ),
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
+Future<void> _pumpLyricsDisplayWithOffset(
+  WidgetTester tester,
+  _LyricsTestPlayerNotifier notifier,
+  LyricsDocument document,
+  Duration offset,
+) async {
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        playerProvider.overrideWith((ref) => notifier),
+        lyricsProvider.overrideWith((ref) async => document),
+        lyricsOffsetProvider.overrideWith(
+          (ref) => LyricsOffsetNotifier(initial: offset),
+        ),
+      ],
+      child: const MaterialApp(
+        home: Scaffold(
+          body: SizedBox(height: 240, child: LyricsDisplay()),
         ),
       ),
     ),

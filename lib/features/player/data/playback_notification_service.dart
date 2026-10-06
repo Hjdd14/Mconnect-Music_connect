@@ -83,7 +83,11 @@ class NoopPlaybackNotificationController
 }
 
 class AudioServicePlayerController
-    implements PlaybackNotificationController, PlayerAudioController {
+    implements
+        PlaybackNotificationController,
+        PlayerAudioController,
+        PlaybackSpeedCapable,
+        SkipSilenceCapable {
   AudioServicePlayerController._({
     MconnectAudioHandler? handler,
     PlayerAudioController Function()? audioControllerFactory,
@@ -228,6 +232,27 @@ class AudioServicePlayerController
     _audioController = null;
     _handler.bindAudioController(null);
     await controller?.dispose();
+  }
+
+  @override
+  double get playbackSpeed {
+    final controller = _ensureAudioController();
+    if (controller is! PlaybackSpeedCapable) return 1.0;
+    return (controller as PlaybackSpeedCapable).playbackSpeed;
+  }
+
+  @override
+  Future<void> setPlaybackSpeed(double speed) async {
+    final controller = _ensureAudioController();
+    if (controller is! PlaybackSpeedCapable) return;
+    await (controller as PlaybackSpeedCapable).setPlaybackSpeed(speed);
+  }
+
+  @override
+  Future<void> setSkipSilence(bool enabled) async {
+    final controller = _ensureAudioController();
+    if (controller is! SkipSilenceCapable) return;
+    await (controller as SkipSilenceCapable).setSkipSilence(enabled);
   }
 }
 

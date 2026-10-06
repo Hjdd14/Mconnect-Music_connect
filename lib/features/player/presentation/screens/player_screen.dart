@@ -15,6 +15,7 @@ import '../../../download/presentation/widgets/download_button.dart';
 import '../../../library/presentation/providers/likes_provider.dart';
 import '../providers/player_provider.dart';
 import '../widgets/lyrics_display.dart';
+import '../widgets/playback_options_sheet.dart';
 import '../widgets/playlist_picker_sheet.dart';
 import '../widgets/quality_bottom_sheet.dart';
 
@@ -231,9 +232,21 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                   case 'add_to_playlist':
                     _showPlaylistPicker(context, song);
                     break;
+                  case 'playback_options':
+                    PlaybackOptionsSheet.show(context);
+                    break;
                 }
               },
               itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'playback_options',
+                  child: ListTile(
+                    leading: Icon(Icons.tune),
+                    title: Text('播放设置'),
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
                 const PopupMenuItem(
                   value: 'add_to_playlist',
                   child: ListTile(

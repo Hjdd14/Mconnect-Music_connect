@@ -26,10 +26,12 @@ abstract class MediaKitWindowsBackend {
   Future<void> seek(Duration position);
   Future<void> setVolume(double volume);
   Future<void> setAudioFilter(String filter);
+  Future<void> setSpeed(double speed);
   Future<void> dispose();
 }
 
-class MediaKitWindowsAudioController implements PlayerAudioController {
+class MediaKitWindowsAudioController
+    implements PlayerAudioController, PlaybackSpeedCapable {
   static const _frequencies = [60, 230, 910, 3600, 14000];
 
   final MediaKitWindowsBackend Function() _backendFactory;
@@ -43,6 +45,7 @@ class MediaKitWindowsAudioController implements PlayerAudioController {
   bool _buffering = false;
   bool _completed = false;
   double _volume = 1.0;
+  double _playbackSpeed = 1.0;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
 
@@ -137,6 +140,16 @@ class MediaKitWindowsAudioController implements PlayerAudioController {
     return backend.setAudioFilter(
       _equalizerFilter(enabled: enabled, bandGains: bandGains),
     );
+  }
+
+  @override
+  double get playbackSpeed => _playbackSpeed;
+
+  @override
+  Future<void> setPlaybackSpeed(double speed) async {
+    final backend = _ensureBackend();
+    _playbackSpeed = speed;
+    await backend.setSpeed(speed);
   }
 
   @override
@@ -359,6 +372,9 @@ class RealMediaKitWindowsBackend implements MediaKitWindowsBackend {
       await platform.setProperty('af', filter);
     }
   }
+
+  @override
+  Future<void> setSpeed(double speed) => _player.setRate(speed);
 
   @override
   Future<void> dispose() => _player.dispose();
