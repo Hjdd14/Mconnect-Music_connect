@@ -1,9 +1,10 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mconnect/features/download/data/download_directory_service.dart';
-import 'package:mconnect/features/download/data/repositories/download_manager.dart';
 import 'package:mconnect/features/download/data/download_task_store.dart';
+import 'package:mconnect/features/download/data/repositories/download_manager.dart';
 import 'package:mconnect/features/download/domain/entities/download_task.dart';
 import 'package:mconnect/features/download/presentation/providers/download_provider.dart';
 import 'package:mconnect/models/album.dart';
@@ -16,6 +17,16 @@ import 'package:mconnect/platform/kugou/kugou_api.dart';
 import 'package:mconnect/platform/kugou/kugou_platform.dart';
 import 'package:path/path.dart' as p;
 
+/// These tests use **only** the pre-Wave-2 public API
+/// (`DownloadNotifier(manager:, taskStore:, initialState:)` + `DownloadProgress`
+/// without `failure`), so the same file can be run against the old
+/// implementation to prove the two P0 defects were real:
+///
+/// * `cacheSongs` never started a download (dead queue);
+/// * a song enqueued for cache could never be downloaded by hand (shared id).
+///
+/// Tests for the queue switches live in `download_queue_policy_test.dart`,
+/// because before this change those switches had no reader at all.
 void main() {
   test('download task json round-trips all persistent fields', () {
     final task = DownloadTask(
@@ -52,82 +63,25 @@ void main() {
     expect(restored.isOfflineCache, isTrue);
   });
 
-  test('restores persisted downloads and normalizes active tasks', () async {
-    final tempDir = await Directory.systemTemp.createTemp(
-      'mconnect_restore_downloads_',
-    );
-    addTearDown(() => tempDir.delete(recursive: true));
+  test(
+    'an unknown platform in persisted JSON drops the row instead of 网易云',
+    () {
+      final task = DownloadTask(
+        id: 'netease_s1_low',
+        song: _song,
+        quality: AudioLevel.low,
+        createdAt: DateTime(2026, 5, 29),
+      );
+      final json = task.toJson();
+      (json['song'] as Map<String, dynamic>)['platform'] = 'spotify';
 
-    final existingFile = File(p.join(tempDir.path, 'existing.mp3'));
-    await existingFile.writeAsString('audio bytes');
-    final completed = DownloadTask(
-      id: 'netease_s1_low',
-      song: _song,
-      quality: AudioLevel.low,
-      status: DownloadStatus.completed,
-      progress: 1,
-      downloadedBytes: 10,
-      totalBytes: 10,
-      filePath: existingFile.path,
-      createdAt: DateTime(2026, 5, 29),
-      completedAt: DateTime(2026, 5, 29, 1),
-    );
-    final missingCompleted = completed.copyWith(
-      filePath: () => p.join(tempDir.path, 'missing.mp3'),
-    );
-    final active = DownloadTask(
-      id: 'netease_s2_low',
-      song: const Song(
-        id: 's2',
-        platform: PlatformType.netease,
-        name: 'Song 2',
-        artists: [Artist(id: 'a1', name: 'Artist 1')],
-      ),
-      quality: AudioLevel.low,
-      status: DownloadStatus.downloading,
-      progress: 0.3,
-      downloadedBytes: 3,
-      totalBytes: 10,
-      createdAt: DateTime(2026, 5, 29),
-    );
-    final failed = DownloadTask(
-      id: 'netease_s3_low',
-      song: const Song(
-        id: 's3',
-        platform: PlatformType.netease,
-        name: 'Song 3',
-        artists: [Artist(id: 'a1', name: 'Artist 1')],
-      ),
-      quality: AudioLevel.low,
-      status: DownloadStatus.failed,
-      error: 'timeout',
-      createdAt: DateTime(2026, 5, 29),
-    );
-    final store = _MemoryDownloadTaskStore([
-      completed,
-      missingCompleted,
-      active,
-      failed,
-    ]);
-
-    final notifier = DownloadNotifier(taskStore: store);
-    await notifier.ready;
-
-    expect(notifier.state.tasks.map((task) => task.id), [
-      completed.id,
-      active.id,
-      failed.id,
-    ]);
-    expect(notifier.state.tasks[0].status, DownloadStatus.completed);
-    expect(notifier.state.tasks[1].status, DownloadStatus.paused);
-    expect(notifier.state.tasks[2].status, DownloadStatus.failed);
-    expect(notifier.state.tasks[2].error, 'timeout');
-    expect(store.saved.single.map((task) => task.id), [
-      completed.id,
-      active.id,
-      failed.id,
-    ]);
-  });
+      expect(
+        DownloadTask.fromJson(json),
+        isNull,
+        reason: 'silently re-attributing a foreign row to 网易云 is data loss',
+      );
+    },
+  );
 
   test('removing a completed download deletes the downloaded file', () async {
     final tempDir = await Directory.systemTemp.createTemp(
@@ -161,6 +115,7 @@ void main() {
       initialState: DownloadState(tasks: [task]),
       taskStore: store,
     );
+    addTearDown(notifier.dispose);
 
     final removed = await notifier.removeTask(task.id);
 
@@ -176,7 +131,10 @@ void main() {
       PlatformRegistry.register(
         KugouPlatform(api: _ConceptVipSessionWithFreeVipInfoApi()),
       );
-      final notifier = DownloadNotifier(taskStore: _MemoryDownloadTaskStore([]));
+      final notifier = DownloadNotifier(
+        taskStore: _MemoryDownloadTaskStore([]),
+      );
+      addTearDown(notifier.dispose);
 
       final allowed = await notifier.checkVipForDownload(
         _kugouSong,
@@ -186,6 +144,120 @@ void main() {
       expect(allowed, isTrue);
     },
   );
+
+  // ---- P0-1: the offline cache queue was dead ------------------------------
+
+  test('cacheSongs really starts downloads and respects the concurrency cap',
+      () async {
+    final manager = _FakeDownloadManager();
+    final notifier = DownloadNotifier(
+      manager: manager,
+      taskStore: _MemoryDownloadTaskStore([]),
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.cacheSongs([
+      _songOf('c1'),
+      _songOf('c2'),
+      _songOf('c3'),
+      _songOf('c4'),
+    ], quality: AudioLevel.low);
+    await pumpEventQueue();
+
+    expect(notifier.state.tasks, hasLength(4));
+    // The queue is real: three ran concurrently, the fourth waited for a slot.
+    expect(manager.started, hasLength(3));
+    expect(manager.peakConcurrent, 3);
+    expect(
+      notifier.state.tasks.where((t) => t.status == DownloadStatus.waiting),
+      hasLength(1),
+    );
+
+    manager.complete(manager.started.first);
+    await pumpEventQueue();
+
+    expect(manager.started, hasLength(4));
+    expect(
+      manager.started.last,
+      'netease_c4_low_cache',
+      reason: 'FIFO: the last enqueued task must be the one that starts next',
+    );
+  });
+
+  test('cacheSongs de-duplicates the same song within the cache queue',
+      () async {
+    final manager = _FakeDownloadManager();
+    final notifier = DownloadNotifier(
+      manager: manager,
+      taskStore: _MemoryDownloadTaskStore([]),
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.cacheSongs([_song, _song], quality: AudioLevel.low);
+
+    expect(notifier.state.tasks, hasLength(1));
+  });
+
+  // ---- P0-2: a cached song could never be downloaded by hand ---------------
+
+  test('a song enqueued for offline cache can still be downloaded by hand',
+      () async {
+    final manager = _FakeDownloadManager();
+    final notifier = DownloadNotifier(
+      manager: manager,
+      taskStore: _MemoryDownloadTaskStore([]),
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.cacheSongs([_song], quality: AudioLevel.low);
+    await notifier.startDownload(_song, AudioLevel.low);
+    await pumpEventQueue();
+
+    expect(
+      notifier.state.tasks.map((task) => task.id),
+      containsAll(<String>['netease_s1_low_cache', 'netease_s1_low']),
+      reason: 'cache and manual downloads are separate entries',
+    );
+    expect(manager.started, contains('netease_s1_low'));
+  });
+
+  test('an in-flight manual download is not duplicated', () async {
+    final manager = _FakeDownloadManager();
+    final notifier = DownloadNotifier(
+      manager: manager,
+      taskStore: _MemoryDownloadTaskStore([]),
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.startDownload(_song, AudioLevel.low);
+    await notifier.startDownload(_song, AudioLevel.low);
+    await pumpEventQueue();
+
+    expect(notifier.state.tasks, hasLength(1));
+    expect(manager.started, hasLength(1));
+  });
+
+  test('a song already downloaded by hand needs no cache copy', () async {
+    final manager = _FakeDownloadManager();
+    final notifier = DownloadNotifier(
+      manager: manager,
+      taskStore: _MemoryDownloadTaskStore([]),
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.startDownload(_song, AudioLevel.low);
+    await pumpEventQueue();
+    manager.complete('netease_s1_low');
+    await pumpEventQueue();
+    expect(notifier.state.tasks.single.status, DownloadStatus.completed);
+
+    final report = await notifier.cacheSongs([_song], quality: AudioLevel.low);
+    await pumpEventQueue();
+
+    expect(report.skipped, 1);
+    expect(notifier.state.tasks, hasLength(1));
+    expect(manager.started, hasLength(1));
+  });
 }
 
 const _song = Song(
@@ -193,6 +265,13 @@ const _song = Song(
   platform: PlatformType.netease,
   name: 'Song 1',
   artists: [Artist(id: 'a1', name: 'Artist 1')],
+);
+
+Song _songOf(String id) => Song(
+  id: id,
+  platform: PlatformType.netease,
+  name: 'Song $id',
+  artists: const [Artist(id: 'a1', name: 'Artist 1')],
 );
 
 const _richSong = Song(
@@ -240,6 +319,82 @@ class _ConceptVipSessionWithFreeVipInfoApi extends KugouApi {
       'data': {'vip_type': 0},
     };
   }
+}
+
+/// Old-API-only fake: no typed `failure` on [DownloadProgress].
+class _FakeDownloadManager extends DownloadManager {
+  _FakeDownloadManager()
+    : super(
+        directoryService: DownloadDirectoryService(
+          store: _MemoryDownloadDirectoryStore(),
+          defaultRootProvider: () async => throw UnimplementedError(),
+        ),
+      );
+
+  final List<String> started = <String>[];
+  final Map<String, StreamController<DownloadProgress>> _controllers = {};
+  int _running = 0;
+  int _peak = 0;
+
+  int get peakConcurrent => _peak;
+
+  @override
+  Stream<DownloadProgress> download(DownloadTask task) {
+    started.add(task.id);
+    _running++;
+    if (_running > _peak) _peak = _running;
+    final controller = StreamController<DownloadProgress>();
+    _controllers[task.id] = controller;
+    controller.onCancel = () => _finish(task.id);
+    return controller.stream;
+  }
+
+  void complete(String taskId, {int bytes = 1024}) {
+    final controller = _controllers[taskId];
+    if (controller == null || controller.isClosed) return;
+    controller.add(
+      DownloadProgress(
+        taskId: taskId,
+        downloadedBytes: bytes,
+        totalBytes: bytes,
+        progress: 1,
+        completed: true,
+        filePath: '/fake/downloads/$taskId.bin',
+      ),
+    );
+    _finish(taskId);
+  }
+
+  void _finish(String taskId) {
+    final controller = _controllers.remove(taskId);
+    if (controller == null) return;
+    if (_running > 0) _running--;
+    if (!controller.isClosed) unawaited(controller.close());
+  }
+
+  @override
+  void pause(String taskId) {
+    final controller = _controllers[taskId];
+    if (controller == null || controller.isClosed) return;
+    controller.add(
+      DownloadProgress(
+        taskId: taskId,
+        downloadedBytes: 0,
+        totalBytes: 0,
+        progress: 0,
+        paused: true,
+      ),
+    );
+    _finish(taskId);
+  }
+
+  @override
+  void cancel(String taskId) {
+    _finish(taskId);
+  }
+
+  @override
+  Future<bool> deleteDownloadedFile(DownloadTask task) async => true;
 }
 
 class _MemoryDownloadDirectoryStore implements DownloadDirectoryStore {

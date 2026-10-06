@@ -9,6 +9,8 @@ import 'package:mconnect/models/audio_quality.dart';
 import 'package:mconnect/models/platform_type.dart';
 import 'package:mconnect/models/song.dart';
 
+import 'download_fakes.dart';
+
 void main() {
   late Directory tempDir;
 
@@ -58,7 +60,11 @@ void main() {
   test(
     'download notifier enqueues a song list for offline cache once',
     () async {
-      final notifier = DownloadNotifier();
+      final manager = FakeDownloadManager();
+      final notifier = DownloadNotifier(
+        manager: manager,
+        taskStore: MemoryDownloadTaskStore([]),
+      );
       addTearDown(notifier.dispose);
 
       await notifier.cacheSongs([
@@ -66,14 +72,45 @@ void main() {
         _song('s1'),
         _song('s2'),
       ], quality: AudioLevel.low);
+      await pumpEventQueue();
 
       expect(notifier.state.tasks, hasLength(2));
       expect(notifier.state.tasks.map((task) => task.id), [
-        'netease_s1_low',
-        'netease_s2_low',
+        'netease_s1_low_cache',
+        'netease_s2_low_cache',
       ]);
+      expect(
+        manager.started,
+        ['netease_s1_low_cache', 'netease_s2_low_cache'],
+        reason: 'the cache queue must really start downloads (P0-1)',
+      );
     },
   );
+
+  test('the four switches are handed to the download queue', () async {
+    final notifier = OfflineCacheSettingsNotifier();
+    await notifier.ready;
+
+    final defaults = notifier.state.toQueuePolicy();
+    expect(defaults.wifiOnly, isTrue);
+    expect(defaults.autoRetry, isTrue);
+    expect(defaults.autoCleanup, isTrue);
+    expect(defaults.offlineMode, isFalse);
+    expect(defaults.sizeLimitMb, 1024);
+
+    await notifier.setWifiOnly(false);
+    await notifier.setAutoRetry(false);
+    await notifier.setAutoCleanup(false);
+    await notifier.setOfflineMode(true);
+    await notifier.setSizeLimitMb(2048);
+
+    final updated = notifier.state.toQueuePolicy();
+    expect(updated.wifiOnly, isFalse);
+    expect(updated.autoRetry, isFalse);
+    expect(updated.autoCleanup, isFalse);
+    expect(updated.offlineMode, isTrue);
+    expect(updated.sizeLimitMb, 2048);
+  });
 }
 
 Song _song(String id) => Song(

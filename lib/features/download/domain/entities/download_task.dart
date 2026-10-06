@@ -3,6 +3,7 @@ import '../../../../models/album.dart';
 import '../../../../models/artist.dart';
 import '../../../../models/audio_quality.dart';
 import '../../../../models/platform_type.dart';
+import 'download_failure.dart';
 
 enum DownloadStatus { waiting, downloading, paused, completed, failed }
 
@@ -20,6 +21,15 @@ class DownloadTask {
   final DateTime? completedAt;
   final bool isOfflineCache;
 
+  /// Classification of [error], persisted so a restart does not lose the reason
+  /// a task failed (and whether it is worth retrying).
+  final DownloadFailureKind? failureKind;
+
+  /// Last time this file was handed to a consumer (playback / open-folder).
+  /// Drives LRU eviction of the offline cache: [completedAt] alone is FIFO and
+  /// evicts the song the user actually keeps playing.
+  final DateTime? lastAccessedAt;
+
   const DownloadTask({
     required this.id,
     required this.song,
@@ -33,7 +43,21 @@ class DownloadTask {
     required this.createdAt,
     this.completedAt,
     this.isOfflineCache = false,
+    this.failureKind,
+    this.lastAccessedAt,
   });
+
+  /// Task id for a download the **user** asked for.
+  static String buildId(Song song, AudioLevel quality) =>
+      '${song.platform.name}_${song.id}_${quality.name}';
+
+  /// Task id for an **offline cache** entry.
+  ///
+  /// Deliberately different from [buildId]: the two used to share one id, so a
+  /// song that had merely been *enqueued* for caching made `startDownload`
+  /// return early and the song could never be downloaded manually again.
+  static String buildCacheId(Song song, AudioLevel quality) =>
+      '${buildId(song, quality)}_cache';
 
   DownloadTask copyWith({
     DownloadStatus? status,
@@ -44,6 +68,8 @@ class DownloadTask {
     String? Function()? error,
     DateTime? Function()? completedAt,
     bool? isOfflineCache,
+    DownloadFailureKind? Function()? failureKind,
+    DateTime? Function()? lastAccessedAt,
   }) {
     return DownloadTask(
       id: id,
@@ -58,6 +84,10 @@ class DownloadTask {
       createdAt: createdAt,
       completedAt: completedAt != null ? completedAt() : this.completedAt,
       isOfflineCache: isOfflineCache ?? this.isOfflineCache,
+      failureKind: failureKind != null ? failureKind() : this.failureKind,
+      lastAccessedAt: lastAccessedAt != null
+          ? lastAccessedAt()
+          : this.lastAccessedAt,
     );
   }
 
@@ -75,6 +105,8 @@ class DownloadTask {
       'createdAt': createdAt.toIso8601String(),
       'completedAt': completedAt?.toIso8601String(),
       'isOfflineCache': isOfflineCache,
+      'failureKind': failureKind?.name,
+      'lastAccessedAt': lastAccessedAt?.toIso8601String(),
     };
   }
 
@@ -98,8 +130,19 @@ class DownloadTask {
           DateTime.fromMillisecondsSinceEpoch(0),
       completedAt: DateTime.tryParse(value['completedAt']?.toString() ?? ''),
       isOfflineCache: value['isOfflineCache'] == true,
+      failureKind: DownloadFailureKind.tryParse(
+        value['failureKind']?.toString(),
+      ),
+      lastAccessedAt: DateTime.tryParse(
+        value['lastAccessedAt']?.toString() ?? '',
+      ),
     );
   }
+
+  /// The timestamp LRU eviction orders by: last access, falling back to when it
+  /// finished, falling back to when it was created.
+  DateTime get cacheRecency =>
+      lastAccessedAt ?? completedAt ?? createdAt;
 
   String get fileName {
     final sanitized = '${song.artistNames} - ${song.name}'.replaceAll(
@@ -166,13 +209,19 @@ class DownloadTask {
     final id = value['id']?.toString() ?? '';
     final name = value['name']?.toString() ?? '';
     if (id.isEmpty || name.isEmpty) return null;
+    final platform = PlatformType.tryParse(value['platform']?.toString());
+    // An unrecognised platform used to fall back to 网易云, which silently
+    // re-attributed a persisted QQ/酷狗 download (or data written by a future
+    // version) to the wrong service. Dropping the row is the honest outcome:
+    // the caller sees one fewer restored task instead of a wrong one.
+    if (platform == null) return null;
     final rawArtists = value['artists'];
     final artists = rawArtists is List
         ? rawArtists.map(_artistFromJson).whereType<Artist>().toList()
         : <Artist>[];
     return Song(
       id: id,
-      platform: _platformFromName(value['platform']),
+      platform: platform,
       name: name,
       artists: artists.isEmpty ? const [Artist(id: '', name: '')] : artists,
       album: _albumFromJson(value['album']),
@@ -218,14 +267,6 @@ class DownloadTask {
           ),
         )
         .toList();
-  }
-
-  static PlatformType _platformFromName(dynamic value) {
-    final name = value?.toString();
-    return PlatformType.values.firstWhere(
-      (platform) => platform.name == name,
-      orElse: () => PlatformType.netease,
-    );
   }
 
   static AudioLevel _audioLevelFromName(dynamic value) {

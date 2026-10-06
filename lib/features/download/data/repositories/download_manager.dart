@@ -1,10 +1,53 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:io';
+
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
+
 import '../../../../platform/base/platform_registry.dart';
 import '../download_directory_service.dart';
+import '../../domain/entities/download_failure.dart';
 import '../../domain/entities/download_task.dart';
+import '../download_scheduler.dart' show kMaxConcurrentDownloads;
+
+/// Best-effort free-space probe: bytes available on the volume holding [path],
+/// or `null` when this build cannot measure it.
+typedef FreeSpaceProbe = Future<int?> Function(String path);
+
+/// Extra headroom required before a download starts, so a file that exactly
+/// fills the volume does not leave the app unable to write its own state.
+const int kDownloadFreeSpaceReserveBytes = 32 * 1024 * 1024;
+
+/// The default [FreeSpaceProbe].
+///
+/// `dart:io` exposes no free-space API and this project has no dependency that
+/// does (adding one would touch `pubspec.yaml`), so the probe shells out to the
+/// POSIX `df` that ships with Android/Linux/macOS and reads its POSIX (`-P`)
+/// output. On Windows it returns `null` — a Windows desktop download is not
+/// pre-flight gated, but a full disk is still reported as
+/// [DownloadFailureKind.disk] when the write itself fails.
+Future<int?> defaultFreeSpaceProbe(String path) async {
+  if (Platform.isWindows) return null;
+  try {
+    final result = await Process.run('df', ['-P', '-k', path]);
+    if (result.exitCode != 0) return null;
+    final lines = (result.stdout as String)
+        .trim()
+        .split('\n')
+        .where((line) => line.trim().isNotEmpty)
+        .toList();
+    if (lines.length < 2) return null;
+    final columns = lines.last.trim().split(RegExp(r'\s+'));
+    if (columns.length < 4) return null;
+    final availableKb = int.tryParse(columns[3]);
+    if (availableKb == null || availableKb < 0) return null;
+    return availableKb * 1024;
+  } catch (_) {
+    return null;
+  }
+}
 
 class DownloadManager {
   final Dio _dio;
@@ -12,13 +55,19 @@ class DownloadManager {
   final Map<String, CancelToken> _cancelTokens = {};
   final Map<String, DateTime> _lastProgressUpdates = {};
   final int maxConcurrent;
+  final FreeSpaceProbe _freeSpaceProbe;
+  final _DownloadSemaphore _slots;
   int _activeDownloads = 0;
 
   DownloadManager({
     Dio? dio,
     DownloadDirectoryService? directoryService,
-    this.maxConcurrent = 3,
-  }) : _directoryService = directoryService ?? DownloadDirectoryService(),
+    int maxConcurrent = kMaxConcurrentDownloads,
+    FreeSpaceProbe? freeSpaceProbe,
+  }) : maxConcurrent = maxConcurrent,
+       _slots = _DownloadSemaphore(maxConcurrent),
+       _freeSpaceProbe = freeSpaceProbe ?? defaultFreeSpaceProbe,
+       _directoryService = directoryService ?? DownloadDirectoryService(),
        _dio =
            dio ??
            Dio(
@@ -29,6 +78,10 @@ class DownloadManager {
            );
 
   DownloadDirectoryService get directoryService => _directoryService;
+
+  /// Number of downloads this manager is currently running. Used by tests and
+  /// diagnostics; the scheduler keeps the queue itself.
+  int get activeDownloads => _activeDownloads;
 
   Future<Directory> currentRootDirectory() =>
       _directoryService.currentRootDirectory();
@@ -53,11 +106,55 @@ class DownloadManager {
     }
   }
 
+  /// Size of a task's file on disk, or 0 when it is missing.
+  Future<int> partialBytesOf(DownloadTask task) async {
+    final path = await _resolveFilePath(task);
+    if (path == null) return 0;
+    return _lengthOrZero(File(path));
+  }
+
+  /// Deletes a half-written file.
+  ///
+  /// Partial files are deliberately kept after a failure or a pause (that is
+  /// what makes the next attempt a resume), but a download the user *cancelled*
+  /// must not leave an orphan behind — and a later re-download of the same song
+  /// would otherwise silently resume from it.
+  Future<void> discardPartialFile(DownloadTask task) async {
+    try {
+      final path = await _resolveFilePath(task);
+      if (path == null) return;
+      final file = File(path);
+      if (await file.exists()) await file.delete();
+    } catch (error) {
+      debugPrint('discardPartialFile failed: $error');
+    }
+  }
+
+  /// Where [task] is (or would be) written: the recorded path, else the path
+  /// derived from the download directory layout.
+  Future<String?> _resolveFilePath(DownloadTask task) async {
+    final recorded = task.filePath;
+    if (recorded != null && recorded.trim().isNotEmpty) return recorded;
+    try {
+      final dir = await _directoryService.targetDirectory(
+        task.song.platform,
+        task.quality,
+        create: false,
+      );
+      return '${dir.path}/${task.fileName}';
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Download a song. Returns a stream of progress updates.
   Stream<DownloadProgress> download(DownloadTask task) async* {
     final controller = StreamController<DownloadProgress>();
 
-    _startDownload(task, controller);
+    // Fire-and-forget on purpose: the body feeds `controller`, and the caller
+    // consumes it through the returned stream. `await`ing it here would deadlock
+    // (nothing drains the controller until this method returns).
+    unawaited(_startDownload(task, controller));
 
     yield* controller.stream;
   }
@@ -66,27 +163,22 @@ class DownloadManager {
     DownloadTask task,
     StreamController<DownloadProgress> controller,
   ) async {
-    // Wait for a slot if at max concurrent
-    while (_activeDownloads >= maxConcurrent) {
-      if (controller.isClosed) return;
-      await Future.delayed(const Duration(milliseconds: 200));
-    }
-
-    _activeDownloads++;
     final cancelToken = CancelToken();
     _cancelTokens[task.id] = cancelToken;
 
-    try {
-      // Check storage permission
-      if (Platform.isAndroid) {
-        final status = await Permission.storage.request();
-        if (!status.isGranted) {
-          _emitError(controller, task, '存储权限被拒绝');
-          return;
-        }
-      }
+    // A real semaphore instead of the old
+    // `while (_activeDownloads >= maxConcurrent) await Future.delayed(200ms)`:
+    // that spun one timer per waiting download, wasted up to 200 ms of latency
+    // on every slot hand-off, and could not be cancelled while it waited.
+    await _slots.acquire();
 
-      // Get download URL
+    String? filePath;
+    try {
+      if (controller.isClosed || cancelToken.isCancelled) return;
+
+      _activeDownloads++;
+
+      // Get download URL (throws typed ApiExceptions since Wave 1).
       final platform = PlatformRegistry.get(task.song.platform);
       final url = await platform.getSongUrl(
         task.song.id,
@@ -98,88 +190,302 @@ class DownloadManager {
         task.song.platform,
         task.quality,
       );
-      final filePath = '${dir.path}/${task.fileName}';
+      filePath = '${dir.path}/${task.fileName}';
 
-      // Always download from scratch (Dio.download overwrites, doesn't append)
+      // Android storage permission: only when the target really is outside the
+      // app sandbox. The old code asked unconditionally, and `Permission.storage`
+      // has been a no-op (immediately denied) on API 33+ — so on a modern phone
+      // every single download failed with "存储权限被拒绝" even though the default
+      // target directory needs no permission at all.
+      if (Platform.isAndroid &&
+          await _directoryService.needsLegacyStoragePermission(dir)) {
+        final status = await Permission.storage.request();
+        if (!status.isGranted) {
+          _emitFailure(
+            controller,
+            task,
+            const DownloadFailure(
+              kind: DownloadFailureKind.storagePermission,
+              message: '存储权限被拒绝，请在系统设置中授权',
+            ),
+          );
+          return;
+        }
+      }
+
       final file = File(filePath);
+      final resumeFrom = await _resumeOffset(file, task);
 
-      final response = await _dio.download(
+      final response = await _dio.get<ResponseBody>(
         url,
-        filePath,
         cancelToken: cancelToken,
-        deleteOnError: true,
-        onReceiveProgress: (received, total) {
-          if (total > 0) {
-            // Throttle progress updates to max 1 per second
-            final now = DateTime.now();
-            final last = _lastProgressUpdates[task.id];
-            if (last != null && now.difference(last).inMilliseconds < 1000) {
-              return;
-            }
-            _lastProgressUpdates[task.id] = now;
-            final progress = received / total;
-            controller.add(
-              DownloadProgress(
-                taskId: task.id,
-                downloadedBytes: received,
-                totalBytes: total,
-                progress: progress,
-              ),
-            );
-          }
-        },
+        options: Options(
+          responseType: ResponseType.stream,
+          headers: resumeFrom > 0
+              ? {'Range': 'bytes=$resumeFrom-'}
+              : null,
+        ),
       );
 
-      if (response.statusCode == 200) {
+      final statusCode = response.statusCode ?? 0;
+      if (statusCode != 200 && statusCode != 206) {
+        _emitFailure(controller, task, DownloadFailure.fromStatus(statusCode));
+        return;
+      }
+
+      final body = response.data;
+      if (body == null) {
+        _emitFailure(
+          controller,
+          task,
+          const DownloadFailure(
+            kind: DownloadFailureKind.network,
+            message: '下载失败：服务器没有返回内容',
+          ),
+        );
+        return;
+      }
+
+      // 206 means the server honoured our Range request; 200 means it ignored it
+      // and the whole body is coming, so the partial file must be replaced.
+      final resuming = statusCode == 206 && resumeFrom > 0;
+      final startOffset = resuming ? resumeFrom : 0;
+      final declaredLength = _declaredLength(response.headers);
+      final expectedTotal = declaredLength == null
+          ? null
+          : declaredLength + startOffset;
+
+      // Pre-flight disk check. `null` from the probe means "unknown" — never
+      // treated as "plenty of room", it just skips the gate.
+      final expectedBytes = expectedTotal ?? task.totalBytes;
+      if (expectedBytes != null && expectedBytes > 0) {
+        final free = await _freeSpaceProbe(dir.path);
+        if (free != null &&
+            free < expectedBytes + kDownloadFreeSpaceReserveBytes) {
+          _emitFailure(
+            controller,
+            task,
+            DownloadFailure.storageFull(
+              '可用 ${free ~/ (1024 * 1024)} MB，需要 '
+              '${(expectedBytes + kDownloadFreeSpaceReserveBytes) ~/ (1024 * 1024)} MB',
+            ),
+          );
+          return;
+        }
+      }
+
+      // Partial files are KEPT on failure/cancel: that is what makes the next
+      // attempt a resume instead of a restart from byte 0.
+      final sink = file.openWrite(
+        mode: resuming ? FileMode.append : FileMode.write,
+      );
+      var received = startOffset;
+      try {
+        await for (final chunk in body.stream) {
+          if (cancelToken.isCancelled) {
+            throw DioException(
+              requestOptions: response.requestOptions,
+              type: DioExceptionType.cancel,
+            );
+          }
+          sink.add(chunk);
+          received += chunk.length;
+          _reportProgress(
+            controller,
+            task,
+            received: received,
+            total: expectedTotal ?? task.totalBytes ?? -1,
+          );
+        }
+        await sink.flush();
+      } finally {
+        await sink.close();
+      }
+
+      final onDisk = await file.length();
+      if (onDisk == 0) {
+        _emitFailure(
+          controller,
+          task,
+          const DownloadFailure(
+            kind: DownloadFailureKind.network,
+            message: '下载失败：没有收到任何数据',
+          ),
+        );
+        return;
+      }
+      // Size validation: a truncated transfer used to be reported as a success
+      // (it only trusted `statusCode == 200`), leaving a half-written file the
+      // player could not open.
+      if (expectedTotal != null && onDisk != expectedTotal) {
+        _emitFailure(
+          controller,
+          task,
+          DownloadFailure(
+            kind: DownloadFailureKind.network,
+            message: '下载不完整（$onDisk / $expectedTotal 字节），可重试续传',
+            detail: 'size mismatch',
+          ),
+          filePath: filePath,
+          downloadedBytes: onDisk,
+        );
+        return;
+      }
+
+      controller.add(
+        DownloadProgress(
+          taskId: task.id,
+          downloadedBytes: onDisk,
+          totalBytes: onDisk,
+          progress: 1.0,
+          completed: true,
+          filePath: filePath,
+        ),
+      );
+    } on DioException catch (e) {
+      if (e.type == DioExceptionType.cancel || cancelToken.isCancelled) {
+        final onDisk = filePath == null
+            ? 0
+            : await _lengthOrZero(File(filePath));
         controller.add(
           DownloadProgress(
             taskId: task.id,
-            downloadedBytes: await file.length(),
-            totalBytes: await file.length(),
-            progress: 1.0,
-            completed: true,
+            downloadedBytes: onDisk,
+            totalBytes: task.totalBytes ?? onDisk,
+            progress: task.totalBytes == null || task.totalBytes == 0
+                ? 0
+                : (onDisk / task.totalBytes!).clamp(0, 1).toDouble(),
+            paused: true,
             filePath: filePath,
           ),
         );
       } else {
-        _emitError(controller, task, '下载失败: HTTP ${response.statusCode}');
-      }
-    } on DioException catch (e) {
-      if (e.type == DioExceptionType.cancel) {
-        controller.add(
-          DownloadProgress(
-            taskId: task.id,
-            downloadedBytes: 0,
-            totalBytes: 0,
-            progress: 0,
-            paused: true,
-          ),
+        _emitFailure(
+          controller,
+          task,
+          DownloadFailure.from(e, platformName: task.song.platform.displayName),
+          filePath: filePath,
+          downloadedBytes: filePath == null
+              ? 0
+              : await _lengthOrZero(File(filePath)),
         );
-      } else {
-        _emitError(controller, task, '下载错误: ${e.message}');
       }
-    } catch (e) {
-      _emitError(controller, task, '下载错误: ${e.toString()}');
+    } on Object catch (e) {
+      _emitFailure(
+        controller,
+        task,
+        _classifyIoFailure(e, platformName: task.song.platform.displayName),
+        filePath: filePath,
+        downloadedBytes: filePath == null
+            ? 0
+            : await _lengthOrZero(File(filePath)),
+      );
     } finally {
       _activeDownloads--;
+      _slots.release();
       _cancelTokens.remove(task.id);
       _lastProgressUpdates.remove(task.id);
-      await controller.close();
+      if (!controller.isClosed) await controller.close();
     }
   }
 
-  void _emitError(
+  /// How many bytes of [file] can be reused: its current length when the
+  /// transfer never finished, 0 when there is nothing (or it already is
+  /// complete, or the server cannot be asked for a range).
+  Future<int> _resumeOffset(File file, DownloadTask task) async {
+    try {
+      if (!await file.exists()) return 0;
+      final existing = await file.length();
+      if (existing <= 0) return 0;
+      final expected = task.totalBytes;
+      if (expected != null && existing >= expected) return 0;
+      return existing;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  int? _declaredLength(Headers headers) {
+    final raw = headers.value(Headers.contentLengthHeader);
+    if (raw == null) return null;
+    final value = int.tryParse(raw);
+    if (value == null || value <= 0) return null;
+    return value;
+  }
+
+  void _reportProgress(
     StreamController<DownloadProgress> controller,
-    DownloadTask task,
-    String error,
-  ) {
+    DownloadTask task, {
+    required int received,
+    required int total,
+  }) {
+    final now = DateTime.now();
+    final last = _lastProgressUpdates[task.id];
+    if (last != null && now.difference(last).inMilliseconds < 1000) return;
+    _lastProgressUpdates[task.id] = now;
     controller.add(
       DownloadProgress(
         taskId: task.id,
-        downloadedBytes: 0,
-        totalBytes: 0,
-        progress: 0,
-        error: error,
+        downloadedBytes: received,
+        totalBytes: total < 0 ? 0 : total,
+        progress: total <= 0 ? 0 : (received / total).clamp(0, 1).toDouble(),
+      ),
+    );
+  }
+
+  Future<int> _lengthOrZero(File file) async {
+    try {
+      return await file.exists() ? await file.length() : 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// Turns a raw I/O error into a classified failure, so "disk full" and
+  /// "permission denied" stop looking like network trouble.
+  DownloadFailure _classifyIoFailure(Object error, {String? platformName}) {
+    if (error is FileSystemException) {
+      final code = error.osError?.errorCode;
+      switch (code) {
+        case 28: // ENOSPC
+        case 112: // ERROR_DISK_FULL (Windows)
+          return DownloadFailure.storageFull(error.message);
+        case 13: // EACCES
+        case 1: // EPERM
+        case 5: // ERROR_ACCESS_DENIED (Windows)
+          return const DownloadFailure(
+            kind: DownloadFailureKind.storagePermission,
+            message: '没有写入权限，请更换下载目录',
+          );
+      }
+    }
+    // A socket that died mid-body surfaces as a raw HttpException /
+    // SocketException from the response stream, not as a DioException — without
+    // this it landed in `unknown` and the retry switch refused to help.
+    if (error is HttpException || error is SocketException) {
+      return DownloadFailure.network(error.toString());
+    }
+    return DownloadFailure.from(error, platformName: platformName);
+  }
+
+  void _emitFailure(
+    StreamController<DownloadProgress> controller,
+    DownloadTask task,
+    DownloadFailure failure, {
+    String? filePath,
+    int downloadedBytes = 0,
+  }) {
+    controller.add(
+      DownloadProgress(
+        taskId: task.id,
+        downloadedBytes: downloadedBytes,
+        totalBytes: task.totalBytes ?? 0,
+        progress: task.totalBytes == null || task.totalBytes == 0
+            ? 0
+            : (downloadedBytes / task.totalBytes!).clamp(0, 1).toDouble(),
+        failure: failure,
+        error: failure.message,
+        filePath: filePath,
       ),
     );
   }
@@ -200,6 +506,38 @@ class DownloadManager {
   }
 }
 
+/// A counting semaphore with a FIFO of waiters.
+///
+/// Replaces the busy-wait loop the manager used to use; waiters are woken in
+/// arrival order and never spin.
+class _DownloadSemaphore {
+  _DownloadSemaphore(this.permits);
+
+  final int permits;
+  int _inUse = 0;
+  final Queue<Completer<void>> _waiters = Queue<Completer<void>>();
+
+  Future<void> acquire() {
+    if (_inUse < permits) {
+      _inUse++;
+      return Future<void>.value();
+    }
+    final completer = Completer<void>();
+    _waiters.add(completer);
+    return completer.future;
+  }
+
+  void release() {
+    if (_waiters.isNotEmpty) {
+      // Hand the permit straight to the next waiter instead of dropping the
+      // count and racing every waiter for it.
+      _waiters.removeFirst().complete();
+      return;
+    }
+    if (_inUse > 0) _inUse--;
+  }
+}
+
 class DownloadProgress {
   final String taskId;
   final int downloadedBytes;
@@ -210,6 +548,10 @@ class DownloadProgress {
   final String? filePath;
   final String? error;
 
+  /// Classified failure (Wave 2). When null and [error] is set, the failure
+  /// could not be typed — treated as [DownloadFailureKind.unknown].
+  final DownloadFailure? failure;
+
   const DownloadProgress({
     required this.taskId,
     required this.downloadedBytes,
@@ -219,5 +561,6 @@ class DownloadProgress {
     this.paused = false,
     this.filePath,
     this.error,
+    this.failure,
   });
 }

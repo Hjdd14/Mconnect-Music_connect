@@ -9,6 +9,18 @@ import '../../../models/platform_type.dart';
 
 typedef DefaultDownloadRootProvider = Future<Directory> Function();
 
+/// Extracts the Android API level from `Platform.operatingSystemVersion`.
+///
+/// Example input: `"Android 13, API level 33, build/TQ1A.230205.002"`.
+/// Returns `null` when the string is not an Android one (or is shaped
+/// differently), which callers must read as "unknown", not as a level.
+int? androidApiLevelFrom(String operatingSystemVersion) {
+  final match = RegExp(r'API level (\d+)').firstMatch(operatingSystemVersion);
+  final raw = match?.group(1);
+  if (raw == null) return null;
+  return int.tryParse(raw);
+}
+
 abstract class DownloadDirectoryStore {
   Future<String?> readCustomRootPath();
   Future<void> saveCustomRootPath(String path);
@@ -91,6 +103,29 @@ class DownloadDirectoryService {
   }
 
   Future<void> resetCustomRootDirectory() => store.clearCustomRootPath();
+
+  /// Whether the legacy `Permission.storage` request is both **needed** and
+  /// **meaningful** for [target].
+  ///
+  /// Two reasons it usually is not:
+  /// * the default root (`<app documents>/downloads`) lives inside the app
+  ///   sandbox, which needs no permission at all — asking for it there only
+  ///   produces a prompt (or, worse, a denial that fails the download);
+  /// * on Android 13+ (API 33) `Permission.storage` can never be granted;
+  ///   scoped storage replaced it, and a non-sandbox directory has to go
+  ///   through SAF (`takePersistableUriPermission`), which this build does not
+  ///   implement — the write itself then fails with EACCES and is classified as
+  ///   [DownloadFailureKind.storagePermission].
+  Future<bool> needsLegacyStoragePermission(Directory target) async {
+    if (!Platform.isAndroid) return false;
+    final apiLevel = androidApiLevelFrom(Platform.operatingSystemVersion);
+    if (apiLevel != null && apiLevel >= 33) return false;
+    final sandbox = await _defaultRootProvider();
+    final targetPath = p.normalize(target.absolute.path);
+    final sandboxPath = p.normalize(sandbox.absolute.path);
+    if (p.equals(targetPath, sandboxPath)) return false;
+    return !p.isWithin(sandboxPath, targetPath);
+  }
 
   String? _validRootPathOrNull(String? path) {
     final trimmed = path?.trim();

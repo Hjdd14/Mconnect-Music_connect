@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mconnect/core/storage/session_storage.dart';
+import 'package:mconnect/features/download/data/download_directory_service.dart';
+import 'package:mconnect/features/download/data/download_task_store.dart';
+import 'package:mconnect/features/download/data/repositories/download_manager.dart';
+import 'package:mconnect/features/download/domain/entities/download_task.dart';
+import 'package:mconnect/features/download/presentation/providers/download_provider.dart';
 import 'package:mconnect/features/download/presentation/widgets/download_button.dart';
 import 'package:mconnect/models/artist.dart';
 import 'package:mconnect/models/audio_quality.dart';
@@ -45,6 +50,116 @@ void main() {
       expect(find.text('臻品母带2.0'), findsOneWidget);
     },
   );
+
+  testWidgets('long-press adds the song to the offline cache queue', (
+    tester,
+  ) async {
+    // `cacheSongs` had no caller anywhere in `lib/`, so the offline-cache queue
+    // could never be filled from the UI. The long press is that entry point.
+    PlatformRegistry.register(_FakeQualityPlatform());
+    final manager = _RecordingDownloadManager();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          downloadProvider.overrideWith(
+            (ref) => DownloadNotifier(
+              manager: manager,
+              taskStore: _MemoryDownloadTaskStore([]),
+            ),
+          ),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(body: DownloadButton(song: _qqSong)),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.longPress(find.byIcon(Icons.file_download_outlined));
+    await tester.pump();
+    await tester.pump();
+
+    expect(manager.started, ['qq_mid1_low_cache']);
+    expect(find.text('已加入离线缓存：歌曲 1'), findsOneWidget);
+  });
+
+  testWidgets('a tap still opens the quality picker', (tester) async {
+    PlatformRegistry.register(_FakeQualityPlatform());
+    final manager = _RecordingDownloadManager();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          downloadProvider.overrideWith(
+            (ref) => DownloadNotifier(
+              manager: manager,
+              taskStore: _MemoryDownloadTaskStore([]),
+            ),
+          ),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(body: DownloadButton(song: _qqSong)),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.file_download_outlined));
+    await tester.pumpAndSettle();
+
+    expect(find.text('选择下载音质 - 歌曲 1'), findsOneWidget);
+    expect(manager.started, isEmpty);
+  });
+}
+
+class _RecordingDownloadManager extends DownloadManager {
+  _RecordingDownloadManager()
+    : super(
+        directoryService: DownloadDirectoryService(
+          store: _MemoryDownloadDirectoryStore(),
+          defaultRootProvider: () async => throw UnimplementedError(),
+        ),
+      );
+
+  final List<String> started = <String>[];
+
+  @override
+  Stream<DownloadProgress> download(DownloadTask task) {
+    started.add(task.id);
+    return const Stream<DownloadProgress>.empty();
+  }
+}
+
+class _MemoryDownloadDirectoryStore implements DownloadDirectoryStore {
+  String? customRootPath;
+
+  @override
+  Future<void> clearCustomRootPath() async {
+    customRootPath = null;
+  }
+
+  @override
+  Future<String?> readCustomRootPath() async => customRootPath;
+
+  @override
+  Future<void> saveCustomRootPath(String path) async {
+    customRootPath = path;
+  }
+}
+
+class _MemoryDownloadTaskStore implements DownloadTaskStore {
+  List<DownloadTask> tasks;
+
+  _MemoryDownloadTaskStore(this.tasks);
+
+  @override
+  Future<List<DownloadTask>> load() async => tasks;
+
+  @override
+  Future<void> save(List<DownloadTask> tasks) async {
+    this.tasks = List<DownloadTask>.from(tasks);
+  }
 }
 
 const _qqSong = Song(

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/cache_settings_repository.dart';
+import '../../../download/presentation/providers/download_provider.dart';
 
 @immutable
 class OfflineCacheSettings {
@@ -62,6 +63,20 @@ class OfflineCacheSettings {
     if (value is int) return value;
     return int.tryParse(value?.toString() ?? '');
   }
+
+  /// The queue's view of these switches.
+  ///
+  /// This is the wiring that makes the four toggles do something: before it,
+  /// `wifiOnly` was read by nothing but this page, `autoRetry`/`autoCleanup`
+  /// were read by nobody at all, and `offlineMode` only re-rendered its own
+  /// switch.
+  DownloadQueuePolicy toQueuePolicy() => DownloadQueuePolicy(
+    wifiOnly: wifiOnly,
+    autoRetry: autoRetry,
+    autoCleanup: autoCleanup,
+    offlineMode: offlineMode,
+    sizeLimitMb: sizeLimitMb,
+  );
 }
 
 final offlineCacheSettingsProvider =

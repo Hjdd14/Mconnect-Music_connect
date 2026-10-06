@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:collection/collection.dart';
+import 'dart:async';
 import '../../../../models/audio_quality.dart';
 import '../../../../models/song.dart';
 import '../../../../models/user.dart';
@@ -72,12 +73,48 @@ class DownloadButton extends ConsumerWidget {
       );
     }
 
-    // Not downloaded — show download button
-    return IconButton(
-      icon: Icon(Icons.file_download_outlined, size: size),
-      padding: EdgeInsets.zero,
-      constraints: BoxConstraints.tightFor(width: size + 8, height: size + 8),
-      onPressed: () => _showQualityPicker(context, ref),
+    // Not downloaded — show download button. Long-press adds the song to the
+    // offline-cache queue: `cacheSongs` had no caller anywhere in `lib/`, so the
+    // queue could not be filled from the UI at all.
+    //
+    // Deliberately an `InkWell` rather than an `IconButton` wrapped in a
+    // `GestureDetector`: the IconButton's tap recogniser wins the gesture arena
+    // and the parent long-press never fires. One InkWell owns both gestures.
+    return Tooltip(
+      message: '下载（长按加入离线缓存）',
+      child: InkWell(
+        onTap: () => _showQualityPicker(context, ref),
+        onLongPress: () => unawaited(_addToOfflineCache(context, ref)),
+        customBorder: const CircleBorder(),
+        child: SizedBox(
+          width: size + 8,
+          height: size + 8,
+          child: Icon(Icons.file_download_outlined, size: size),
+        ),
+      ),
+    );
+  }
+
+  /// Adds [song] to the offline-cache queue at standard quality.
+  Future<void> _addToOfflineCache(BuildContext context, WidgetRef ref) async {
+    final notifier = ref.read(downloadProvider.notifier);
+    final report = await notifier.cacheSongs([song], quality: AudioLevel.low);
+    if (!context.mounted) return;
+
+    final String message;
+    if (report.blockedOfflineMode > 0) {
+      message = '离线模式已开启，已加入缓存队列但不会自动开始';
+    } else if (report.blockedNoConnection > 0) {
+      message = '已加入离线缓存队列，将在连接 Wi-Fi 后开始';
+    } else if (report.blockedQueuePaused > 0) {
+      message = '已加入离线缓存队列，队列当前已暂停';
+    } else if (report.enqueued > 0) {
+      message = '已加入离线缓存：${song.name}';
+    } else {
+      message = '该歌曲已在缓存列表中';
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
     );
   }
 
@@ -250,7 +287,9 @@ class DownloadButton extends ConsumerWidget {
       return;
     }
 
-    notifier.startDownload(song, quality);
+    // Awaited: `startDownload` returns once the task is in the queue, so the
+    // snackbar below is only shown for a download that was really enqueued.
+    await notifier.startDownload(song, quality);
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -261,5 +300,4 @@ class DownloadButton extends ConsumerWidget {
         ),
       );
     }
-  }
-}
+  }}

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -147,6 +149,82 @@ void main() {
     expect(find.text('已完成 (0)'), findsOneWidget);
   });
 
+  testWidgets('a waiting download offers start and cancel actions', (
+    tester,
+  ) async {
+    // P0-1: a `waiting` row (offline-cache rows and anything held back by the
+    // Wi-Fi gate) rendered **no** action at all, so a queued task could not be
+    // started or cancelled from the UI.
+    final manager = _StubStartDownloadManager();
+    final task = DownloadTask(
+      id: 'netease_s1_low_cache',
+      song: _song,
+      quality: AudioLevel.low,
+      status: DownloadStatus.waiting,
+      createdAt: DateTime(2026, 5, 29),
+      isOfflineCache: true,
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          downloadProvider.overrideWith(
+            (ref) => DownloadNotifier(
+              manager: manager,
+              initialState: DownloadState(tasks: [task]),
+              taskStore: _MemoryDownloadTaskStore([task]),
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: DownloadPage()),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byIcon(Icons.play_arrow), findsOneWidget);
+    expect(find.byIcon(Icons.close), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.play_arrow));
+    await tester.pump();
+
+    expect(manager.started, ['netease_s1_low_cache']);
+  });
+
+  testWidgets('cancelling a waiting download removes it from the list', (
+    tester,
+  ) async {
+    final manager = _StubStartDownloadManager();
+    final task = DownloadTask(
+      id: 'netease_s1_low_cache',
+      song: _song,
+      quality: AudioLevel.low,
+      status: DownloadStatus.waiting,
+      createdAt: DateTime(2026, 5, 29),
+      isOfflineCache: true,
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          downloadProvider.overrideWith(
+            (ref) => DownloadNotifier(
+              manager: manager,
+              initialState: DownloadState(tasks: [task]),
+              taskStore: _MemoryDownloadTaskStore([task]),
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: DownloadPage()),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.close));
+    await tester.pump();
+
+    expect(find.text('暂无内容'), findsOneWidget);
+  });
+
   testWidgets('a shell-nested sheet is pushed above the floating chrome', (
     tester,
   ) async {
@@ -289,4 +367,37 @@ class _StubPathDownloadNotifier extends DownloadNotifier {
   @override
   Future<String> currentDownloadRootPath() async =>
       p.join('D:', 'MconnectTestDownloads');
+}
+
+/// Records `download()` calls and keeps the stream open, so a started task stays
+/// in the `downloading` state for the assertion.
+class _StubStartDownloadManager extends DownloadManager {
+  _StubStartDownloadManager()
+    : super(
+        directoryService: DownloadDirectoryService(
+          store: _MemoryDownloadDirectoryStore(),
+          defaultRootProvider: () async => throw UnimplementedError(),
+        ),
+      );
+
+  final List<String> started = <String>[];
+  final List<StreamController<DownloadProgress>> _controllers =
+      <StreamController<DownloadProgress>>[];
+
+  @override
+  Stream<DownloadProgress> download(DownloadTask task) {
+    started.add(task.id);
+    final controller = StreamController<DownloadProgress>();
+    _controllers.add(controller);
+    return controller.stream;
+  }
+
+  @override
+  void dispose() {
+    for (final controller in _controllers) {
+      if (!controller.isClosed) unawaited(controller.close());
+    }
+    _controllers.clear();
+    super.dispose();
+  }
 }

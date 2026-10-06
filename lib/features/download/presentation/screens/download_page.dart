@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import '../../../../core/utils/snackbar_helper.dart';
 import '../../../../core/widgets/app_scrollbar.dart';
 import '../../../../utils/file_opener.dart';
+import '../../data/download_scheduler.dart';
 import '../providers/download_provider.dart';
 import '../../domain/entities/download_task.dart';
 
@@ -160,6 +161,12 @@ class DownloadPage extends ConsumerWidget {
       downloadProvider.select((s) => s.failedTasks),
     );
     final notifier = ref.read(downloadProvider.notifier);
+    final queuePaused = ref.watch(
+      downloadProvider.select((s) => s.queuePaused),
+    );
+    final queueBlockedReason = ref.watch(
+      downloadProvider.select((s) => s.queueBlockedReason),
+    );
 
     return DefaultTabController(
       length: 3,
@@ -181,40 +188,71 @@ class DownloadPage extends ConsumerWidget {
                 unawaited(_showDownloadDirectorySheet(context, ref));
               },
             ),
+            if (queuePaused)
+              IconButton(
+                icon: const Icon(Icons.play_circle_outline),
+                tooltip: '继续队列',
+                onPressed: () {
+                  unawaited(notifier.resumeQueue());
+                },
+              ),
             if (activeTasks.isNotEmpty)
               IconButton(
                 icon: const Icon(Icons.pause_circle_outline),
                 tooltip: '暂停全部',
                 onPressed: () {
-                  for (final task in activeTasks) {
-                    notifier.pauseDownload(task.id);
-                  }
+                  notifier.pauseQueue();
                 },
               ),
           ],
         ),
-        body: TabBarView(
+        body: Column(
           children: [
-            // Active downloads
-            _DownloadList(
-              tasks: activeTasks,
-              formatBytes: _formatBytes,
-              onPause: notifier.pauseDownload,
-              onCancel: notifier.cancelDownload,
-              onResume: notifier.resumeDownload,
-            ),
-            // Completed downloads
-            _DownloadList(
-              tasks: completedTasks,
-              formatBytes: _formatBytes,
-              onRemove: notifier.removeTask,
-            ),
-            // Failed downloads
-            _DownloadList(
-              tasks: failedTasks,
-              formatBytes: _formatBytes,
-              onRetry: (task) => notifier.resumeDownload(task.id),
-              onRemove: notifier.removeTask,
+            // Explains why nothing is starting (Wi-Fi gate / pause / 离线模式)
+            // instead of leaving the queue silently stuck.
+            if (queueBlockedReason != null)
+              Container(
+                width: double.infinity,
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: Text(
+                  queueBlockedReason,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  // Active downloads
+                  _DownloadList(
+                    tasks: activeTasks,
+                    formatBytes: _formatBytes,
+                    onPause: notifier.pauseDownload,
+                    onCancel: notifier.cancelDownload,
+                    onResume: notifier.resumeDownload,
+                    onStart: notifier.startWaitingTask,
+                  ),
+                  // Completed downloads
+                  _DownloadList(
+                    tasks: completedTasks,
+                    formatBytes: _formatBytes,
+                    onRemove: notifier.removeTask,
+                  ),
+                  // Failed downloads
+                  _DownloadList(
+                    tasks: failedTasks,
+                    formatBytes: _formatBytes,
+                    onRetry: (task) => notifier.resumeDownload(task.id),
+                    onRemove: notifier.removeTask,
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -231,6 +269,7 @@ class _DownloadList extends StatelessWidget {
   final void Function(String)? onCancel;
   final Future<bool> Function(String)? onRemove;
   final void Function(DownloadTask)? onRetry;
+  final Future<DownloadEnqueueOutcome> Function(String)? onStart;
 
   const _DownloadList({
     required this.tasks,
@@ -240,6 +279,7 @@ class _DownloadList extends StatelessWidget {
     this.onCancel,
     this.onRemove,
     this.onRetry,
+    this.onStart,
   });
 
   @override
@@ -278,6 +318,7 @@ class _DownloadList extends StatelessWidget {
             onCancel: onCancel,
             onRemove: onRemove,
             onRetry: onRetry,
+            onStart: onStart,
           );
         },
       ),
@@ -293,6 +334,7 @@ class _DownloadTile extends StatelessWidget {
   final void Function(String)? onCancel;
   final Future<bool> Function(String)? onRemove;
   final void Function(DownloadTask)? onRetry;
+  final Future<DownloadEnqueueOutcome> Function(String)? onStart;
 
   const _DownloadTile({
     required this.task,
@@ -302,6 +344,7 @@ class _DownloadTile extends StatelessWidget {
     this.onCancel,
     this.onRemove,
     this.onRetry,
+    this.onStart,
   });
 
   @override
@@ -513,7 +556,26 @@ class _DownloadTile extends StatelessWidget {
           ],
         );
       case DownloadStatus.waiting:
-        return null;
+        // A `waiting` row is a real queue entry now (offline-cache tasks are
+        // created this way and the Wi-Fi gate can hold one back), so it needs
+        // its own controls. It used to render no action at all.
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (onStart != null)
+              IconButton(
+                icon: const Icon(Icons.play_arrow, size: 20),
+                tooltip: '开始',
+                onPressed: () => onStart!(task.id),
+              ),
+            if (onCancel != null)
+              IconButton(
+                icon: const Icon(Icons.close, size: 20),
+                tooltip: '取消',
+                onPressed: () => onCancel!(task.id),
+              ),
+          ],
+        );
     }
   }
 
