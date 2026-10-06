@@ -7,11 +7,12 @@ import '../../models/user.dart';
 import '../../models/playlist.dart';
 import '../../models/audio_quality.dart';
 import '../../models/platform_type.dart';
+import '../../models/recommendation_source.dart';
 import '../base/music_platform.dart';
 import '../../core/storage/session_storage.dart';
 import 'netease_api.dart';
 
-class NeteasePlatform implements MusicPlatform {
+class NeteasePlatform extends MusicPlatform {
   final NeteaseApi _api;
   User? _currentUser;
 
@@ -27,6 +28,30 @@ class NeteasePlatform implements MusicPlatform {
 
   @override
   bool get isLoggedIn => _currentUser != null;
+
+  // --- Capabilities ---
+  //
+  // 网易云 is the only platform whose "daily recommendation" the app has been
+  // able to rely on (it returns a genuinely personalised playlist); QQ and
+  // 酷狗 opt in from Wave 1 once their real sources are implemented.
+
+  @override
+  bool get supportsDailyRecommendations => true;
+
+  @override
+  Future<RecommendationResult> getDailyRecommendation() async {
+    final songs = await getDailyRecommendations();
+    return RecommendationResult(
+      songs: songs,
+      source: songs.isEmpty
+          ? null
+          : const RecommendationSource(
+              platform: PlatformType.netease,
+              kind: RecommendationKind.personalizedDaily,
+              label: '每日推荐',
+            ),
+    );
+  }
 
   // --- Auth ---
 

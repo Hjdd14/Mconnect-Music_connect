@@ -67,6 +67,10 @@ dependencies:
   uuid: ^4.0.0
   file_picker: 11.0.2
   flutter_native_splash: ^2.4.0
+  connectivity_plus: ^7.3.1
+  share_plus: ^12.0.2
+  app_links: ^7.2.1
+  audio_metadata_reader: ^1.4.1
 
 dev_dependencies:
   flutter_test:

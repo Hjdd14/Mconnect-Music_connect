@@ -11,7 +11,7 @@ import '../base/music_platform.dart';
 import '../../core/storage/session_storage.dart';
 import 'qq_api.dart';
 
-class QqPlatform implements MusicPlatform {
+class QqPlatform extends MusicPlatform {
   final QqApi _api;
   User? _currentUser;
 

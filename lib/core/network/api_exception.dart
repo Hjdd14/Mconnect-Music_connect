@@ -38,6 +38,34 @@ class StoragePermissionDeniedException extends ApiException {
   StoragePermissionDeniedException() : super(message: '存储权限被拒绝，请在设置中授权');
 }
 
+/// The request never produced an HTTP response (timeout, DNS, socket, TLS).
+///
+/// Distinct from [ApiException] with a [ApiException.statusCode] because the
+/// UI treats it differently: a status code means "the server answered", a
+/// network failure means "retry may help / check connectivity".
+class NetworkException extends ApiException {
+  NetworkException({super.details})
+      : super(message: '网络连接失败，请检查网络后重试');
+}
+
+/// The requested resource does not exist on the platform (HTTP 404, or a
+/// platform-specific "not found" code).
+class NotFoundException extends ApiException {
+  NotFoundException({super.details}) : super(message: '内容不存在或已被删除');
+}
+
+/// The platform answered normally but does not implement this capability.
+///
+/// Used for the honest-degradation paths: 网易云/QQ 的艺人专辑列表、酷狗的
+/// 官方每日推荐 etc. The UI is expected to surface [ApiException.message]
+/// rather than showing an empty list that looks like "no data".
+class UnsupportedActionException extends ApiException {
+  UnsupportedActionException(this.platformName, {super.details})
+      : super(message: '$platformName暂不支持该功能');
+
+  final String platformName;
+}
+
 class StorageFullException extends ApiException {
   StorageFullException() : super(message: '存储空间不足');
 }

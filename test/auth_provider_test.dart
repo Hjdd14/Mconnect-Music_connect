@@ -33,7 +33,7 @@ void main() {
   );
 }
 
-class _FakeQrAuthPlatform implements MusicPlatform {
+class _FakeQrAuthPlatform extends MusicPlatform {
   int savedSessions = 0;
   final _user = const User(
     id: '10001',

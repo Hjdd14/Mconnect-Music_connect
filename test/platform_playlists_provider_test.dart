@@ -69,7 +69,7 @@ void main() {
   });
 }
 
-class _FakePlaylistPlatform implements MusicPlatform {
+class _FakePlaylistPlatform extends MusicPlatform {
   final PlatformType platform;
   final List<Playlist> playlists;
   final Completer<List<Playlist>>? loadCompleter;

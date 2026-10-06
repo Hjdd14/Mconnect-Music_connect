@@ -1536,7 +1536,7 @@ class _MemoryPlaybackStore implements PlayerPlaybackMemoryStore {
   }
 }
 
-class _FakeMusicPlatform implements MusicPlatform {
+class _FakeMusicPlatform extends MusicPlatform {
   final Map<String, List<AudioQuality>> qualitiesBySong;
   final List<({String songId, AudioLevel quality})> requestedQualities = [];
   final List<String> availableQualityRequests = [];

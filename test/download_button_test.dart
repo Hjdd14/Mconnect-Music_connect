@@ -54,7 +54,7 @@ const _qqSong = Song(
   artists: [Artist(id: 'a1', name: '歌手 1')],
 );
 
-class _FakeQualityPlatform implements MusicPlatform {
+class _FakeQualityPlatform extends MusicPlatform {
   @override
   PlatformType get platformType => PlatformType.qq;
 

@@ -6,6 +6,7 @@ import 'package:mconnect/models/artist.dart';
 import 'package:mconnect/models/audio_quality.dart';
 import 'package:mconnect/models/platform_type.dart';
 import 'package:mconnect/models/playlist.dart';
+import 'package:mconnect/models/recommendation_source.dart';
 import 'package:mconnect/models/song.dart';
 import 'package:mconnect/models/user.dart';
 import 'package:mconnect/core/storage/session_storage.dart';
@@ -13,27 +14,28 @@ import 'package:mconnect/platform/base/music_platform.dart';
 
 void main() {
   test(
-    'daily recommendations load only verified NetEase daily platform',
+    'daily recommendations query only platforms that advertise support',
     () async {
-      final calls = <PlatformType>[];
-      final notifier = RecommendationsNotifier(
+      final queried = <PlatformType>[];
+      RecommendationsNotifier build() => RecommendationsNotifier(
         supportedTypes: const [
           PlatformType.netease,
           PlatformType.qq,
           PlatformType.kugou,
         ],
-        platformResolver: (platform) {
-          calls.add(platform);
-          return _FakeRecommendationPlatform(
-            platform: platform,
-            songs: [_song('${platform.name}-1', platform)],
-          );
-        },
+        platformResolver: (platform) => _FakeRecommendationPlatform(
+          platform: platform,
+          // Only 网易云 advertises the capability in this fixture.
+          supportsDaily: platform == PlatformType.netease,
+          songs: [_song('${platform.name}-1', platform)],
+          onLoad: () => queried.add(platform),
+        ),
       );
 
+      final notifier = build();
       await notifier.loadRecommendations();
 
-      expect(calls, [PlatformType.netease]);
+      expect(queried, [PlatformType.netease]);
       expect(notifier.state.songsByPlatform.keys, [PlatformType.netease]);
       expect(notifier.state.songsForPlatform(PlatformType.qq), isEmpty);
       expect(notifier.state.songsForPlatform(PlatformType.kugou), isEmpty);
@@ -41,43 +43,153 @@ void main() {
   );
 
   test(
-    'daily recommendations ignore unsupported platform failures',
+    'daily recommendations load every platform that advertises support',
     () async {
       final notifier = RecommendationsNotifier(
+        supportedTypes: const [
+          PlatformType.netease,
+          PlatformType.qq,
+          PlatformType.kugou,
+        ],
+        platformResolver: (platform) => _FakeRecommendationPlatform(
+          platform: platform,
+          supportsDaily: true,
+          songs: [_song('${platform.name}-1', platform)],
+        ),
+      );
+
+      await notifier.loadRecommendations();
+
+      expect(
+        notifier.state.songsByPlatform.keys,
+        containsAll(<PlatformType>[
+          PlatformType.netease,
+          PlatformType.qq,
+          PlatformType.kugou,
+        ]),
+      );
+      expect(notifier.state.songsForPlatform(PlatformType.qq), hasLength(1));
+      expect(notifier.state.songsForPlatform(PlatformType.kugou), hasLength(1));
+    },
+  );
+
+  test('daily recommendations expose each platform source', () async {
+    final notifier = RecommendationsNotifier(
+      supportedTypes: const [PlatformType.qq, PlatformType.kugou],
+      platformResolver: (platform) => _FakeRecommendationPlatform(
+        platform: platform,
+        supportsDaily: true,
+        songs: [_song('${platform.name}-1', platform)],
+        source: RecommendationSource(
+          platform: platform,
+          kind: platform == PlatformType.qq
+              ? RecommendationKind.personalPrivate
+              : RecommendationKind.fallbackHomepage,
+          label: platform == PlatformType.qq ? '今日私享' : '酷狗推荐',
+          note: platform == PlatformType.kugou ? '官方推荐接口不可用，已回退首页推荐' : null,
+        ),
+      ),
+    );
+
+    await notifier.loadRecommendations();
+
+    final qq = notifier.state.sourceForPlatform(PlatformType.qq);
+    expect(qq, isNotNull);
+    expect(qq!.kind, RecommendationKind.personalPrivate);
+    expect(qq.isPersonalized, isTrue);
+    expect(qq.label, '今日私享');
+
+    final kugou = notifier.state.sourceForPlatform(PlatformType.kugou);
+    expect(kugou, isNotNull);
+    expect(kugou!.kind, RecommendationKind.fallbackHomepage);
+    expect(kugou.isPersonalized, isFalse);
+    expect(kugou.note, isNotNull);
+  });
+
+  test(
+    'a timed-out platform is reported as unavailable without hiding others',
+    () async {
+      final hanging = Completer<List<Song>>();
+      final notifier = RecommendationsNotifier(
         supportedTypes: const [PlatformType.netease, PlatformType.qq],
+        operationTimeout: const Duration(milliseconds: 40),
         platformResolver: (platform) {
           if (platform == PlatformType.netease) {
             return _FakeRecommendationPlatform(
               platform: platform,
-              songs: [_song('netease-1', platform)],
+              supportsDaily: true,
+              completer: hanging,
             );
           }
           return _FakeRecommendationPlatform(
             platform: platform,
-            error: StateError('qq failed'),
+            supportsDaily: true,
+            songs: [_song('qq-1', platform)],
           );
         },
       );
 
       await notifier.loadRecommendations();
 
-      expect(notifier.state.error, isNull);
+      // The healthy platform still renders.
       expect(
-        notifier.state.songsForPlatform(PlatformType.netease),
+        notifier.state.songsForPlatform(PlatformType.qq),
         hasLength(1),
       );
-      expect(notifier.state.songsForPlatform(PlatformType.qq), isEmpty);
-      expect(notifier.state.errorsByPlatform[PlatformType.qq], isNull);
+      expect(
+        notifier.state.errorsByPlatform[PlatformType.netease],
+        contains('timeout'),
+      );
+      final neteaseSource = notifier.state.sourceForPlatform(
+        PlatformType.netease,
+      );
+      expect(neteaseSource, isNotNull);
+      expect(neteaseSource!.kind, RecommendationKind.unavailable);
+      expect(notifier.state.error, isNull);
     },
   );
 
+  test('daily recommendations ignore unsupported platform failures', () async {
+    final notifier = RecommendationsNotifier(
+      supportedTypes: const [PlatformType.netease, PlatformType.qq],
+      platformResolver: (platform) {
+        if (platform == PlatformType.netease) {
+          return _FakeRecommendationPlatform(
+            platform: platform,
+            supportsDaily: true,
+            songs: [_song('netease-1', platform)],
+          );
+        }
+        // QQ does not advertise support, so it must not be queried at all.
+        return _FakeRecommendationPlatform(
+          platform: platform,
+          supportsDaily: false,
+          error: StateError('qq failed'),
+        );
+      },
+    );
+
+    await notifier.loadRecommendations();
+
+    expect(notifier.state.error, isNull);
+    expect(
+      notifier.state.songsForPlatform(PlatformType.netease),
+      hasLength(1),
+    );
+    expect(notifier.state.songsForPlatform(PlatformType.qq), isEmpty);
+    expect(notifier.state.errorsByPlatform[PlatformType.qq], isNull);
+  });
+
   test(
-    'daily recommendations report login required only when no platforms are logged in',
+    'daily recommendations report login required only when nothing is produced',
     () async {
       final notifier = RecommendationsNotifier(
         supportedTypes: const [PlatformType.netease, PlatformType.qq],
-        platformResolver: (platform) =>
-            _FakeRecommendationPlatform(platform: platform, loggedIn: false),
+        platformResolver: (platform) => _FakeRecommendationPlatform(
+          platform: platform,
+          supportsDaily: true,
+          loggedIn: false,
+        ),
       );
 
       await notifier.loadRecommendations();
@@ -88,44 +200,13 @@ void main() {
   );
 
   test(
-    'daily recommendations do not expose QQ results when NetEase hangs',
-    () async {
-      final hanging = Completer<List<Song>>();
-      final notifier = RecommendationsNotifier(
-        supportedTypes: const [PlatformType.netease, PlatformType.qq],
-        operationTimeout: const Duration(milliseconds: 40),
-        platformResolver: (platform) {
-          if (platform == PlatformType.netease) {
-            return _FakeRecommendationPlatform(
-              platform: platform,
-              completer: hanging,
-            );
-          }
-          return _FakeRecommendationPlatform(
-            platform: platform,
-            songs: [_song('qq-1', platform)],
-          );
-        },
-      );
-
-      await notifier.loadRecommendations();
-
-      expect(notifier.state.songsForPlatform(PlatformType.qq), isEmpty);
-      expect(
-        notifier.state.errorsByPlatform[PlatformType.netease],
-        contains('timeout'),
-      );
-      expect(notifier.state.error, isNull);
-    },
-  );
-
-  test(
-    'daily recommendations keep logged-in NetEase visible when it returns no songs',
+    'daily recommendations keep a logged-in platform visible when it returns no songs',
     () async {
       final notifier = RecommendationsNotifier(
         supportedTypes: const [PlatformType.netease, PlatformType.qq],
         platformResolver: (platform) => _FakeRecommendationPlatform(
           platform: platform,
+          supportsDaily: true,
           loggedIn: platform == PlatformType.netease,
           songs: const [],
         ),
@@ -146,12 +227,13 @@ void main() {
   );
 
   test(
-    'daily recommendations keep logged-in NetEase visible when it fails',
+    'daily recommendations keep a logged-in platform visible when it fails',
     () async {
       final notifier = RecommendationsNotifier(
         supportedTypes: const [PlatformType.netease],
         platformResolver: (platform) => _FakeRecommendationPlatform(
           platform: platform,
+          supportsDaily: true,
           error: StateError('daily api failed'),
         ),
       );
@@ -178,19 +260,25 @@ Song _song(String id, PlatformType platform) => Song(
   artists: const [Artist(id: 'artist', name: 'artist')],
 );
 
-class _FakeRecommendationPlatform implements MusicPlatform {
+class _FakeRecommendationPlatform extends MusicPlatform {
   final PlatformType platform;
   final bool loggedIn;
+  final bool supportsDaily;
   final List<Song> songs;
+  final RecommendationSource? source;
   final Object? error;
   final Completer<List<Song>>? completer;
+  final void Function()? onLoad;
 
   _FakeRecommendationPlatform({
     required this.platform,
     this.loggedIn = true,
+    this.supportsDaily = true,
     this.songs = const [],
+    this.source,
     this.error,
     this.completer,
+    this.onLoad,
   });
 
   @override
@@ -203,12 +291,22 @@ class _FakeRecommendationPlatform implements MusicPlatform {
   bool get isLoggedIn => loggedIn;
 
   @override
+  bool get supportsDailyRecommendations => supportsDaily;
+
+  @override
   Future<List<Song>> getDailyRecommendations() async {
+    onLoad?.call();
     final failure = error;
     if (failure != null) throw failure;
     final pending = completer;
     if (pending != null) return pending.future;
     return songs;
+  }
+
+  @override
+  Future<RecommendationResult> getDailyRecommendation() async {
+    final loaded = await getDailyRecommendations();
+    return RecommendationResult(songs: loaded, source: source);
   }
 
   @override

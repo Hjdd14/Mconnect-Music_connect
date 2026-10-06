@@ -13,7 +13,7 @@ import '../../core/diagnostics/diagnostics_service.dart';
 import '../../core/storage/session_storage.dart';
 import 'kugou_api.dart';
 
-class KugouPlatform implements MusicPlatform {
+class KugouPlatform extends MusicPlatform {
   final KugouApi _api;
   User? _currentUser;
 

@@ -83,7 +83,7 @@ const _song = Song(
   artists: [Artist(id: 'a1', name: '歌手 1')],
 );
 
-class _FakePlaylistPlatform implements MusicPlatform {
+class _FakePlaylistPlatform extends MusicPlatform {
   final List<Playlist> playlists;
   final Completer<List<Playlist>>? loadCompleter;
   final Completer<bool>? addCompleter;
