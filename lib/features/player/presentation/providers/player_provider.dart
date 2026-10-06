@@ -15,6 +15,8 @@ import '../../../../models/song.dart';
 import '../../../../platform/base/platform_registry.dart';
 import '../../../../platform/base/music_platform.dart';
 import '../../../library/presentation/providers/likes_provider.dart';
+import '../../../download/presentation/providers/download_provider.dart';
+import '../../../offline_cache/presentation/providers/offline_cache_provider.dart';
 import '../../data/media_kit_windows_audio_controller.dart';
 import '../../data/player_audio_controller.dart';
 import '../../data/player_playback_memory_store.dart';
@@ -27,6 +29,13 @@ enum RepeatMode { off, all, one }
 
 typedef SongLikeResolver = bool Function(Song song);
 typedef SongLikeToggle = Future<void> Function(Song song);
+
+/// Resolves the local file backing [song] when 离线模式 is on.
+///
+/// Backed by `DownloadNotifier.localFilePathFor`, which also stamps the file's
+/// LRU access time. Injecting it keeps this notifier's tests independent of
+/// Hive/Connectivity.
+typedef OfflineFilePathResolver = Future<String?> Function(Song song);
 
 @visibleForTesting
 PlayerAudioController defaultPlayerAudioControllerFactory() {
@@ -192,6 +201,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   final PlaybackKeepAliveController _keepAliveController;
   final SongLikeResolver _isSongLiked;
   final SongLikeToggle? _toggleSongLike;
+  final OfflineFilePathResolver? _offlineFilePathResolver;
+  final bool Function() _isOfflineModeEnabled;
   final Future<void> Function()? _toggleFloatingLyrics;
   final bool Function() _isFloatingLyricsEnabled;
   final List<StreamSubscription> _subscriptions = [];
@@ -249,6 +260,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     PlaybackKeepAliveController? keepAliveController,
     SongLikeResolver? isSongLiked,
     this._toggleSongLike,
+    this._offlineFilePathResolver,
+    bool Function()? isOfflineModeEnabled,
     this._toggleFloatingLyrics,
     bool Function()? isFloatingLyricsEnabled,
     this._playbackHealthCheckInterval = const Duration(seconds: 5),
@@ -271,6 +284,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
            keepAliveController ??
            MethodChannelPlaybackKeepAliveController.instance,
        _isSongLiked = isSongLiked ?? ((_) => false),
+       _isOfflineModeEnabled = isOfflineModeEnabled ?? (() => false),
        _isFloatingLyricsEnabled = isFloatingLyricsEnabled ?? (() => false),
        super(const PlayerState()) {
     _notificationController.attach(
@@ -1364,6 +1378,42 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     }
   }
 
+  /// Local file URI for [song] when 离线模式 is on, otherwise `null`.
+  ///
+  /// Returning `null` means "use the network"; the caller keeps its original
+  /// streaming path. The resolver itself verifies the file still exists (see
+  /// `DownloadNotifier.localFilePathFor`), and any failure here degrades to the
+  /// network rather than blocking playback.
+  Future<String?> _offlinePlaybackUrl(Song song) async {
+    final resolver = _offlineFilePathResolver;
+    if (resolver == null) return null;
+    if (song.platform == PlatformType.local) return null;
+    if (!_isOfflineModeEnabled()) return null;
+
+    try {
+      final path = await resolver(song);
+      if (path == null || path.trim().isEmpty) return null;
+      final url = _localSongPlaybackUrl(path);
+      DiagnosticsService.instance.record(
+        'player',
+        'offline_playback_used',
+        data: {
+          'song_id': song.id,
+          'platform': song.platform.name,
+        },
+      );
+      return url;
+    } catch (e, s) {
+      DiagnosticsService.instance.recordError(
+        'player.offlinePlayback',
+        e,
+        s,
+        data: {'song_id': song.id, 'platform': song.platform.name},
+      );
+      return null;
+    }
+  }
+
   Future<void> _setUrlWithRecovery(String url, String label) async {
     try {
       await DiagnosticsService.instance.measure(
@@ -1486,25 +1536,34 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         _resetPlaybackHealthWindow(resetRecoveryAttempts: true);
         _schedulePlaybackMemorySave();
 
-        final playbackQuality = await _resolvePlaybackQuality(song, platform);
+        // 离线模式优先：命中本地文件时既不需要质量探测，也不需要取流。
+        final offlineUrl = await _offlinePlaybackUrl(song);
         if (requestId != _playRequestId) return;
-        if (playbackQuality != state.currentQuality) {
-          _setState(state.copyWith(currentQuality: playbackQuality));
+
+        final String url;
+        if (offlineUrl != null) {
+          url = offlineUrl;
+        } else {
+          final playbackQuality = await _resolvePlaybackQuality(song, platform);
+          if (requestId != _playRequestId) return;
+          if (playbackQuality != state.currentQuality) {
+            _setState(state.copyWith(currentQuality: playbackQuality));
+          }
+          url = song.platform == PlatformType.local
+              ? _localSongPlaybackUrl(song.id)
+              : await DiagnosticsService.instance.measure(
+                  'platform.getSongUrl',
+                  () => platform!
+                      .getSongUrl(song.id, quality: playbackQuality)
+                      .timeout(const Duration(seconds: 10)),
+                  data: {
+                    'platform': song.platform.name,
+                    'song_id': song.id,
+                    'quality': playbackQuality.name,
+                    'quality_preference': state.qualityPreference.name,
+                  },
+                );
         }
-        final url = song.platform == PlatformType.local
-            ? _localSongPlaybackUrl(song.id)
-            : await DiagnosticsService.instance.measure(
-                'platform.getSongUrl',
-                () => platform!
-                    .getSongUrl(song.id, quality: playbackQuality)
-                    .timeout(const Duration(seconds: 10)),
-                data: {
-                  'platform': song.platform.name,
-                  'song_id': song.id,
-                  'quality': playbackQuality.name,
-                  'quality_preference': state.qualityPreference.name,
-                },
-              );
         final previewUrl = url.length > 80 ? '${url.substring(0, 80)}...' : url;
         debugPrint('playSong: got url=$previewUrl');
         if (requestId != _playRequestId) return;
@@ -1584,19 +1643,26 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         final fadeGeneration = _cancelActiveFades();
         _setState(state.copyWith(isTransitioning: true, error: () => null));
         _resetPlaybackHealthWindow(resetRecoveryAttempts: true);
-        final url = song.platform == PlatformType.local
-            ? _localSongPlaybackUrl(song.id)
-            : await DiagnosticsService.instance.measure(
-                'platform.getSongUrl.restore',
-                () => platform!
-                    .getSongUrl(song.id, quality: quality)
-                    .timeout(const Duration(seconds: 10)),
-                data: {
-                  'platform': song.platform.name,
-                  'song_id': song.id,
-                  'quality': quality.name,
-                },
-              );
+        final offlineUrl = await _offlinePlaybackUrl(song);
+        if (requestId != _playRequestId) return;
+        final String url;
+        if (offlineUrl != null) {
+          url = offlineUrl;
+        } else if (song.platform == PlatformType.local) {
+          url = _localSongPlaybackUrl(song.id);
+        } else {
+          url = await DiagnosticsService.instance.measure(
+            'platform.getSongUrl.restore',
+            () => platform!
+                .getSongUrl(song.id, quality: quality)
+                .timeout(const Duration(seconds: 10)),
+            data: {
+              'platform': song.platform.name,
+              'song_id': song.id,
+              'quality': quality.name,
+            },
+          );
+        }
         if (requestId != _playRequestId) return;
 
         await _safeStop();
@@ -1965,6 +2031,48 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     }
   }
 
+  /// Inserts [song] right after the current track ("下一首播放").
+  ///
+  /// Does **not** interrupt playback: this only rewrites the queue, it never
+  /// touches the audio controller (no `stop`/`setUrl`/`play`), so the current
+  /// track keeps playing untouched.
+  ///
+  /// Duplicate semantics: when the queue already holds the same
+  /// `(id, platform)`, it is **moved** to the next position instead of being
+  /// inserted a second time. Two reasons: (1) "播放下一首" means "I want to hear
+  /// it right now", and a copy would leave the song in the queue twice; (2)
+  /// [playSong] locates the current index by `(id, platform)`, so a duplicate
+  /// makes that lookup point at the wrong row. If the song is already the
+  /// current track or already sits at `currentIndex + 1`, this is a no-op.
+  ///
+  /// An empty queue — or a playlist whose `currentIndex` is unset — falls back
+  /// to [addToQueue] so both entry points keep the same "append at the end,
+  /// dedupe, do not autoplay" semantics.
+  void playNext(Song song) {
+    if (state.playlist.isEmpty || state.currentIndex < 0) {
+      addToQueue(song);
+      return;
+    }
+
+    final playlist = List<Song>.from(state.playlist);
+    final currentIndex = state.currentIndex.clamp(0, playlist.length - 1);
+    final existingIndex = playlist.indexWhere(
+      (item) => item.id == song.id && item.platform == song.platform,
+    );
+    if (existingIndex == currentIndex) return;
+    if (existingIndex == currentIndex + 1) return;
+
+    var newIndex = currentIndex;
+    if (existingIndex >= 0) {
+      playlist.removeAt(existingIndex);
+      // 被移动的曲目原来在当前位置之前时，当前曲目的下标要跟着左移一位。
+      if (existingIndex < currentIndex) newIndex = currentIndex - 1;
+    }
+    playlist.insert(newIndex + 1, song);
+    _setState(state.copyWith(playlist: playlist, currentIndex: newIndex));
+    _schedulePlaybackMemorySave();
+  }
+
   @override
   void dispose() {
     _cancelTransitionWatchdog();
@@ -2004,6 +2112,11 @@ final playerProvider = StateNotifierProvider<PlayerNotifier, PlayerState>((
     toggleFloatingLyrics: () =>
         ref.read(floatingLyricsProvider.notifier).toggleEnabled(),
     isFloatingLyricsEnabled: () => ref.read(floatingLyricsProvider).enabled,
+    // 离线模式：只有开关打开时才优先本地文件，否则保持原有网络取流行为。
+    // 解析器只在开关为真时才被调用（downloadProvider 因此是懒创建的）。
+    isOfflineModeEnabled: () => ref.read(offlineCacheSettingsProvider).offlineMode,
+    offlineFilePathResolver: (song) =>
+        ref.read(downloadProvider.notifier).localFilePathFor(song),
   );
   ref.listen<List<Song>>(
     likesProvider.select((state) => state.songs),

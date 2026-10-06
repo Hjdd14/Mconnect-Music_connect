@@ -553,6 +553,144 @@ void main() {
     expect(notifier.hasAudioControllerForTest, isFalse);
   });
 
+  test('playNext inserts the song right after the current one', () async {
+    final audio = _FakeAudioController();
+    final notifier = PlayerNotifier(
+      audioController: audio,
+      platformResolver: (_) => _FakeMusicPlatform(),
+      audioControllerFactory: () => _FakeAudioController(),
+      keepAliveController: const NoopPlaybackKeepAliveController(),
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.playPlaylist([
+      _song('next-a'),
+      _song('next-b'),
+      _song('next-c'),
+    ]);
+
+    notifier.playNext(_song('next-d'));
+
+    expect(
+      notifier.state.playlist.map((song) => song.id),
+      ['next-a', 'next-d', 'next-b', 'next-c'],
+    );
+    expect(notifier.state.currentIndex, 0);
+    expect(notifier.state.currentSong?.id, 'next-a');
+
+    await notifier.skipToNext();
+    expect(notifier.state.currentSong?.id, 'next-d');
+  });
+
+  test('playNext does not interrupt the current playback', () async {
+    final audio = _FakeAudioController();
+    final notifier = PlayerNotifier(
+      audioController: audio,
+      platformResolver: (_) => _FakeMusicPlatform(),
+      audioControllerFactory: () => _FakeAudioController(),
+      keepAliveController: const NoopPlaybackKeepAliveController(),
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.playPlaylist([_song('quiet-a'), _song('quiet-b')]);
+    final setUrlCalls = audio.setUrlCalls;
+    final playCalls = audio.playCalls;
+
+    notifier.playNext(_song('quiet-c'));
+
+    // 纯队列操作：不取流、不重建播放器、不重播当前曲目。
+    expect(audio.setUrlCalls, setUrlCalls);
+    expect(audio.playCalls, playCalls);
+    expect(notifier.state.currentSong?.id, 'quiet-a');
+    expect(notifier.state.isPlaying, isTrue);
+  });
+
+  test('playNext moves an already queued song instead of duplicating it', () async {
+    final notifier = PlayerNotifier(
+      audioController: _FakeAudioController(),
+      platformResolver: (_) => _FakeMusicPlatform(),
+      audioControllerFactory: () => _FakeAudioController(),
+      keepAliveController: const NoopPlaybackKeepAliveController(),
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.playPlaylist([
+      _song('dup-a'),
+      _song('dup-b'),
+      _song('dup-c'),
+    ]);
+
+    notifier.playNext(_song('dup-c'));
+
+    expect(
+      notifier.state.playlist.map((song) => song.id),
+      ['dup-a', 'dup-c', 'dup-b'],
+    );
+    expect(notifier.state.currentIndex, 0);
+
+    // 当前曲目与"已经是下一首"的曲目都是 no-op。
+    notifier.playNext(_song('dup-a'));
+    expect(
+      notifier.state.playlist.map((song) => song.id),
+      ['dup-a', 'dup-c', 'dup-b'],
+    );
+    notifier.playNext(_song('dup-c'));
+    expect(
+      notifier.state.playlist.map((song) => song.id),
+      ['dup-a', 'dup-c', 'dup-b'],
+    );
+  });
+
+  test('playNext keeps the current index when reordering from behind', () async {
+    final notifier = PlayerNotifier(
+      audioController: _FakeAudioController(),
+      platformResolver: (_) => _FakeMusicPlatform(),
+      audioControllerFactory: () => _FakeAudioController(),
+      keepAliveController: const NoopPlaybackKeepAliveController(),
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.playPlaylist([
+      _song('move-a'),
+      _song('move-b'),
+      _song('move-c'),
+    ]);
+    await notifier.skipToNext();
+    expect(notifier.state.currentSong?.id, 'move-b');
+
+    // 把当前位置之前的曲目搬到"下一首"：当前曲目必须仍然指向 move-b。
+    notifier.playNext(_song('move-a'));
+
+    expect(
+      notifier.state.playlist.map((song) => song.id),
+      ['move-b', 'move-a', 'move-c'],
+    );
+    expect(notifier.state.currentIndex, 0);
+    expect(notifier.state.currentSong?.id, 'move-b');
+  });
+
+  test('playNext on an empty queue matches addToQueue semantics', () async {
+    final audio = _FakeAudioController();
+    final notifier = PlayerNotifier(
+      audioController: audio,
+      platformResolver: (_) => _FakeMusicPlatform(),
+      audioControllerFactory: () => _FakeAudioController(),
+      keepAliveController: const NoopPlaybackKeepAliveController(),
+    );
+    addTearDown(notifier.dispose);
+
+    notifier.playNext(_song('empty-a'));
+
+    expect(notifier.state.playlist.map((song) => song.id), ['empty-a']);
+    expect(notifier.state.currentIndex, -1);
+    expect(notifier.state.currentSong, isNull);
+    // addToQueue 语义：只入队，不自动播放。
+    expect(audio.playCalls, 0);
+
+    notifier.playNext(_song('empty-a'));
+    expect(notifier.state.playlist.map((song) => song.id), ['empty-a']);
+  });
+
   test('a recreated controller receives the equalizer settings and volume', () async {
     final hangingAudio = _FakeAudioController(hangOnStop: true);
     final recreated = _FakeAudioController();
@@ -1013,6 +1151,135 @@ void main() {
     expect(notifier.state.currentQuality, AudioLevel.medium);
     expect(notifier.state.isPlaying, isFalse);
   });
+
+  test(
+    'offline mode plays the downloaded file without touching the network',
+    () async {
+      final audio = _FakeAudioController();
+      final platform = _FakeMusicPlatform();
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        platformResolver: (_) => platform,
+        audioControllerFactory: () => _FakeAudioController(),
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+        isOfflineModeEnabled: () => true,
+        offlineFilePathResolver: (song) async => r'C:\music\offline-1.mp3',
+      );
+      addTearDown(notifier.dispose);
+
+      await notifier.playSong(_song('offline-1'));
+
+      expect(platform.requestedQualitiesFor('offline-1'), isEmpty);
+      expect(audio.lastUrl, startsWith('file:'));
+      expect(audio.lastUrl, contains('offline-1.mp3'));
+      expect(notifier.state.isPlaying, isTrue);
+    },
+  );
+
+  test('offline mode off keeps streaming from the network', () async {
+    final audio = _FakeAudioController();
+    final platform = _FakeMusicPlatform();
+    var resolveCalls = 0;
+    final notifier = PlayerNotifier(
+      audioController: audio,
+      platformResolver: (_) => platform,
+      audioControllerFactory: () => _FakeAudioController(),
+      keepAliveController: const NoopPlaybackKeepAliveController(),
+      // 开关关闭时即便本地有文件也不能抢走播放优先级。
+      isOfflineModeEnabled: () => false,
+      offlineFilePathResolver: (song) async {
+        resolveCalls++;
+        return r'C:\music\offline-2.mp3';
+      },
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.playSong(_song('offline-2'));
+
+    expect(resolveCalls, 0);
+    expect(platform.requestedQualitiesFor('offline-2'), [AudioLevel.low]);
+    expect(audio.lastUrl, 'https://example.test/offline-2-low.mp3');
+  });
+
+  test('a missing local file falls back to the network', () async {
+    final audio = _FakeAudioController();
+    final platform = _FakeMusicPlatform();
+    final notifier = PlayerNotifier(
+      audioController: audio,
+      platformResolver: (_) => platform,
+      audioControllerFactory: () => _FakeAudioController(),
+      keepAliveController: const NoopPlaybackKeepAliveController(),
+      isOfflineModeEnabled: () => true,
+      offlineFilePathResolver: (song) async => null,
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.playSong(_song('offline-3'));
+
+    expect(platform.requestedQualitiesFor('offline-3'), [AudioLevel.low]);
+    expect(audio.lastUrl, 'https://example.test/offline-3-low.mp3');
+  });
+
+  test('a failing local file lookup falls back to the network', () async {
+    final audio = _FakeAudioController();
+    final platform = _FakeMusicPlatform();
+    final notifier = PlayerNotifier(
+      audioController: audio,
+      platformResolver: (_) => platform,
+      audioControllerFactory: () => _FakeAudioController(),
+      keepAliveController: const NoopPlaybackKeepAliveController(),
+      isOfflineModeEnabled: () => true,
+      offlineFilePathResolver: (song) async =>
+          throw StateError('local store unavailable'),
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.playSong(_song('offline-4'));
+
+    expect(platform.requestedQualitiesFor('offline-4'), [AudioLevel.low]);
+    expect(audio.lastUrl, 'https://example.test/offline-4-low.mp3');
+    expect(notifier.state.isPlaying, isTrue);
+  });
+
+  test(
+    'restoring a song in offline mode also prefers the downloaded file',
+    () async {
+      final audio = _FakeAudioController();
+      final platform = _FakeMusicPlatform();
+      final store = _MemoryPlaybackStore(
+        restored: PlayerPlaybackMemory(
+          currentSong: _song('offline-restored'),
+          playlist: [_song('offline-restored')],
+          currentIndex: 0,
+          position: const Duration(seconds: 30),
+          duration: const Duration(minutes: 4),
+          currentQuality: AudioLevel.medium,
+        ),
+      );
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        platformResolver: (_) => platform,
+        audioControllerFactory: () => _FakeAudioController(),
+        playbackMemoryStore: store,
+        playbackMemorySaveInterval: Duration.zero,
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+        isOfflineModeEnabled: () => true,
+        offlineFilePathResolver: (song) async =>
+            r'C:\music\offline-restored.flac',
+      );
+      addTearDown(notifier.dispose);
+
+      await pumpEventQueue();
+      expect(notifier.state.currentSong?.id, 'offline-restored');
+
+      await notifier.togglePlay();
+      await pumpEventQueue();
+
+      expect(platform.requestedQualitiesFor('offline-restored'), isEmpty);
+      expect(audio.lastUrl, startsWith('file:'));
+      expect(audio.lastUrl, contains('offline-restored.flac'));
+    },
+  );
 
   test(
     'play after restore loads the source and resumes from the saved position',
