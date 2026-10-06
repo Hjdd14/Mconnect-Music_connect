@@ -2720,3 +2720,64 @@ ColoredBox(surface)                      ← 不透明底：下面的路由一�
 ---
 
 *本文档为只读审计产出，除本文档外未修改任何文件（审计期间的临时探针测试已删除，`git status` 仅显示 `?? docs/`）。执行需用户确认 §9 决策点。*
+
+---
+
+## 27. 阶段 T —— v1.4.0 Wave 0：共享契约冻结（已完成）
+
+### T.0 这一阶段在做什么
+
+v1.4.0 是一次跨 13 条工作流的改造（网络/三平台能力/多平台每日推荐/播放器/数据层/下载缓存/内容页/交互/本地音乐/工程化/无障碍）。**13 个 agent 并行写同一仓库，最大的风险不是写不出来，而是互相覆盖与共享文件打架。** 所以 Wave 0 的规则是：**所有被多个工作流共享的文件，由 Lead 一个人在串行阶段改完并冻结**，之后才允许派发并行任务；冻结后的文件任何工作流只能读，需要改就提请求。
+
+两个提交：
+
+| commit | 内容 |
+|---|---|
+| `996cec7` | 模型 / 平台接口 / 网络层 / 常量 / drift v2 / 日推 provider |
+| `143ef2c` | 平台色收敛 / 路由 / 长按菜单契约 |
+
+### T.1 冻结了什么
+
+- **模型**：`Song` 增 `albumId/artistId/trackNumber/fee` 与 `dedupeKey`（归一化标题 + 主歌手 + 4 秒时长桶，用于跨平台合并；`fingerprint` 语义保持不变，因为它已落库）；`Album`/`Artist` 增详情字段与 `fromJson/toJson/copyWith`；新增 `Toplist`/`RankedSong`（`rankChange` 供榜单涨跌）；新增 `RecommendationSource`/`RecommendationKind`/`RecommendationResult`。
+- **平台接口**：`MusicPlatform` 增能力 getter（`supportsDailyRecommendations`/`supportsPhoneLogin`/`supportsArtistPage`/`supportsAlbumPage`/`supportsNewSongs`）与 艺人/专辑/新歌/榜单/日推 方法，**全部带默认实现**；`NeteasePlatform` 声明 `supportsDailyRecommendations => true`。
+- **网络层**：新增 `lib/core/network/platform_http.dart`（`createPlatformDio` + `IdempotentRetryGuard` + `PlatformErrorInterceptor` + `apiExceptionOf`）；`api_exception.dart` 增 `NetworkException`/`NotFoundException`/`UnsupportedActionException`（既有类**不改名**，避免无谓 churn）。
+- **数据库**：`schemaVersion 1 → 2` + 真实 `onUpgrade`；`Songs` 增 3 列；新增 `LocalTracks`/`ToplistsCache`/`PlayEvents`/`DailyStats`/`SmartPlaylistSnapshots`；删除从 v1 起就从未写入、也无 DAO 的死表 `Playlists`。
+- **路由**：`/toplists`、`/toplist/:platform/:id`、`/album/:platform/:id`、`/artist/:platform/:id`、`/new-songs`、`/backup`，配套 Wave 0 占位页。
+- **其余**：`recommendations_provider` 从硬编码白名单改为能力驱动 + `sourceByPlatform`；`PlatformAccent` 统一 7 处重复的平台色/图标 switch；`PlatformType.tryParse/parse`；`app_constants` 删掉 7 个全仓零引用常量；`song_actions_sheet` 冻结长按菜单 API。
+
+### T.2 本次修复的根因（有实测/代码证据）
+
+1. **"QQ 热歌榜没有入口"的两条硬根因**（我本人在本机用真实 HTTP 请求实测）：
+   - `qq_platform.dart:605` 写的是 `topId=4 热歌榜`，**实测 `4=巅峰榜·流行指数`，热歌榜是 `26`（total_song_num=300）**；`62=飙升榜`、`27=新歌榜`。
+   - `qq_platform.dart:606` 读 `res['toplist']['data']['songList']`，**真实结构是 `data.data`（榜单元信息）+ `data.songInfoList`（歌曲）**；且 `songlist[i].data` 是包裹层，`:608` 漏了 `_songPayload` 解包（`:481/:595` 却做了）。
+   - 两者叠加 → QQ 榜单恒为空 → `rankings_provider.dart:47` 的 `if (songs.isNotEmpty)` 只收录非空平台 → **QQ 标签页从不出现**；`:50-52` 又把平台异常静默吞掉，空态与失败不可区分。
+2. **酷狗官方日推端点已被服务端下线**：`/api/v3/recommend/song` 在 **5 种变体**下（纯 `format=json`、加 appid/clientver/clienttime、**android 签名**、**web 签名**、换主机）全部返回 `Access Deny ! No Actions !`；`everyday/recommend` 与 `everydaysong/list` 返回 `Access Deny !!!`。**不是签名问题**（签名算法按 `kugou_api.dart:926-942` 逐字段复刻验证）。可用替代：`m.kugou.com/?json=true` 的 `data`（10 首推荐）、`rank/list`（25 榜）、`rank/song`、`singer/info`、`singer/song`、`album/info`。
+3. **drift 升级是定时炸弹**：v1 只有 `onCreate`、没有 `onUpgrade`，而 drift 对未处理的版本升级**抛 `UnsupportedError`（不会静默重建）** → 第一次加列就会让所有老装机升级即崩，而库里有收藏/历史/歌词缓存。
+4. **网络层整层是死代码**：`ApiClient`/`RetryInterceptor`/`_ErrorInterceptor` 全仓零引用，三个适配器各自 `new Dio` 且不挂拦截器 → "指数退避重试""401→登录已过期"**全部只是纸面功能**；`LoginExpiredException` 从未被 throw。
+5. **四个已上线功能实际失效**（详细证据见 §2 审计与本轮任务单）：离线缓存只造 `waiting` 任务从不执行、且与手动下载**共用同一个 id** 导致缓存过的歌再也无法手动下载；`wifiOnly`/`autoRetry`/`autoCleanup`/`offlineMode` 四个开关全无真实生效路径。
+
+### T.3 执行中发现的新教训（写给下一个 agent）
+
+1. **Dart 的 `implements` 不继承默认实现。** 给 `MusicPlatform` 加"带默认实现"的新方法后，9 个实现类**全部编译失败**。结论：只要接口要用默认实现做"可选能力"，实现方必须 `extends` 而不是 `implements`；本项目已把 3 个平台 + 6 个测试假类统一改为 `extends`（原有 20 个抽象成员仍是抽象，强制实现不变）。
+2. **`PROJECT.md` 说"build_runner 与 Dart 3.10.3 不兼容、drift 代码手动生成"已经过期。** 实测当前 **Dart 3.13.4 + drift_dev 2.33.0**：`dart run build_runner build` **38 秒**正常生成（343 产物），`app_database.g.dart` 已重新生成为现代风格（新增 table manager 等，1814 增 / 415 删），analyze 0 issue、测试全绿。**以后改 schema 一律用 build_runner，不要手写生成代码。**
+3. **手写 drift 迁移测试不需要新依赖、不需要 `SchemaVerifier`。** 做法：`AppDatabase.forTesting(NativeDatabase(file, setup: (raw) { ...CREATE TABLE v1 表...; INSERT 老数据; raw.execute('PRAGMA user_version = 1'); }))` —— `setup` 在 drift 读取版本**之前**执行，因此同一次 open 里就完成了"v1 建库 + 升级"，一遍测完"数据保留 + 新列可读 + 新表存在 + 死表被删"。注意 `package:drift/drift.dart` 的 `isNull/isNotNull` 会与 matcher 冲突，需 `hide isNull, isNotNull`。
+4. **go_router 的 `findMatch` 对未注册路由返回"空 matches"而不是 null。** 我第一版反例断言写的是 `isNull`，被自己的红→绿跑抓出来。**断言要写在 `match.matches` 上**；而"反例能失败"本身就是断言有判别力的证据。
+5. **"Windows 零改动"这个门禁要写准。** 新增跨平台插件后，`windows/flutter/generated_plugin_registrant.cc` 与 `generated_plugins.cmake` 这两个**生成文件**必然出现附加式改动（本次是 app_links/connectivity_plus/share_plus/url_launcher_windows 的注册）。门禁应表述为"**手写 Windows 源文件零改动**"，而不是"`windows/` 目录零改动"，否则门禁必然误报。
+6. **本机沙箱 HTTPS(443) 不可达、HTTP(80) 可用**（`curl https://...` 返回 `http=000`，schannel 握手失败；`curl -k` 同样失败）。所以本次所有"实测"结论都来自明文 HTTP 端点（`c.y.qq.com`/`u.y.qq.com`/`mobilecdn.kugou.com`/`m.kugou.com` 都支持 80）。**这是环境限制，不是 App 问题**：App 在真机上 HTTPS 正常。凡未经实测的 https 端点，标注为"未实测，按既有惯例实现"。
+
+### T.4 门禁与证据
+
+| 项 | 结果 |
+|---|---|
+| `flutter analyze --no-pub` | **0 issue** |
+| `flutter test --no-pub -j 1` | **444 passed**（Wave 0 之前 438；改写的用例不计入新增） |
+| 迁移保护 | `test/database_migration_test.dart`：真造 v1 库（带 songs/likes/history/lyrics 数据 + `user_version=1`）→ 升级 → 断言数据保留、v2 列可读且为 null、5 张新表存在、`playlists` 已删；另一条断言全新库直接是 v2 |
+| 路由保护 | `test/app_router_routes_test.dart`：6 个新位置全部匹配到路由，未注册位置 matches 为空 |
+| 日推能力 | `test/recommendations_provider_test.dart` 重写为能力驱动语义（8 条），含"来源标签"与"平台超时标注 unavailable 且不隐藏其他平台" |
+
+### T.5 下一步（Wave 1，已派发）
+
+按写范围互斥派发 4 路（共享任务 `task-1`..`task-4`）：网络与会话硬化、网易云能力、QQ（含热歌榜修复与日推重写）、酷狗（logout/推荐换源/cleartext 收窄）。
+
+**执行中的一次写范围冲突与处理**：WS-A 原本要"把三个平台适配器接到 `createPlatformDio`"，但那三个文件当时由三条平台工作流独占写入 —— 该冲突是我在派工时制造的。处理方式：**接线下派给各平台 owner 在自己文件里完成**（工厂与异常层仍归 WS-A），WS-A 转而负责拦截器行为单测、`session_storage` 兜底、401 引导与端点常量清单。教训：**"接线上线"这类跨文件改动，派工时要先确认目标文件是否已在别人手里，否则会出现 A 的交付物必须写在 B 的写范围里。**
+
