@@ -15,6 +15,13 @@ dependencies:
   flutter:
     sdk: flutter
 
+  # SDK-provided (not a third-party package): required for real localisation.
+  # Without it the generated AppLocalizations cannot even be imported, and the
+  # Material/Cupertino built-in strings (dialog buttons, date pickers, ...)
+  # stay English no matter what the ARB files say.
+  flutter_localizations:
+    sdk: flutter
+
   cupertino_icons: ^1.0.8
 
   # State Management
@@ -60,7 +67,7 @@ dependencies:
   encrypt: ^5.0.3
 
   # Utils
-  intl: ^0.19.0
+  intl: 0.20.3
   collection: ^1.19.0
   json_annotation: ^4.9.0
   permission_handler: ^11.0.0
