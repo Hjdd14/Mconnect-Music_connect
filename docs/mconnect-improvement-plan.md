@@ -2763,7 +2763,12 @@ v1.4.0 是一次跨 13 条工作流的改造（网络/三平台能力/多平台�
 3. **手写 drift 迁移测试不需要新依赖、不需要 `SchemaVerifier`。** 做法：`AppDatabase.forTesting(NativeDatabase(file, setup: (raw) { ...CREATE TABLE v1 表...; INSERT 老数据; raw.execute('PRAGMA user_version = 1'); }))` —— `setup` 在 drift 读取版本**之前**执行，因此同一次 open 里就完成了"v1 建库 + 升级"，一遍测完"数据保留 + 新列可读 + 新表存在 + 死表被删"。注意 `package:drift/drift.dart` 的 `isNull/isNotNull` 会与 matcher 冲突，需 `hide isNull, isNotNull`。
 4. **go_router 的 `findMatch` 对未注册路由返回"空 matches"而不是 null。** 我第一版反例断言写的是 `isNull`，被自己的红→绿跑抓出来。**断言要写在 `match.matches` 上**；而"反例能失败"本身就是断言有判别力的证据。
 5. **"Windows 零改动"这个门禁要写准。** 新增跨平台插件后，`windows/flutter/generated_plugin_registrant.cc` 与 `generated_plugins.cmake` 这两个**生成文件**必然出现附加式改动（本次是 app_links/connectivity_plus/share_plus/url_launcher_windows 的注册）。门禁应表述为"**手写 Windows 源文件零改动**"，而不是"`windows/` 目录零改动"，否则门禁必然误报。
-6. **本机沙箱 HTTPS(443) 不可达、HTTP(80) 可用**（`curl https://...` 返回 `http=000`，schannel 握手失败；`curl -k` 同样失败）。所以本次所有"实测"结论都来自明文 HTTP 端点（`c.y.qq.com`/`u.y.qq.com`/`mobilecdn.kugou.com`/`m.kugou.com` 都支持 80）。**这是环境限制，不是 App 问题**：App 在真机上 HTTPS 正常。凡未经实测的 https 端点，标注为"未实测，按既有惯例实现"。
+6. **本机 HTTPS 可达性按"客户端 × 主机"而异，不能用单一结论概括 —— 我一开始就概括错了。** 我最初用 `curl` 测 `https://www.baidu.com` 与 `https://u.y.qq.com` 都返回 `http=000`（schannel 握手失败，`-k` 也一样），就写下"沙箱 HTTPS 不可达、所有结论只能来自 HTTP"。**WS-B 用 Dart 实测 19 个网易云端点全部 HTTP 200**，并补充 PowerShell `Invoke-WebRequest https://music.163.com/api/toplist` 也是 200。准确表述是：**curl 在这台机器的 schannel/TLS 栈下打不通 HTTPS；Dart/Flutter 与 .NET 正常**（且个别主机如 `login.user.kugou.com` 确实没有 443，PowerShell 对 `u.y.qq.com` 的 https 也失败过）。教训有两条：
+   - **探针一律用 Dart/Flutter 写，不要用 `curl`**（`scripts/` 里的探针本来就是这个形态，这次不该绕过它）。
+   - **不要用一个工具的失败去推断环境能力**；要么换工具复验，要么把结论限定在"该工具 × 该主机"。
+   - 复审：WS-D 用 Dart 实测后才发现播放域名 `sharefs.kugou.com` 本来就是 **HTTPS**，从而把 `songInfo`（"MITM 替换后被下载器落盘"那条路）等 4 个端点常量从 http 改成了 https —— 若沿用我"https 未实测"的保守假设，这条安全改进根本不会发生。
+7. **任务书里的字段名/上限可能本身就是错的，探针的价值在于推翻它。** 本轮实测推翻了任务书 6 处：QQ `topId=4` 不是热歌榜（是 26）、QQ legacy `toplist_cp` **单次上限 50 首**（我曾写"一次拿全 300 首"）、QQ 艺人专辑在 `AlbumListServer` 而非 `AlbumListInter`、网易云新歌 `result[].type` 恒为 int 4（按我的 `type=='song'` 过滤会把真实歌曲 **100% 滤掉**）、`/api/personalized/newsong?type=` 根本不筛地区（真端点 `/api/v1/discovery/new/songs?areaId=`）、`/api/toplist` 没有 `trackNumberUpdate`（是 `trackCount`）。**写法要求：任务书给的端点/字段一律当"待验证假设"，不许当事实直接编码。**
+8. **"stub 单测全绿"不等于字段名对。** WS-B 的 stub 单测只能证明"按我以为的字段名解析"，所以它又加了实现级 live 探针（真打 `music.163.com`，默认 skip、设 `NETEASE_LIVE=1` 才出网），正是这一步暴露出上面 3 处字段错误与 2 个真 bug。**凡涉及外部 API 的工作流，"stub 单测 + 实现级 live 探针（默认 skip）"应当成对出现。**
 
 ### T.4 门禁与证据
 
@@ -2780,4 +2785,51 @@ v1.4.0 是一次跨 13 条工作流的改造（网络/三平台能力/多平台�
 按写范围互斥派发 4 路（共享任务 `task-1`..`task-4`）：网络与会话硬化、网易云能力、QQ（含热歌榜修复与日推重写）、酷狗（logout/推荐换源/cleartext 收窄）。
 
 **执行中的一次写范围冲突与处理**：WS-A 原本要"把三个平台适配器接到 `createPlatformDio`"，但那三个文件当时由三条平台工作流独占写入 —— 该冲突是我在派工时制造的。处理方式：**接线下派给各平台 owner 在自己文件里完成**（工厂与异常层仍归 WS-A），WS-A 转而负责拦截器行为单测、`session_storage` 兜底、401 引导与端点常量清单。教训：**"接线上线"这类跨文件改动，派工时要先确认目标文件是否已在别人手里，否则会出现 A 的交付物必须写在 B 的写范围里。**
+
+---
+
+## 28. 阶段 U —— v1.4.0 Wave 1：四路并行（已完成）
+
+### U.1 派工与门禁
+
+写范围互斥的 4 路（共享任务 `task-1`..`task-4`），全部完成后由 Lead 独立复跑门禁（不采信队友自报）：
+
+| 工作流 | 队友 | 共享任务 | 交付 |
+|---|---|---|---|
+| WS-A 网络与会话硬化 | `net-hardening` | task-1 | `platform_http.dart` 可调退避 + `RequestCancelledException`；`session_storage` 全兜底与前缀删除；`auth_provider.handleSessionExpired` |
+| WS-B 网易云能力 | `platform-netease` | task-2 | 榜单/新歌/艺人/专辑 7 个方法 + 19 端点探针 + 实现级 live 探针 |
+| WS-C QQ | `platform-qq` | task-3 | **热歌榜修复**、榜单中心、艺人/专辑/新歌、日推重写、`QqToplistIds` |
+| WS-D 酷狗 | `platform-kugou` | task-4 | `clearSession`、推荐换源、6 个内容方法、cleartext 收窄 + 4 端点改 HTTPS |
+
+**Lead 独立门禁（最终树）**：`flutter analyze --no-pub` → **No issues found**；`flutter test --no-pub -j 1` → **572 passed / 10 skipped / 0 failed**（Wave 0 基线 444；+128 断言；10 skipped 是实现级 live 探针，默认不出网）。
+
+三平台接线已核实：`createPlatformDio` 出现在 `netease_api.dart:16`、`qq_api.dart:24`、`kugou_api.dart:33` —— **Wave 0 冻结的网络层（幂等重试 + typed 错误翻译）终于真正生效**，此前 `RetryInterceptor` 全仓零引用。
+
+### U.2 用户点名缺陷的收口（QQ 热歌榜）
+
+- 修复点：`topId` 26、解析 `data.data` + `data.songInfoList`、`_songPayload` 解 `data` 包裹层、legacy `toplist_cp` **翻 6 页**取满 300 首。
+- 红→绿：把 `getRankingList` 临时还原成旧结构 → `Expected: ['26'] Actual: ['4']`（`test/qq_catalog_test.dart:96`）；恢复后全绿。
+- 实测复核（live smoke）：`topId=26 / 300 首 / 每日更新 / period=2026-10-06`，榜单中心 30 榜 4 组，艺人"陈奕迅"1400 曲 / 103 专辑 + 真实头像，专辑"未完成"（华纳唱片 / Pop 流行 / 国语）。
+- **UI 入口仍待 Wave 3**：数据层已就绪，`/toplists` 与 `/toplist/qq/hot` 目前是 Wave 0 占位页。
+
+### U.3 多平台每日推荐（QQ 日推 + 酷狗推荐）
+
+- 网易云：`personalizedDaily`（真日推）。
+- QQ：登录态走「今日私享」playlist；匿名态**跳过**必然失败的今日私享抓取（省 12s）→ 回退新歌榜/热歌榜，`RecommendationSource(kind: fallbackToplist, note: '未登录，已回退到新歌榜')`。
+- 酷狗：官方 `recommend/song` 已死 → 首页 `?json=true` 的 `data`(10 首) + `special.list.info[].songs`（hash 去重、上限 30）→ `kind: fallbackHomepage, label: '酷狗推荐'`，**删掉了静默 `return []` 的死路径**（首页也失败时返回 `unavailable` + error，上层可区分"接口失败"与"没有推荐"）。
+
+### U.4 本轮暴露的协作问题（写给下一个 Lead）
+
+1. **一次"缺 import"阻塞了全仓**：`kugou_platform.dart` 调用 `apiExceptionOf` 但未 import，导致 **14 个测试文件编译失败**、analyze 报 5 issues —— 而这是**其他人正在写**的文件，谁都不敢碰。处理：Lead 直接派给该文件 owner 补 import（1 分钟解决）。教训：**并行 wave 里，任何 lib/ 文件缺 import 都会把所有人的门禁染红**；派工时应在 DoD 里写"你的改动必须让 `lib/` 可编译"，并把"门禁失败落在别人文件上"的处理路径讲清楚（本轮靠事前发的《Git 纪律》消息避免了三方互相修）。
+2. **`git add -A` 是并行期的炸弹**：4 个 agent 同工作树，任何一方全量 add 都会提交别人的半成品。事前的规则是"**不要 commit、不要 add -A，改动留工作树，Lead 按写范围分批 review 提交**"，本轮 4 路都遵守了，工作树最后是干净的合并态。
+3. **测试框架层的一次 40 分钟 stall**：一位队友的全量 `flutter test` 卡在 `loading test/widget_test.dart` 阶段 40 分钟、零输出、无 `flutter_tester` 残留进程；单独跑该文件 2 秒通过，重跑全量即全绿。**判定为 flutter_test 偶发 stall，与代码无关**。遇到这种情况的处置：kill → 单文件复跑 → 全量重跑，**不要把"卡住"当成"我的代码有问题"而开始乱改**。
+4. **写范围重叠告警是真的**：4 个任务都含 `test/`，共享任务系统报了 overlap。实际执行没冲突（每个测试文件名唯一），但下一轮应把写范围细化到具体文件 glob，别写整个 `test/`。
+
+### U.5 本轮明确留下的残余风险与 follow-up
+
+1. **酷狗 cleartext 收窄的三条残余风险**（队友如实报告，未粉饰）：① 裸 IP 直链无法列入 `domain-config`，命中会被拦；② `login.user.kugou.com` **实测无 443**，手机号验证码只能继续走明文（已把范围压到单主机）；③ gateway `/v5/url` 取流路由复刻签名仍返回 `err 20006 err signature`，**未能验证可用**，若在线返回 `kgcdn.com` 之外的明文域名会被拦（已加 `kgcdn.com` 兜底并在 XML 注释标明是预防性放行）。
+2. **白名单保留了 `126.net`（网易云）与 `qq.com`** —— 否则收窄会打断两家的明文取流。若确认两家不再返回 http URL，可再收紧。
+3. **`CancelToken` 只能接到 API 层**：`MusicPlatform` 签名是 Wave 0 冻结的，平台层无法从 UI 透传取消。已批准**留作 Wave 3 由 Lead 统一做一次契约 bump**（`getToplists({CancelToken? cancelToken})` 等），不要在 Wave 1-3 里各自改签名。
+4. **`task-5`（会话失效的用户可见提示 + 生产调用点接线）** 已登记：`handleSessionExpired` 的 API 与单测就绪，但 `clearAll()`/`refreshUser()` 在 `lib/` 里**没有生产调用点**，401→登出/重登的真实触发依赖各 feature provider 在 catch 到 `LoginExpiredException` 时调用它。属 Wave 3。
+5. **既有"吞异常返回空"的旧路径未动**（`search`/`getLyrics`/`getRankingList` 等）：会影响既有调用方与测试，超出本轮范围，已在队友报告中标注。
 
