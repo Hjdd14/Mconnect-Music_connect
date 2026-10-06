@@ -9,6 +9,7 @@ import '../../../../models/platform_type.dart';
 import '../../../../models/playlist.dart';
 import '../providers/my_playlists_provider.dart';
 import '../providers/platform_playlists_provider.dart';
+import '../../../../core/utils/snackbar_helper.dart';
 
 class PlatformPlaylistsPage extends ConsumerStatefulWidget {
   const PlatformPlaylistsPage({super.key});
@@ -81,9 +82,7 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
         .read(platformPlaylistsProvider.notifier)
         .create(platform, name);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(playlist == null ? '新建歌单失败' : '已新建歌单')),
-    );
+    showInfoSnackBar(context, playlist == null ? '新建歌单失败' : '已新建歌单');
   }
 
   Future<void> _createMyPlaylist() async {
@@ -95,9 +94,7 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
 
     final playlist = await ref.read(myPlaylistsProvider.notifier).create(name);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(playlist == null ? '新建歌单失败' : '已新建歌单')),
-    );
+    showInfoSnackBar(context, playlist == null ? '新建歌单失败' : '已新建歌单');
   }
 
   Future<String?> _askPlaylistName() async {
@@ -143,9 +140,7 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
 
   void _openPlaylist(Playlist playlist) {
     if (playlist.id.trim().isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('该歌单缺少可访问ID，请刷新后重试')));
+      showErrorSnackBar(context, '该歌单缺少可访问ID，请刷新后重试');
       return;
     }
     context.push(_playlistRoute(playlist));
@@ -174,9 +169,7 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
         .read(myPlaylistsProvider.notifier)
         .deletePlaylist(playlist.id);
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(ok ? '已删除歌单' : '删除歌单失败')));
+    showInfoSnackBar(context, ok ? '已删除歌单' : '删除歌单失败');
   }
 
   Future<void> _exportMyPlaylist(Playlist playlist) async {
@@ -185,9 +178,7 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
         .exportPlaylistLink(playlist.id);
     if (!mounted) return;
     if (link == null || link.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('导出失败')));
+      showErrorSnackBar(context, '导出失败');
       return;
     }
     await Clipboard.setData(ClipboardData(text: link));

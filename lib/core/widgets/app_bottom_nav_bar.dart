@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../l10n/l10n.dart';
 import '../theme/ui_style_provider.dart';
 import 'floating_glass_nav_bar.dart';
 
@@ -39,23 +40,29 @@ class AppBottomNavBar extends ConsumerWidget {
     final style = ref.watch(uiStyleProvider).style;
     switch (style) {
       case UiStyle.material:
-        return _buildMaterial();
+        return _buildMaterial(context);
       case UiStyle.miuix:
         return _buildMiuix();
     }
   }
 
-  Widget _buildMaterial() {
+  Widget _buildMaterial(BuildContext context) {
     // Deliberately no `key`: this must stay the same widget the home screen
     // used to build inline, so element reconciliation is unchanged too.
+    final l = context.l10n;
     return NavigationBar(
       selectedIndex: selectedIndex,
       onDestinationSelected: onDestinationSelected,
-      destinations: const [
-        NavigationDestination(icon: Icon(Icons.search), label: '搜索'),
-        NavigationDestination(icon: Icon(Icons.explore), label: '发现'),
-        NavigationDestination(icon: Icon(Icons.library_music), label: '音乐库'),
-        NavigationDestination(icon: Icon(Icons.download), label: '下载'),
+      // Same ARB keys as the Miuix branch (loating_glass_nav_bar.dart), so
+      // switching UI style cannot change the four labels.
+      destinations: [
+        NavigationDestination(icon: const Icon(Icons.search), label: l.navSearch),
+        NavigationDestination(icon: const Icon(Icons.explore), label: l.navDiscover),
+        NavigationDestination(
+          icon: const Icon(Icons.library_music),
+          label: l.navLibrary,
+        ),
+        NavigationDestination(icon: const Icon(Icons.download), label: l.navDownloads),
       ],
     );
   }

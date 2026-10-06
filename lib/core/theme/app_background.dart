@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:mconnect/core/theme/app_colors.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' show
     GlassContainer,
@@ -230,7 +231,7 @@ class AppBackgroundShell extends ConsumerWidget {
     final settings = ref.watch(appBackgroundSettingsProvider);
     final theme = Theme.of(context);
     final scrim = theme.brightness == Brightness.dark
-        ? Colors.black.withValues(alpha: 0.48)
+        ? AppColors.imageBase.withValues(alpha: 0.48)
         : theme.colorScheme.surface.withValues(alpha: 0.72);
     final showImage = drawImage && settings.enabled;
 
@@ -547,7 +548,7 @@ class AppBackgroundImageCanvas extends StatelessWidget {
 
     return ColoredBox(
       key: const Key('app-background-image-frame'),
-      color: Colors.black,
+      color: AppColors.imageBase,
       child: ClipRect(
         child: Transform.translate(
           offset: geometry.contentOffset,
@@ -593,7 +594,7 @@ class PlayerGlassRouteSurface extends ConsumerWidget {
     final theme = Theme.of(context);
     final hasImage = settings.enabled && File(settings.imagePath!).existsSync();
     final scrim = theme.brightness == Brightness.dark
-        ? Colors.black.withValues(alpha: 0.62)
+        ? AppColors.imageBase.withValues(alpha: 0.62)
         : theme.colorScheme.surface.withValues(alpha: 0.68);
 
     return ColoredBox(

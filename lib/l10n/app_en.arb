@@ -1,0 +1,182 @@
+{
+  "@@locale": "en",
+  "appTitle": "Mconnect",
+
+  "navSearch": "Search",
+  "navDiscover": "Discover",
+  "navLibrary": "Library",
+  "navDownloads": "Downloads",
+
+  "settingsTitle": "Settings",
+  "settingsAccounts": "Accounts",
+  "settingsAccountsSubtitle": "NetEase Cloud, QQ Music and Kugou sign-in status",
+  "settingsAppearance": "Appearance",
+  "settingsAppearanceSubtitle": "Theme mode, accent colour and custom background",
+  "settingsFloatingLyrics": "Desktop lyrics",
+  "settingsFloatingLyricsSubtitle": "Desktop lyrics switch, colours, size and shadow",
+  "settingsAudio": "Audio enhancement",
+  "settingsAudioSubtitle": "Crossfade, equalizer and sleep timer",
+  "settingsDiagnostics": "Diagnostics & about",
+  "settingsDiagnosticsSubtitle": "Log location and app version",
+  "settingsBackup": "Backup & restore",
+  "settingsBackupSubtitle": "Export/import likes, playlists, statistics and settings",
+  "settingsExportDiagnostics": "Export diagnostic log",
+  "settingsExportDiagnosticsSubtitle": "Bundle recent events and the log, then share (redacted)",
+  "settingsAccountsTitle": "Accounts",
+  "settingsAppearanceTitle": "Appearance",
+  "settingsFloatingLyricsTitle": "Desktop lyrics",
+  "settingsAudioTitle": "Audio enhancement",
+  "settingsDiagnosticsTitle": "Diagnostics & about",
+
+  "themeFollowSystem": "Follow system",
+  "themeLight": "Light",
+  "themeDark": "Dark",
+  "themeColor": "Accent colour",
+  "themeColorSubtitle": "Affects buttons, progress bars, the navigation bar and highlights",
+  "uiStyle": "UI style",
+  "uiStyleMaterial": "Material style",
+  "uiStyleMiuix": "Miuix style",
+
+  "backgroundRemoved": "Custom background removed",
+  "backgroundApplied": "Custom background applied",
+  "backgroundUpdated": "Custom background updated",
+  "backgroundImageUnreadable": "Could not read the selected image",
+  "backgroundImageSizeUnreadable": "Could not read the image size",
+  "backgroundFileMissing": "The background file is gone, please pick another one",
+  "backgroundProcessFailed": "Processing the background failed: {error}",
+  "@backgroundProcessFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "customBackground": "Custom background",
+  "customBackgroundEnabledHint": "Enabled — tap to reposition the background",
+  "customBackgroundChooseHint": "Pick an image to use behind the whole app",
+  "removeBackground": "Remove background",
+  "adjustBackground": "Adjust background",
+  "backgroundEditorHint": "Drag to move, pinch to zoom to the size you want",
+
+  "floatingLyricsEnable": "Desktop lyrics",
+  "floatingLyricsEnableSubtitle": "Show lyrics at the top of the desktop; drag, zoom and lock supported",
+  "floatingLyricsPermissionSubtitle": "Shows above other apps; needs the system overlay permission",
+  "floatingLyricsLock": "Lock position",
+  "floatingLyricsLockSubtitle": "A locked overlay cannot be moved or tapped, so touches reach the app below; turning the overlay off unlocks it",
+  "floatingLyricsTextColor": "Lyrics base colour",
+  "floatingLyricsTextColorSubtitle": "Colour of the not-yet-sung part, white by default",
+  "floatingLyricsHighlightColor": "Played highlight colour",
+  "floatingLyricsHighlightColorSubtitle": "Used for the sung part and for the dot in the overlay",
+  "floatingLyricsFontSize": "Font size",
+  "floatingLyricsStrokeWidth": "Stroke width",
+  "floatingLyricsShadowOpacity": "Shadow strength",
+  "customColor": "Custom colour",
+  "defaultLabel": "Default",
+
+  "audioFade": "Crossfade",
+  "audioFadeSubtitle": "Smoothly ramp the volume on play/pause; off by default",
+  "audioFadeDuration": "Crossfade duration",
+  "audioEqualizer": "Equalizer",
+  "audioEqualizerSubtitle": "Adjust per-band gain; silently ignored on unsupported devices",
+  "audioEqualizerPreset": "Equalizer preset",
+  "audioBandLow": "Low",
+  "audioBandLowMid": "Low-mid",
+  "audioBandMid": "Mid",
+  "audioBandHighMid": "High-mid",
+  "audioBandHigh": "High",
+  "audioSleepTimer": "Sleep timer",
+  "audioSleepTimerRemaining": "{time} left",
+  "@audioSleepTimerRemaining": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "audioSleepTimerCountdown": "Pause playback in {minutes} minutes",
+  "@audioSleepTimerCountdown": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "audioSleepTimerDuration": "Timer length",
+  "audioMinutes": "{minutes} minutes",
+  "@audioMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+
+  "diagnosticsSection": "Diagnostics",
+  "aboutSection": "About",
+  "version": "Version",
+  "diagnosticsLog": "Diagnostic log",
+  "diagnosticsLogPathCopied": "Log path copied",
+  "diagnosticsLogCleared": "Diagnostic log cleared",
+  "copyPath": "Copy path",
+  "clearLog": "Clear log",
+  "diagnosticsExporting": "Exporting the diagnostic log…",
+  "diagnosticsExported": "Diagnostic log exported",
+  "diagnosticsExportPathCopied": "Diagnostic log exported; its path was copied to the clipboard",
+  "diagnosticsExportFailed": "Export failed: {error}",
+  "@diagnosticsExportFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "share": "Share",
+
+  "accountLoggedIn": "Signed in",
+  "accountTapToLogin": "Tap to sign in",
+  "accountLogout": "Sign out",
+  "accountLogoutConfirm": "Sign out of {platform}?",
+  "@accountLogoutConfirm": {
+    "placeholders": {
+      "platform": {
+        "type": "String"
+      }
+    }
+  },
+
+  "actionSave": "Save",
+  "actionCancel": "Cancel",
+  "actionReset": "Reset",
+  "actionLogout": "Sign out",
+
+  "playerNowPlaying": "Now playing",
+  "playerNotPlaying": "Nothing playing",
+  "playerAddedToLikes": "Added to your likes",
+  "playerRemovedFromLikes": "Removed from your likes",
+  "playerAddedToQueue": "Added to the play queue",
+  "playerSongInfoCopied": "Song info copied",
+  "playerPlaybackSettings": "Playback settings",
+  "playerAddToPlatformPlaylist": "Add to a platform playlist",
+  "playerAddToQueue": "Add to play queue",
+  "playerCopySongInfo": "Copy song info",
+  "playerAddedToPlaylist": "Added to the playlist",
+  "playerAddToPlaylistFailed": "Could not add: this platform may not allow editing that playlist",
+
+  "playerPlay": "Play",
+  "playerPause": "Pause",
+  "playerPrevious": "Previous track",
+  "playerNext": "Next track",
+  "playerShuffle": "Shuffle",
+  "playerRepeat": "Repeat mode",
+  "playerToggleLyrics": "Show lyrics",
+  "playerToggleArtwork": "Show artwork",
+  "playerLike": "Like",
+  "playerCollapse": "Collapse",
+  "moreActions": "More actions",
+  "platformLocal": "Local music",
+  "platformNetease": "NetEase Cloud Music",
+  "platformQq": "QQ Music",
+  "platformKugou": "Kugou Music",
+  "sessionExpired": "Your session expired, please sign in again",
+  "sessionGoToLogin": "Sign in"
+}

@@ -2,20 +2,24 @@ import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
+import '../../l10n/app_localizations.dart';
+import '../../l10n/l10n.dart';
 import '../platform/platform_utils.dart';
 
 /// The four destinations the Miuix bottom bar exposes.
 ///
-/// Deliberately the *same* icons and the *same* Chinese labels as the Material
-/// branch in `app_bottom_nav_bar.dart`: `test/widget_test.dart` and
-/// `test/search_screen_test.dart` locate tabs with `find.byIcon`, so a drift
+/// Deliberately the *same* icons and the *same* labels as the Material branch in
+/// `app_bottom_nav_bar.dart` — both read the same ARB keys. `test/widget_test.dart`
+/// and `test/search_screen_test.dart` locate tabs with `find.byIcon`, so a drift
 /// here would silently break tests that are not about the glass bar at all.
-const _destinations = <({IconData icon, String label})>[
-  (icon: Icons.search, label: '搜索'),
-  (icon: Icons.explore, label: '发现'),
-  (icon: Icons.library_music, label: '音乐库'),
-  (icon: Icons.download, label: '下载'),
-];
+List<({IconData icon, String label})> _destinationsOf(AppLocalizations l) {
+  return <({IconData icon, String label})>[
+    (icon: Icons.search, label: l.navSearch),
+    (icon: Icons.explore, label: l.navDiscover),
+    (icon: Icons.library_music, label: l.navLibrary),
+    (icon: Icons.download, label: l.navDownloads),
+  ];
+}
 
 /// The floating glass bottom bar for `UiStyle.miuix`.
 ///
@@ -198,6 +202,7 @@ class FloatingGlassNavBar extends StatelessWidget {
     required double radius,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
+    final destinations = _destinationsOf(context.l10n);
 
     return SizedBox(
       key: glassKey,
@@ -206,10 +211,10 @@ class FloatingGlassNavBar extends StatelessWidget {
         // The public constructors assert `selectedIndex` is in range; a stale
         // index from a hot-reload or a shorter destination list would crash the
         // whole shell, so clamp instead of trusting the caller.
-        selectedIndex: selectedIndex.clamp(0, _destinations.length - 1),
+        selectedIndex: selectedIndex.clamp(0, destinations.length - 1),
         onTabSelected: onDestinationSelected,
         tabs: [
-          for (final destination in _destinations)
+          for (final destination in destinations)
             GlassTab(
               icon: Icon(destination.icon),
               label: destination.label,
@@ -240,7 +245,7 @@ class FloatingGlassNavBar extends StatelessWidget {
         verticalPadding: 0,
         spacing: innerPadding,
         tabPadding: EdgeInsets.zero,
-        // The four Chinese labels are the destinations; a glow disc per tab
+        // The four localised labels are the destinations; a glow disc per tab
         // adds colour noise the Miuix chrome does not use.
         selectedIconColor: colorScheme.onSecondaryContainer,
         unselectedIconColor: colorScheme.onSurfaceVariant,
@@ -262,6 +267,7 @@ class FloatingGlassNavBar extends StatelessWidget {
     required double radius,
   }) {
     final colorScheme = Theme.of(context).colorScheme;
+    final destinations = _destinationsOf(context.l10n);
 
     // The key — and therefore the measured bounds — goes on this SizedBox, not
     // on the Container: `Container(clipBehavior:)` inserts a `ClipPath`, and
@@ -294,10 +300,10 @@ class FloatingGlassNavBar extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: innerPadding),
             child: Row(
               children: [
-                for (var i = 0; i < _destinations.length; i++)
+                for (var i = 0; i < destinations.length; i++)
                   Expanded(
                     child: _OpaqueDestination(
-                      destination: _destinations[i],
+                      destination: destinations[i],
                       selected: i == selectedIndex,
                       iconSize: icon,
                       onTap: () => onDestinationSelected(i),

@@ -18,6 +18,8 @@ import '../widgets/lyrics_display.dart';
 import '../widgets/playback_options_sheet.dart';
 import '../widgets/playlist_picker_sheet.dart';
 import '../widgets/quality_bottom_sheet.dart';
+import '../../../../core/utils/snackbar_helper.dart';
+import '../../../../l10n/l10n.dart';
 
 class PlayerScreen extends ConsumerStatefulWidget {
   const PlayerScreen({super.key});
@@ -172,13 +174,17 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
       child: Scaffold(
         appBar: AppBar(
           leading: IconButton(
+            tooltip: context.l10n.playerCollapse,
             icon: const Icon(Icons.keyboard_arrow_down),
             onPressed: _returnToSource,
           ),
-          title: const Text('正在播放'),
+          title: Text(context.l10n.playerNowPlaying),
           centerTitle: true,
           actions: [
             IconButton(
+              tooltip: _showLyrics
+                  ? context.l10n.playerToggleArtwork
+                  : context.l10n.playerToggleLyrics,
               icon: Icon(
                 _showLyrics ? Icons.album : Icons.lyrics_outlined,
                 size: 22,
@@ -187,6 +193,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
             ),
             if (song != null)
               IconButton(
+                tooltip: context.l10n.playerLike,
                 icon: Icon(
                   likedSongs.any(
                         (s) => s.id == song.id && s.platform == song.platform,
@@ -205,9 +212,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                       .read(likesProvider.notifier)
                       .toggleLike(song);
                   if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(result ? '已收藏到我喜欢' : '已取消收藏')),
-                  );
+                  showInfoSnackBar(
+                      context,
+                      result
+                          ? context.l10n.playerAddedToLikes
+                          : context.l10n.playerRemovedFromLikes,
+                    );
                 },
               ),
             if (song != null) DownloadButton(song: song),
@@ -218,16 +228,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 switch (value) {
                   case 'add_to_queue':
                     ref.read(playerProvider.notifier).addToQueue(song);
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(const SnackBar(content: Text('已添加到播放队列')));
+                    showSuccessSnackBar(context, context.l10n.playerAddedToQueue);
                     break;
                   case 'copy_name':
                     final text = '${song.artistNames} - ${song.name}';
                     Clipboard.setData(ClipboardData(text: text));
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(const SnackBar(content: Text('歌曲信息已复制')));
+                    showSuccessSnackBar(context, context.l10n.playerSongInfoCopied);
                     break;
                   case 'add_to_playlist':
                     _showPlaylistPicker(context, song);
@@ -238,38 +244,38 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 }
               },
               itemBuilder: (context) => [
-                const PopupMenuItem(
+                PopupMenuItem(
                   value: 'playback_options',
                   child: ListTile(
-                    leading: Icon(Icons.tune),
-                    title: Text('播放设置'),
+                    leading: const Icon(Icons.tune),
+                    title: Text(context.l10n.playerPlaybackSettings),
                     dense: true,
                     contentPadding: EdgeInsets.zero,
                   ),
                 ),
-                const PopupMenuItem(
+                PopupMenuItem(
                   value: 'add_to_playlist',
                   child: ListTile(
-                    leading: Icon(Icons.playlist_add),
-                    title: Text('添加到平台歌单'),
+                    leading: const Icon(Icons.playlist_add),
+                    title: Text(context.l10n.playerAddToPlatformPlaylist),
                     dense: true,
                     contentPadding: EdgeInsets.zero,
                   ),
                 ),
-                const PopupMenuItem(
+                PopupMenuItem(
                   value: 'add_to_queue',
                   child: ListTile(
-                    leading: Icon(Icons.queue_music),
-                    title: Text('加入播放队列'),
+                    leading: const Icon(Icons.queue_music),
+                    title: Text(context.l10n.playerAddToQueue),
                     dense: true,
                     contentPadding: EdgeInsets.zero,
                   ),
                 ),
-                const PopupMenuItem(
+                PopupMenuItem(
                   value: 'copy_name',
                   child: ListTile(
-                    leading: Icon(Icons.copy),
-                    title: Text('复制歌曲信息'),
+                    leading: const Icon(Icons.copy),
+                    title: Text(context.l10n.playerCopySongInfo),
                     dense: true,
                     contentPadding: EdgeInsets.zero,
                   ),
@@ -279,7 +285,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
           ],
         ),
         body: song == null
-            ? const Center(child: Text('未在播放'))
+            ? Center(child: Text(context.l10n.playerNotPlaying))
             : LayoutBuilder(
                 builder: (context, constraints) {
                   final artworkSize = constraints.maxHeight < 620
@@ -537,6 +543,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                               children: [
                                 IconButton(
+                                  // Icon-only controls carry a `tooltip`: it is
+                                  // the screen reader's label as well as the
+                                  // desktop hover hint, and the transport row
+                                  // previously exposed none of them.
+                                  tooltip: context.l10n.playerShuffle,
                                   icon: Icon(
                                     Icons.shuffle,
                                     size: 22,
@@ -547,6 +558,7 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                   onPressed: notifier.toggleShuffle,
                                 ),
                                 IconButton(
+                                  tooltip: context.l10n.playerPrevious,
                                   icon: const Icon(
                                     Icons.skip_previous,
                                     size: 32,
@@ -571,11 +583,14 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                               padding: EdgeInsets.all(14),
                                               child: CircularProgressIndicator(
                                                 strokeWidth: 2.5,
-                                                color: Colors.white,
+                                                color: AppColors.onBrand,
                                               ),
                                             ),
                                           )
                                         : IconButton(
+                                            tooltip: isPlaying
+                                                ? context.l10n.playerPause
+                                                : context.l10n.playerPlay,
                                             icon: Icon(
                                               isPlaying
                                                   ? Icons.pause
@@ -590,10 +605,12 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                   ),
                                 ),
                                 IconButton(
+                                  tooltip: context.l10n.playerNext,
                                   icon: const Icon(Icons.skip_next, size: 32),
                                   onPressed: notifier.skipToNext,
                                 ),
                                 IconButton(
+                                  tooltip: context.l10n.playerRepeat,
                                   icon: Icon(
                                     repeatMode == RepeatMode.one
                                         ? Icons.repeat_one
@@ -631,13 +648,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     );
     if (!context.mounted) return;
     if (ok == true) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('已添加到歌单')));
+      showSuccessSnackBar(context, context.l10n.playerAddedToPlaylist);
     } else if (ok == false) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('添加失败，当前平台可能暂不支持编辑该歌单')));
+      showErrorSnackBar(context, context.l10n.playerAddToPlaylistFailed);
     }
   }
 }

@@ -4,6 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'core/router/app_router.dart';
+import 'core/share/deep_link_service.dart';
+import 'core/share/deep_link_wiring.dart';
+import 'core/utils/snackbar_helper.dart';
 import 'core/theme/app_background.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/miuix_theme.dart';
@@ -14,6 +17,10 @@ import 'features/audio_effects/presentation/providers/audio_effects_provider.dar
 import 'features/floating_lyrics/presentation/providers/floating_lyrics_provider.dart';
 import 'features/player/presentation/providers/player_provider.dart';
 import 'features/stats/presentation/providers/listening_stats_provider.dart';
+import 'l10n/app_localizations.dart';
+import 'l10n/l10n.dart';
+import 'l10n/platform_labels.dart';
+import 'models/platform_type.dart';
 
 /// Marks the Material ancestor injected under [UiStyle.miuix].
 ///
@@ -24,6 +31,55 @@ import 'features/stats/presentation/providers/listening_stats_provider.dart';
 /// `LiquidGlassWidgets.wrap` is a plain function, not a widget, so it takes no
 /// `key`; the `GlassAdaptiveScope` it installs is located by *type* in tests.
 const Key glassMaterialAncestorKey = Key('app-glass-material-ancestor');
+
+/// Shows the app-wide toasts that have no `BuildContext` of their own.
+///
+/// The "session expired" notice is raised by a feature provider (which can
+/// happen while any route is on screen, including a modal), so it cannot go
+/// through a page's `ScaffoldMessenger.of(context)`.
+final GlobalKey<ScaffoldMessengerState> appScaffoldMessengerKey =
+    GlobalKey<ScaffoldMessengerState>();
+
+/// Locales the UI is actually translated for.
+///
+/// Only `zh` is *declared* this round: v1.4.0 migrated three pages
+/// (settings / bottom navigation / player) and the English bundle exists and is
+/// generated, but publishing `en` here would switch those three pages to
+/// English on an English device while the other ~90 files stay Chinese — a
+/// half-translated interface. `test/l10n_locale_switch_test.dart` proves the
+/// English bundle works by rendering with `Locale('en')` explicitly.
+///
+/// Condition for adding `Locale('en')`: the remaining Chinese literals in
+/// `lib/` are migrated (see the counts in `docs/`). The change is this one line
+/// — `supportedLocales: AppLocalizations.supportedLocales`.
+const List<Locale> appSupportedLocales = <Locale>[Locale('zh')];
+
+/// Shows the app-wide "session expired" notice with its 「去登录」 action.
+///
+/// Extracted from the widget tree so a test can assert the copy, the action and
+/// the navigation target without booting the whole app (pumping [MconnectApp]
+/// drags in Hive, media_kit and the auth session restore).
+void showSessionExpiredNotice({
+  required ScaffoldMessengerState messenger,
+  required PlatformType platform,
+  required VoidCallback onGoToLogin,
+}) {
+  final l = messenger.context.l10n;
+  messenger
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: Text('${platform.label(l)}：${l.sessionExpired}'),
+        behavior: SnackBarBehavior.floating,
+        // Longer than a normal toast: the user has to read it and decide.
+        duration: const Duration(seconds: 6),
+        action: SnackBarAction(
+          label: l.sessionGoToLogin,
+          onPressed: onGoToLogin,
+        ),
+      ),
+    );
+}
 
 class MconnectApp extends ConsumerStatefulWidget {
   const MconnectApp({super.key});
@@ -79,11 +135,30 @@ class MconnectApp extends ConsumerStatefulWidget {
 
 class _MconnectAppState extends ConsumerState<MconnectApp>
     with WidgetsBindingObserver {
+  /// Inbound `mconnect://` links (WS-I). Null until [initState] has run, and
+  /// disposed with the app so a link arriving after teardown is not handled.
+  DeepLinkService? _deepLinks;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     ref.read(authProvider.notifier).init();
+    // WS-I wiring: cold-start + running-app deep links. `attachDeepLinkHandling`
+    // defers its own `start()` to a post-frame callback, so calling it from
+    // `initState` cannot navigate before the router exists.
+    //
+    // The message callback goes through the app-wide messenger: this `context` is
+    // *above* `MaterialApp`, where `ScaffoldMessenger.maybeOf` finds nothing.
+    _deepLinks = attachDeepLinkHandling(
+      ref,
+      navigate: appRouter.go,
+      onMessage: (message) {
+        final messenger = appScaffoldMessengerKey.currentState;
+        if (messenger == null) return;
+        showInfoSnackBar(messenger.context, message);
+      },
+    );
     ref.listenManual(audioEffectsSettingsProvider, (previous, next) {
       ref
           .read(playerProvider.notifier)
@@ -97,6 +172,7 @@ class _MconnectAppState extends ConsumerState<MconnectApp>
 
   @override
   void dispose() {
+    _deepLinks?.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -118,6 +194,23 @@ class _MconnectAppState extends ConsumerState<MconnectApp>
     final themeSettings = ref.watch(themeSettingsProvider);
     final uiStyle = ref.watch(uiStyleProvider).style;
 
+    // task-5: a provider that hit HTTP 401 reports it through `authProvider`;
+    // this is where the user actually finds out. The notice is app-wide (not
+    // page-local) because the expiry can surface while any route is on screen.
+    ref.listen<AuthState>(authProvider, (previous, next) {
+      final platform = next.expiredPlatform;
+      if (platform == null) return;
+      if (previous?.expiryNoticeId == next.expiryNoticeId) return;
+      final messenger = appScaffoldMessengerKey.currentState;
+      if (messenger == null) return;
+      showSessionExpiredNotice(
+        messenger: messenger,
+        platform: platform,
+        onGoToLogin: () => appRouter.push('/login/${platform.name}'),
+      );
+      ref.read(authProvider.notifier).clearExpiryNotice();
+    });
+
     final ThemeData lightTheme = switch (uiStyle) {
       UiStyle.material => AppTheme.light(seedColor: themeSettings.seedColor),
       UiStyle.miuix => miuixTheme(
@@ -136,6 +229,14 @@ class _MconnectAppState extends ConsumerState<MconnectApp>
     return MaterialApp.router(
       title: 'Mconnect',
       debugShowCheckedModeBanner: false,
+      scaffoldMessengerKey: appScaffoldMessengerKey,
+      // Material/Cupertino's own built-in copy (dialog buttons, "Back", text
+      // selection handles, …) follows these delegates. Without them Flutter
+      // falls back to `DefaultMaterialLocalizations`, i.e. English chrome
+      // inside a Chinese app.
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: appSupportedLocales,
+      onGenerateTitle: (context) => context.l10n.appTitle,
       theme: lightTheme,
       darkTheme: darkTheme,
       themeMode: themeSettings.mode,

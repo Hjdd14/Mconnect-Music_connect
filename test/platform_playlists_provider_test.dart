@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mconnect/core/network/api_exception.dart';
 import 'package:mconnect/core/storage/session_storage.dart';
 import 'package:mconnect/features/library/presentation/providers/platform_playlists_provider.dart';
 import 'package:mconnect/models/audio_quality.dart';
@@ -67,6 +68,76 @@ void main() {
     expect(notifier.state.playlistsFor(PlatformType.kugou), isEmpty);
     expect(notifier.state.errorsByPlatform[PlatformType.kugou], contains('新建歌单失败'));
   });
+
+  // task-5: a 401 must clear the session, a network error must NOT.
+  group('session expiry wiring', () {
+    test('a LoginExpiredException reports the expired session', () async {
+      final expired = <PlatformType>[];
+      final notifier = PlatformPlaylistsNotifier(
+        supportedTypes: const [PlatformType.netease],
+        platformResolver: (platform) => _ThrowingPlaylistPlatform(
+          platform: platform,
+          error: LoginExpiredException(),
+        ),
+        onSessionExpired: expired.add,
+      );
+
+      await notifier.load();
+
+      expect(expired, [PlatformType.netease]);
+      expect(
+        notifier.state.errorsByPlatform[PlatformType.netease],
+        '登录已过期，请重新登录',
+      );
+    });
+
+    test('a plain network error never logs the user out', () async {
+      final expired = <PlatformType>[];
+      final notifier = PlatformPlaylistsNotifier(
+        supportedTypes: const [PlatformType.netease],
+        platformResolver: (platform) => _ThrowingPlaylistPlatform(
+          platform: platform,
+          error: NetworkException(),
+        ),
+        onSessionExpired: expired.add,
+      );
+
+      await notifier.load();
+
+      expect(expired, isEmpty, reason: 'a timeout must not be treated as a 401');
+      expect(
+        notifier.state.errorsByPlatform[PlatformType.netease],
+        contains('加载失败'),
+      );
+    });
+
+    test('no callback configured still degrades to an error message', () async {
+      final notifier = PlatformPlaylistsNotifier(
+        supportedTypes: const [PlatformType.qq],
+        platformResolver: (platform) => _ThrowingPlaylistPlatform(
+          platform: platform,
+          error: LoginExpiredException(),
+        ),
+      );
+
+      await notifier.load();
+
+      expect(
+        notifier.state.errorsByPlatform[PlatformType.qq],
+        '登录已过期，请重新登录',
+      );
+    });
+  });
+}
+
+/// A platform whose playlist call always fails with [error].
+class _ThrowingPlaylistPlatform extends _FakePlaylistPlatform {
+  _ThrowingPlaylistPlatform({required super.platform, required this.error});
+
+  final Object error;
+
+  @override
+  Future<List<Playlist>> getUserPlaylists() async => throw error;
 }
 
 class _FakePlaylistPlatform extends MusicPlatform {

@@ -10,6 +10,7 @@ import '../../../player/presentation/providers/player_provider.dart';
 import '../../domain/smart_playlist_rule.dart';
 import '../providers/smart_playlist_preview_provider.dart';
 import '../providers/smart_playlists_provider.dart';
+import '../../../../core/utils/snackbar_helper.dart';
 
 class SmartPlaylistsPage extends ConsumerWidget {
   const SmartPlaylistsPage({super.key});
@@ -211,24 +212,16 @@ class _SmartPlaylistsBody extends ConsumerWidget {
     List<Song> songs,
   ) async {
     if (songs.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('没有可保存的歌曲')));
+      showErrorSnackBar(context, '没有可保存的歌曲');
       return;
     }
     final saved = await ref
         .read(smartPlaylistsProvider.notifier)
         .saveSnapshot(ruleId, songs);
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          saved == null
+    showInfoSnackBar(context, saved == null
               ? '保存失败'
-              : '已保存 ${saved.songs.length} 首，可在菜单中再次播放',
-        ),
-      ),
-    );
+              : '已保存 ${saved.songs.length} 首，可在菜单中再次播放');
   }
 
   String _formatSavedAt(DateTime value) {

@@ -14,12 +14,37 @@ class AuthState {
   final Map<PlatformType, User?> loggedUsers;
   final bool isLoading;
 
-  const AuthState({this.loggedUsers = const {}, this.isLoading = false});
+  /// Platform whose session just expired, if any (task-5).
+  ///
+  /// The UI cannot learn this from [loggedUsers] alone: a user who was never
+  /// logged in is also `null`, and an expiry that happens twice for the same
+  /// platform must be announced twice.
+  final PlatformType? expiredPlatform;
 
-  AuthState copyWith({Map<PlatformType, User?>? loggedUsers, bool? isLoading}) {
+  /// Increments on every expiry, so a listener can react exactly once per event
+  /// even when [expiredPlatform] repeats.
+  final int expiryNoticeId;
+
+  const AuthState({
+    this.loggedUsers = const {},
+    this.isLoading = false,
+    this.expiredPlatform,
+    this.expiryNoticeId = 0,
+  });
+
+  AuthState copyWith({
+    Map<PlatformType, User?>? loggedUsers,
+    bool? isLoading,
+    PlatformType? Function()? expiredPlatform,
+    int? expiryNoticeId,
+  }) {
     return AuthState(
       loggedUsers: loggedUsers ?? this.loggedUsers,
       isLoading: isLoading ?? this.isLoading,
+      expiredPlatform: expiredPlatform != null
+          ? expiredPlatform()
+          : this.expiredPlatform,
+      expiryNoticeId: expiryNoticeId ?? this.expiryNoticeId,
     );
   }
 
@@ -114,7 +139,18 @@ class AuthNotifier extends StateNotifier<AuthState> {
     await _forgetPersistedSession(platform);
     state = state.copyWith(
       loggedUsers: {...state.loggedUsers, platform: null},
+      // Signal the UI (see `app.dart`): the user has to be told, because from
+      // their point of view the app silently logged them out.
+      expiredPlatform: () => platform,
+      expiryNoticeId: state.expiryNoticeId + 1,
     );
+  }
+
+  /// Called by the UI once the expiry notice has been shown, so a rebuild does
+  /// not re-announce it.
+  void clearExpiryNotice() {
+    if (state.expiredPlatform == null) return;
+    state = state.copyWith(expiredPlatform: () => null);
   }
 
   /// Best-effort removal of the persisted session; storage failures must not

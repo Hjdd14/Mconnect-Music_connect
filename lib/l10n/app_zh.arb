@@ -1,0 +1,182 @@
+{
+  "@@locale": "zh",
+  "appTitle": "Mconnect",
+
+  "navSearch": "搜索",
+  "navDiscover": "发现",
+  "navLibrary": "音乐库",
+  "navDownloads": "下载",
+
+  "settingsTitle": "设置",
+  "settingsAccounts": "账号管理",
+  "settingsAccountsSubtitle": "网易云音乐、QQ 音乐、酷狗音乐登录状态",
+  "settingsAppearance": "外观",
+  "settingsAppearanceSubtitle": "主题模式、主题色与自定义背景",
+  "settingsFloatingLyrics": "悬浮歌词",
+  "settingsFloatingLyricsSubtitle": "桌面歌词开关、颜色、字号与阴影",
+  "settingsAudio": "音频增强",
+  "settingsAudioSubtitle": "淡入淡出、均衡器与睡眠定时",
+  "settingsDiagnostics": "诊断与关于",
+  "settingsDiagnosticsSubtitle": "日志位置与应用版本",
+  "settingsBackup": "备份与恢复",
+  "settingsBackupSubtitle": "导出/导入收藏、歌单、统计与设置",
+  "settingsExportDiagnostics": "导出诊断日志",
+  "settingsExportDiagnosticsSubtitle": "打包最近事件与日志并分享（已脱敏）",
+  "settingsAccountsTitle": "账号管理",
+  "settingsAppearanceTitle": "外观",
+  "settingsFloatingLyricsTitle": "悬浮歌词",
+  "settingsAudioTitle": "音频增强",
+  "settingsDiagnosticsTitle": "诊断与关于",
+
+  "themeFollowSystem": "跟随系统",
+  "themeLight": "浅色模式",
+  "themeDark": "深色模式",
+  "themeColor": "主题色",
+  "themeColorSubtitle": "影响按钮、进度条、导航栏和高亮状态",
+  "uiStyle": "UI 风格",
+  "uiStyleMaterial": "Material 风格",
+  "uiStyleMiuix": "Miuix 风格",
+
+  "backgroundRemoved": "已移除自定义背景",
+  "backgroundApplied": "已应用自定义背景",
+  "backgroundUpdated": "已更新自定义背景",
+  "backgroundImageUnreadable": "无法读取所选图片",
+  "backgroundImageSizeUnreadable": "无法读取图片尺寸",
+  "backgroundFileMissing": "背景图片文件不存在，请重新选择",
+  "backgroundProcessFailed": "背景图片处理失败：{error}",
+  "@backgroundProcessFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "customBackground": "自定义背景",
+  "customBackgroundEnabledHint": "已启用，点击重新调整背景位置",
+  "customBackgroundChooseHint": "选择图片作为全应用背景",
+  "removeBackground": "移除背景",
+  "adjustBackground": "调整背景",
+  "backgroundEditorHint": "拖动图片调整位置，双指缩放到合适大小",
+
+  "floatingLyricsEnable": "桌面悬浮歌词",
+  "floatingLyricsEnableSubtitle": "在桌面顶部显示歌词，支持拖拽、缩放和锁定",
+  "floatingLyricsPermissionSubtitle": "显示在其他应用上方，需要系统悬浮窗权限",
+  "floatingLyricsLock": "锁定位置",
+  "floatingLyricsLockSubtitle": "锁定后悬浮歌词不可移动、不可点击，触摸会直接落到下面的应用；关闭悬浮歌词会自动解锁",
+  "floatingLyricsTextColor": "歌词底色",
+  "floatingLyricsTextColorSubtitle": "未播放部分的文字颜色，默认白色",
+  "floatingLyricsHighlightColor": "已播放高亮色",
+  "floatingLyricsHighlightColorSubtitle": "唱到的部分变为该颜色，悬浮窗里的圆点也调它",
+  "floatingLyricsFontSize": "字号",
+  "floatingLyricsStrokeWidth": "描边强度",
+  "floatingLyricsShadowOpacity": "阴影强度",
+  "customColor": "自定义颜色",
+  "defaultLabel": "默认",
+
+  "audioFade": "淡入淡出",
+  "audioFadeSubtitle": "播放、暂停时平滑调整音量，默认关闭",
+  "audioFadeDuration": "淡入淡出时长",
+  "audioEqualizer": "均衡器",
+  "audioEqualizerSubtitle": "调整播放音频的频段增益，设备不支持时会自动忽略",
+  "audioEqualizerPreset": "均衡器预设",
+  "audioBandLow": "低频",
+  "audioBandLowMid": "中低频",
+  "audioBandMid": "中频",
+  "audioBandHighMid": "中高频",
+  "audioBandHigh": "高频",
+  "audioSleepTimer": "睡眠定时",
+  "audioSleepTimerRemaining": "剩余 {time}",
+  "@audioSleepTimerRemaining": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "audioSleepTimerCountdown": "{minutes} 分钟后暂停播放",
+  "@audioSleepTimerCountdown": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "audioSleepTimerDuration": "定时时长",
+  "audioMinutes": "{minutes} 分钟",
+  "@audioMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+
+  "diagnosticsSection": "诊断",
+  "aboutSection": "关于",
+  "version": "版本",
+  "diagnosticsLog": "诊断日志",
+  "diagnosticsLogPathCopied": "日志路径已复制",
+  "diagnosticsLogCleared": "诊断日志已清空",
+  "copyPath": "复制路径",
+  "clearLog": "清空日志",
+  "diagnosticsExporting": "正在导出诊断日志…",
+  "diagnosticsExported": "诊断日志已导出",
+  "diagnosticsExportPathCopied": "诊断日志已导出，文件路径已复制到剪贴板",
+  "diagnosticsExportFailed": "导出失败：{error}",
+  "@diagnosticsExportFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "share": "分享",
+
+  "accountLoggedIn": "已登录",
+  "accountTapToLogin": "点击登录",
+  "accountLogout": "退出登录",
+  "accountLogoutConfirm": "确定要退出 {platform} 账号吗？",
+  "@accountLogoutConfirm": {
+    "placeholders": {
+      "platform": {
+        "type": "String"
+      }
+    }
+  },
+
+  "actionSave": "保存",
+  "actionCancel": "取消",
+  "actionReset": "重置",
+  "actionLogout": "退出",
+
+  "playerNowPlaying": "正在播放",
+  "playerNotPlaying": "未在播放",
+  "playerAddedToLikes": "已收藏到我喜欢",
+  "playerRemovedFromLikes": "已取消收藏",
+  "playerAddedToQueue": "已添加到播放队列",
+  "playerSongInfoCopied": "歌曲信息已复制",
+  "playerPlaybackSettings": "播放设置",
+  "playerAddToPlatformPlaylist": "添加到平台歌单",
+  "playerAddToQueue": "加入播放队列",
+  "playerCopySongInfo": "复制歌曲信息",
+  "playerAddedToPlaylist": "已添加到歌单",
+  "playerAddToPlaylistFailed": "添加失败，当前平台可能暂不支持编辑该歌单",
+
+  "playerPlay": "播放",
+  "playerPause": "暂停",
+  "playerPrevious": "上一首",
+  "playerNext": "下一首",
+  "playerShuffle": "随机播放",
+  "playerRepeat": "循环模式",
+  "playerToggleLyrics": "显示歌词",
+  "playerToggleArtwork": "显示封面",
+  "playerLike": "我喜欢",
+  "playerCollapse": "收起",
+  "moreActions": "更多操作",
+  "platformLocal": "本地音乐",
+  "platformNetease": "网易云音乐",
+  "platformQq": "QQ 音乐",
+  "platformKugou": "酷狗音乐",
+  "sessionExpired": "登录已过期，请重新登录",
+  "sessionGoToLogin": "去登录"
+}

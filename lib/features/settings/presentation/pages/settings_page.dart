@@ -4,7 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import '../../../../core/theme/platform_accent.dart';
+import 'package:mconnect/core/theme/app_colors.dart';
 // Only for `_RenderIntrinsicOpaqueBox`, the pass-through box that lets the
 // dialog's preview answer the intrinsic query `AlertDialog` makes.
 import 'package:flutter/rendering.dart' show RenderProxyBox;
@@ -12,20 +12,26 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mconnect/core/constants/app_constants.dart';
+import 'package:mconnect/core/diagnostics/diagnostics_export.dart';
 import 'package:mconnect/core/diagnostics/diagnostics_service.dart';
 import 'package:mconnect/core/theme/app_background.dart';
 import 'package:mconnect/core/theme/app_background_provider.dart';
 import 'package:mconnect/core/theme/app_theme.dart';
+import 'package:mconnect/core/theme/platform_accent.dart';
 import 'package:mconnect/core/theme/theme_provider.dart';
 import 'package:mconnect/core/theme/ui_style_provider.dart';
+import 'package:mconnect/core/utils/snackbar_helper.dart';
 import 'package:mconnect/features/auth/presentation/providers/auth_provider.dart';
 import 'package:mconnect/features/audio_effects/presentation/providers/audio_effects_provider.dart';
 import 'package:mconnect/features/audio_effects/presentation/providers/sleep_timer_provider.dart';
 import 'package:mconnect/features/floating_lyrics/data/floating_lyrics_service.dart';
 import 'package:mconnect/features/floating_lyrics/presentation/providers/floating_lyrics_provider.dart';
+import 'package:mconnect/l10n/l10n.dart';
+import 'package:mconnect/l10n/platform_labels.dart';
 import 'package:mconnect/models/platform_type.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 String createBackgroundDestinationPath({
   required String backgroundsDirPath,
@@ -53,43 +59,69 @@ bool canUseDecodedBackgroundImage({
 }
 
 class SettingsPage extends StatelessWidget {
-  const SettingsPage({super.key});
+  const SettingsPage({super.key, this.diagnosticsExport, this.diagnosticsShare});
+
+  /// Test seam for the 「导出诊断日志」 row.
+  ///
+  /// Production leaves it null and the row calls `exportDiagnosticsLog()`, which
+  /// needs a real temporary directory plus a share target. Injecting the exporter
+  /// lets a widget test assert "one tap → exactly one export" without either.
+  @visibleForTesting
+  final Future<DiagnosticsExportResult> Function()? diagnosticsExport;
+
+  /// Test seam for the share step. The real one is share_plus, whose
+  /// platform channel never answers in a widget test — that would leave the row
+  /// spinning forever instead of reaching its success/failure state.
+  @visibleForTesting
+  final Future<void> Function(String path)? diagnosticsShare;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('设置')),
+      appBar: AppBar(title: Text(context.l10n.settingsTitle)),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
           _SettingsEntryTile(
             icon: Icons.account_circle_outlined,
-            title: '账号管理',
-            subtitle: '网易云音乐、QQ 音乐、酷狗音乐登录状态',
+            title: context.l10n.settingsAccounts,
+            subtitle: context.l10n.settingsAccountsSubtitle,
             onTap: () => context.push('/settings/accounts'),
           ),
           _SettingsEntryTile(
             icon: Icons.palette_outlined,
-            title: '外观',
-            subtitle: '主题模式、主题色与自定义背景',
+            title: context.l10n.settingsAppearance,
+            subtitle: context.l10n.settingsAppearanceSubtitle,
             onTap: () => context.push('/settings/appearance'),
           ),
           _SettingsEntryTile(
             icon: Icons.picture_in_picture_alt_outlined,
-            title: '悬浮歌词',
-            subtitle: '桌面歌词开关、颜色、字号与阴影',
+            title: context.l10n.settingsFloatingLyrics,
+            subtitle: context.l10n.settingsFloatingLyricsSubtitle,
             onTap: () => context.push('/settings/floating-lyrics'),
           ),
           _SettingsEntryTile(
             icon: Icons.graphic_eq,
-            title: '音频增强',
-            subtitle: '淡入淡出、均衡器与睡眠定时',
+            title: context.l10n.settingsAudio,
+            subtitle: context.l10n.settingsAudioSubtitle,
             onTap: () => context.push('/settings/audio'),
+          ),
+          // task-12: the data layer (WS-F) and diagnostics (task-11) shipped
+          // their features, but without an entry point they were unreachable.
+          _SettingsEntryTile(
+            icon: Icons.backup_outlined,
+            title: context.l10n.settingsBackup,
+            subtitle: context.l10n.settingsBackupSubtitle,
+            onTap: () => context.push('/backup'),
+          ),
+          _DiagnosticsExportTile(
+            export: diagnosticsExport,
+            share: diagnosticsShare,
           ),
           _SettingsEntryTile(
             icon: Icons.info_outline,
-            title: '诊断与关于',
-            subtitle: '日志位置与应用版本',
+            title: context.l10n.settingsDiagnostics,
+            subtitle: context.l10n.settingsDiagnosticsSubtitle,
             onTap: () => context.push('/settings/diagnostics'),
           ),
         ],
@@ -98,6 +130,9 @@ class SettingsPage extends StatelessWidget {
   }
 }
 
+// `_SettingsEntryTile` is a plain `ListTile`, which already exposes button
+// semantics; the label doubles as the screen-reader text so an icon-only change
+// can never ship without its meaning.
 class _SettingsEntryTile extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -123,6 +158,83 @@ class _SettingsEntryTile extends StatelessWidget {
   }
 }
 
+/// 「导出诊断日志」入口（task-11 的导出逻辑 + share_plus）。
+///
+/// Stateful only so the row can show progress and refuse a second tap while an
+/// export is running: `exportDiagnosticsLog` reads the on-disk log, and a
+/// double tap used to be able to produce two bundles.
+class _DiagnosticsExportTile extends StatefulWidget {
+  const _DiagnosticsExportTile({this.export, this.share});
+
+  /// Injected exporter (tests); null means the production entry point.
+  final Future<DiagnosticsExportResult> Function()? export;
+
+  /// Injected share step (tests); null means share_plus.
+  final Future<void> Function(String path)? share;
+
+  @override
+  State<_DiagnosticsExportTile> createState() => _DiagnosticsExportTileState();
+}
+
+class _DiagnosticsExportTileState extends State<_DiagnosticsExportTile> {
+  bool _busy = false;
+
+  Future<void> _export() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final l = context.l10n;
+    try {
+      final result = await (widget.export ?? exportDiagnosticsLog)();
+      if (!mounted) return;
+      try {
+        final share = widget.share;
+        if (share != null) {
+          await share(result.filePath);
+        } else {
+          await SharePlus.instance.share(
+            ShareParams(files: [XFile(result.filePath)]),
+          );
+        }
+        if (!mounted) return;
+        showSuccessSnackBar(context, l.diagnosticsExported);
+      } catch (_) {
+        // A platform without a file share target (Windows desktop) still has to
+        // leave the user a way to reach the export, so fall back to the path.
+        await Clipboard.setData(ClipboardData(text: result.filePath));
+        if (!mounted) return;
+        showInfoSnackBar(context, l.diagnosticsExportPathCopied);
+      }
+    } on DiagnosticsExportException catch (error) {
+      if (!mounted) return;
+      showErrorSnackBar(context, l.diagnosticsExportFailed(error.message));
+    } catch (error) {
+      if (!mounted) return;
+      showErrorSnackBar(context, l.diagnosticsExportFailed('$error'));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = context.l10n;
+    return ListTile(
+      key: const Key('diagnostics-export-tile'),
+      leading: const Icon(Icons.file_upload_outlined),
+      title: Text(l.settingsExportDiagnostics),
+      subtitle: Text(l.settingsExportDiagnosticsSubtitle),
+      trailing: _busy
+          ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.chevron_right),
+      onTap: _busy ? null : _export,
+    );
+  }
+}
+
 class SettingsAccountsPage extends ConsumerWidget {
   const SettingsAccountsPage({super.key});
 
@@ -131,7 +243,7 @@ class SettingsAccountsPage extends ConsumerWidget {
     final authState = ref.watch(authProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('账号管理')),
+      appBar: AppBar(title: Text(context.l10n.settingsAccounts)),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
@@ -185,31 +297,31 @@ class SettingsAppearancePage extends ConsumerWidget {
     final uiStyleSettings = ref.watch(uiStyleProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('外观')),
+      appBar: AppBar(title: Text(context.l10n.settingsAppearance)),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
           _ThemeTile(
-            title: '跟随系统',
+            title: context.l10n.themeFollowSystem,
             icon: Icons.brightness_auto,
             selected: themeSettings.mode == ThemeMode.system,
             onTap: () => themeNotifier.setMode(ThemeMode.system),
           ),
           _ThemeTile(
-            title: '浅色模式',
+            title: context.l10n.themeLight,
             icon: Icons.light_mode,
             selected: themeSettings.mode == ThemeMode.light,
             onTap: () => themeNotifier.setMode(ThemeMode.light),
           ),
           _ThemeTile(
-            title: '深色模式',
+            title: context.l10n.themeDark,
             icon: Icons.dark_mode,
             selected: themeSettings.mode == ThemeMode.dark,
             onTap: () => themeNotifier.setMode(ThemeMode.dark),
           ),
           _ColorPresetTile(
-            title: '主题色',
-            subtitle: '影响按钮、进度条、导航栏和高亮状态',
+            title: context.l10n.themeColor,
+            subtitle: context.l10n.themeColorSubtitle,
             icon: Icons.palette_outlined,
             selectedColor: themeSettings.seedColor,
             presets: _themePresets,
@@ -224,13 +336,11 @@ class SettingsAppearancePage extends ConsumerWidget {
             onClear: () async {
               await appBackgroundNotifier.clear();
               if (!context.mounted) return;
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(const SnackBar(content: Text('已移除自定义背景')));
+              showSuccessSnackBar(context, context.l10n.backgroundRemoved);
             },
           ),
           const Divider(),
-          const _SectionHeader('UI 风格'),
+          _SectionHeader(context.l10n.uiStyle),
           _UiStyleTile(
             selected: uiStyleSettings.style,
             onSelected: (style) =>
@@ -245,6 +355,9 @@ class SettingsAppearancePage extends ConsumerWidget {
     BuildContext context,
     AppBackgroundSettingsNotifier notifier,
   ) async {
+    // Resolve the copy before the first `await`: using `context` after an async
+    // gap is both a lint and a real hazard (the widget may be gone).
+    final l = context.l10n;
     try {
       final cropViewportSize = backgroundCropViewportSize(
         MediaQuery.sizeOf(context),
@@ -261,7 +374,7 @@ class SettingsAppearancePage extends ConsumerWidget {
       final bytes =
           file.bytes ??
           (sourcePath == null
-              ? throw StateError('无法读取所选图片')
+              ? throw StateError(l.backgroundImageUnreadable)
               : await File(sourcePath).readAsBytes());
       final previousPath = notifier.current.imagePath;
       final imageSize = await _decodeImageSize(bytes);
@@ -269,7 +382,7 @@ class SettingsAppearancePage extends ConsumerWidget {
         imageWidth: imageSize.width.toDouble(),
         imageHeight: imageSize.height.toDouble(),
       )) {
-        throw StateError('无法读取图片尺寸');
+        throw StateError(l.backgroundImageSizeUnreadable);
       }
       final documentsDir = await getApplicationDocumentsDirectory();
       final backgroundsDir = Directory(
@@ -311,14 +424,10 @@ class SettingsAppearancePage extends ConsumerWidget {
       PaintingBinding.instance.imageCache.evict(FileImage(destination));
       await notifier.save(edited);
       if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('已应用自定义背景')));
+      showSuccessSnackBar(context, l.backgroundApplied);
     } catch (error) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('背景图片处理失败：$error')));
+      showErrorSnackBar(context, l.backgroundProcessFailed('$error'));
     }
   }
 
@@ -331,9 +440,7 @@ class SettingsAppearancePage extends ConsumerWidget {
     if (imagePath == null ||
         imagePath.isEmpty ||
         !File(imagePath).existsSync()) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('背景图片文件不存在，请重新选择')));
+      showErrorSnackBar(context, context.l10n.backgroundFileMissing);
       return;
     }
 
@@ -346,9 +453,7 @@ class SettingsAppearancePage extends ConsumerWidget {
     PaintingBinding.instance.imageCache.evict(FileImage(File(imagePath)));
     await notifier.save(edited);
     if (!context.mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('已更新自定义背景')));
+    showSuccessSnackBar(context, context.l10n.backgroundUpdated);
   }
 
   Future<({int width, int height})> _decodeImageSize(Uint8List bytes) async {
@@ -371,15 +476,15 @@ class SettingsFloatingLyricsPage extends ConsumerWidget {
     final isWindows = Platform.isWindows;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('悬浮歌词')),
+      appBar: AppBar(title: Text(context.l10n.settingsFloatingLyrics)),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
           SwitchListTile(
             secondary: const Icon(Icons.picture_in_picture_alt_outlined),
-            title: const Text('桌面悬浮歌词'),
+            title: Text(context.l10n.floatingLyricsEnable),
             subtitle: Text(
-              isWindows ? '在桌面顶部显示歌词，支持拖拽、缩放和锁定' : '显示在其他应用上方，需要系统悬浮窗权限',
+              isWindows ? context.l10n.floatingLyricsEnableSubtitle : context.l10n.floatingLyricsPermissionSubtitle,
             ),
             value: floatingLyrics.enabled,
             onChanged: (value) async {
@@ -397,8 +502,8 @@ class SettingsFloatingLyricsPage extends ConsumerWidget {
           ),
           SwitchListTile(
             secondary: const Icon(Icons.lock_outline),
-            title: const Text('锁定位置'),
-            subtitle: const Text('锁定后悬浮歌词不可移动、不可点击，触摸会直接落到下面的应用；关闭悬浮歌词会自动解锁'),
+            title: Text(context.l10n.floatingLyricsLock),
+            subtitle: Text(context.l10n.floatingLyricsLockSubtitle),
             key: const Key('floating-lyrics-lock-tile'),
             value: floatingLyrics.isLocked,
             onChanged: floatingLyrics.enabled
@@ -406,8 +511,8 @@ class SettingsFloatingLyricsPage extends ConsumerWidget {
                 : null,
           ),
           _ColorPresetTile(
-            title: '歌词底色',
-            subtitle: '未播放部分的文字颜色，默认白色',
+            title: context.l10n.floatingLyricsTextColor,
+            subtitle: context.l10n.floatingLyricsTextColorSubtitle,
             key: const Key('floating-lyrics-text-color-tile'),
             icon: Icons.format_color_text,
             selectedColor: floatingLyrics.textColor,
@@ -416,8 +521,8 @@ class SettingsFloatingLyricsPage extends ConsumerWidget {
             onSelected: floatingLyricsNotifier.setTextColor,
           ),
           _ColorPresetTile(
-            title: '已播放高亮色',
-            subtitle: '唱到的部分变为该颜色，悬浮窗里的圆点也调它',
+            title: context.l10n.floatingLyricsHighlightColor,
+            subtitle: context.l10n.floatingLyricsHighlightColorSubtitle,
             key: const Key('floating-lyrics-highlight-color-tile'),
             icon: Icons.border_color_outlined,
             selectedColor: floatingLyrics.highlightColor,
@@ -426,7 +531,7 @@ class SettingsFloatingLyricsPage extends ConsumerWidget {
             onSelected: floatingLyricsNotifier.setHighlightColor,
           ),
           _SliderTile(
-            title: '字号',
+            title: context.l10n.floatingLyricsFontSize,
             subtitle: '${floatingLyrics.fontSize.round()} px',
             icon: Icons.text_fields,
             value: floatingLyrics.fontSize,
@@ -436,7 +541,7 @@ class SettingsFloatingLyricsPage extends ConsumerWidget {
             onChanged: floatingLyricsNotifier.setFontSize,
           ),
           _SliderTile(
-            title: '描边强度',
+            title: context.l10n.floatingLyricsStrokeWidth,
             subtitle: floatingLyrics.strokeWidth.toStringAsFixed(1),
             icon: Icons.format_shapes_outlined,
             value: floatingLyrics.strokeWidth,
@@ -446,7 +551,7 @@ class SettingsFloatingLyricsPage extends ConsumerWidget {
             onChanged: floatingLyricsNotifier.setStrokeWidth,
           ),
           _SliderTile(
-            title: '阴影强度',
+            title: context.l10n.floatingLyricsShadowOpacity,
             subtitle: '${(floatingLyrics.shadowOpacity * 100).round()}%',
             icon: Icons.blur_on,
             value: floatingLyrics.shadowOpacity,
@@ -474,19 +579,19 @@ class SettingsAudioPage extends ConsumerWidget {
     final sleepTimerNotifier = ref.read(sleepTimerProvider.notifier);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('音频增强')),
+      appBar: AppBar(title: Text(context.l10n.settingsAudio)),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
           SwitchListTile(
             secondary: const Icon(Icons.graphic_eq),
-            title: const Text('淡入淡出'),
-            subtitle: const Text('播放、暂停时平滑调整音量，默认关闭'),
+            title: Text(context.l10n.audioFade),
+            subtitle: Text(context.l10n.audioFadeSubtitle),
             value: audioEffects.fadeEnabled,
             onChanged: audioEffectsNotifier.setFadeEnabled,
           ),
           _SliderTile(
-            title: '淡入淡出时长',
+            title: context.l10n.audioFadeDuration,
             subtitle: '${audioEffects.fadeDuration.inMilliseconds} ms',
             icon: Icons.timelapse,
             value: audioEffects.fadeDuration.inMilliseconds.toDouble(),
@@ -499,8 +604,8 @@ class SettingsAudioPage extends ConsumerWidget {
           ),
           SwitchListTile(
             secondary: const Icon(Icons.equalizer),
-            title: const Text('均衡器'),
-            subtitle: const Text('调整播放音频的频段增益，设备不支持时会自动忽略'),
+            title: Text(context.l10n.audioEqualizer),
+            subtitle: Text(context.l10n.audioEqualizerSubtitle),
             value: audioEffects.equalizerEnabled,
             onChanged: audioEffectsNotifier.setEqualizerEnabled,
           ),
@@ -509,7 +614,7 @@ class SettingsAudioPage extends ConsumerWidget {
             child: ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.tune),
-              title: const Text('均衡器预设'),
+              title: Text(context.l10n.audioEqualizerPreset),
               subtitle: Wrap(
                 spacing: 8,
                 runSpacing: 8,
@@ -526,7 +631,7 @@ class SettingsAudioPage extends ConsumerWidget {
             ),
           ),
           _SliderTile(
-            title: '低频',
+            title: context.l10n.audioBandLow,
             subtitle:
                 '${audioEffects.effectiveEqualizerBandGains[0].round()} dB',
             icon: Icons.graphic_eq,
@@ -538,7 +643,7 @@ class SettingsAudioPage extends ConsumerWidget {
                 audioEffectsNotifier.setEqualizerBandGain(0, value),
           ),
           _SliderTile(
-            title: '中低频',
+            title: context.l10n.audioBandLowMid,
             subtitle:
                 '${audioEffects.effectiveEqualizerBandGains[1].round()} dB',
             icon: Icons.graphic_eq,
@@ -550,7 +655,7 @@ class SettingsAudioPage extends ConsumerWidget {
                 audioEffectsNotifier.setEqualizerBandGain(1, value),
           ),
           _SliderTile(
-            title: '中频',
+            title: context.l10n.audioBandMid,
             subtitle:
                 '${audioEffects.effectiveEqualizerBandGains[2].round()} dB',
             icon: Icons.graphic_eq,
@@ -562,7 +667,7 @@ class SettingsAudioPage extends ConsumerWidget {
                 audioEffectsNotifier.setEqualizerBandGain(2, value),
           ),
           _SliderTile(
-            title: '中高频',
+            title: context.l10n.audioBandHighMid,
             subtitle:
                 '${audioEffects.effectiveEqualizerBandGains[3].round()} dB',
             icon: Icons.graphic_eq,
@@ -574,7 +679,7 @@ class SettingsAudioPage extends ConsumerWidget {
                 audioEffectsNotifier.setEqualizerBandGain(3, value),
           ),
           _SliderTile(
-            title: '高频',
+            title: context.l10n.audioBandHigh,
             subtitle:
                 '${audioEffects.effectiveEqualizerBandGains[4].round()} dB',
             icon: Icons.graphic_eq,
@@ -587,18 +692,18 @@ class SettingsAudioPage extends ConsumerWidget {
           ),
           SwitchListTile(
             secondary: const Icon(Icons.bedtime_outlined),
-            title: const Text('睡眠定时'),
+            title: Text(context.l10n.audioSleepTimer),
             subtitle: Text(
               sleepTimer.enabled
-                  ? '剩余 ${_formatTimerRemaining(sleepTimer.remaining)}'
-                  : '${audioEffects.sleepTimerDuration.inMinutes} 分钟后暂停播放',
+                  ? context.l10n.audioSleepTimerRemaining(_formatTimerRemaining(sleepTimer.remaining))
+                  : context.l10n.audioSleepTimerCountdown(audioEffects.sleepTimerDuration.inMinutes),
             ),
             value: sleepTimer.enabled,
             onChanged: sleepTimerNotifier.setEnabled,
           ),
           _SliderTile(
-            title: '定时时长',
-            subtitle: '${audioEffects.sleepTimerDuration.inMinutes} 分钟',
+            title: context.l10n.audioSleepTimerDuration,
+            subtitle: context.l10n.audioMinutes(audioEffects.sleepTimerDuration.inMinutes),
             icon: Icons.timer_outlined,
             value: audioEffects.sleepTimerDuration.inMinutes.toDouble(),
             min: 5,
@@ -629,18 +734,18 @@ class SettingsDiagnosticsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('诊断与关于')),
+      appBar: AppBar(title: Text(context.l10n.settingsDiagnostics)),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
           const Divider(),
-          const _SectionHeader('诊断'),
+          _SectionHeader(context.l10n.diagnosticsSection),
           _DiagnosticsTile(diagnostics: DiagnosticsService.instance),
           const Divider(),
-          const _SectionHeader('关于'),
-          const ListTile(
+          _SectionHeader(context.l10n.aboutSection),
+          ListTile(
             leading: Icon(Icons.info_outline),
-            title: Text('版本'),
+            title: Text(context.l10n.version),
             subtitle: Text(AppConstants.appVersion),
           ),
         ],
@@ -668,11 +773,11 @@ class _AppBackgroundTile extends StatelessWidget {
     return ListTile(
       key: const Key('app-background-tile'),
       leading: const Icon(Icons.wallpaper_outlined),
-      title: const Text('自定义背景'),
-      subtitle: Text(enabled ? '已启用，点击重新调整背景位置' : '选择图片作为全应用背景'),
+      title: Text(context.l10n.customBackground),
+      subtitle: Text(enabled ? context.l10n.customBackgroundEnabledHint : context.l10n.customBackgroundChooseHint),
       trailing: enabled
           ? IconButton(
-              tooltip: '移除背景',
+              tooltip: context.l10n.removeBackground,
               icon: const Icon(Icons.close),
               onPressed: onClear,
             )
@@ -781,7 +886,7 @@ class _BackgroundEditorDialogState extends State<BackgroundEditorDialog> {
 
     return AlertDialog(
       key: const Key('app-background-editor-dialog'),
-      title: const Text('调整背景'),
+      title: Text(context.l10n.adjustBackground),
       content: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: maxPreviewWidth,
@@ -800,7 +905,7 @@ class _BackgroundEditorDialogState extends State<BackgroundEditorDialog> {
                 child: DecoratedBox(
                   key: const Key('app-background-editor-preview'),
                   decoration: BoxDecoration(
-                    color: Colors.black,
+                    color: AppColors.imageBase,
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(color: cs.outlineVariant),
                   ),
@@ -878,7 +983,7 @@ class _BackgroundEditorDialogState extends State<BackgroundEditorDialog> {
             ),
             const SizedBox(height: 12),
             Text(
-              '拖动图片调整位置，双指缩放到合适大小',
+              context.l10n.backgroundEditorHint,
               style: TextStyle(color: cs.onSurfaceVariant),
             ),
           ],
@@ -887,11 +992,11 @@ class _BackgroundEditorDialogState extends State<BackgroundEditorDialog> {
       actions: [
         TextButton(
           onPressed: () => _controller.value = Matrix4.identity(),
-          child: const Text('重置'),
+          child: Text(context.l10n.actionReset),
         ),
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('取消'),
+          child: Text(context.l10n.actionCancel),
         ),
         FilledButton(
           onPressed: () {
@@ -912,7 +1017,7 @@ class _BackgroundEditorDialogState extends State<BackgroundEditorDialog> {
               ),
             );
           },
-          child: const Text('保存'),
+          child: Text(context.l10n.actionSave),
         ),
       ],
     );
@@ -1026,12 +1131,12 @@ class _ColorPresetTile extends StatelessWidget {
                 if (usesFullPicker)
                   ActionChip(
                     avatar: const Icon(Icons.color_lens_outlined, size: 18),
-                    label: const Text('自定义颜色'),
+                    label: Text(context.l10n.customColor),
                     onPressed: () => _showFullColorPicker(context),
                   ),
                 ActionChip(
                   avatar: const Icon(Icons.restart_alt, size: 18),
-                  label: const Text('默认'),
+                  label: Text(context.l10n.defaultLabel),
                   onPressed: () => onSelected(fallbackColor),
                 ),
               ],
@@ -1176,7 +1281,14 @@ class _PickerSlider extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        SizedBox(width: 88, child: Text(label)),
+        // `minWidth` instead of a hard 88 dp: the row used to clip the label as
+        // soon as the user scaled text up (`textScaleFactor: 2` made 「描边强度」
+        // wider than its box). The minimum keeps the scale-1.0 layout identical
+        // while letting the label grow.
+        ConstrainedBox(
+          constraints: const BoxConstraints(minWidth: 88),
+          child: Text(label),
+        ),
         Expanded(
           child: Slider(
             value: value.clamp(min, max),
@@ -1204,28 +1316,37 @@ class _ColorSwatchButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return InkResponse(
-      onTap: onTap,
-      radius: 24,
-      child: Container(
-        width: 34,
-        height: 34,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: selected ? cs.primary : cs.outlineVariant,
-            width: selected ? 3 : 1,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.12),
-              blurRadius: 6,
-              offset: const Offset(0, 2),
+    // A bare colour disc announces nothing to a screen reader; `selected` also
+    // stops the check mark from being the only "this one is chosen" signal.
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: context.l10n.customColor,
+      child: InkResponse(
+        onTap: onTap,
+        radius: 24,
+        child: Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: selected ? cs.primary : cs.outlineVariant,
+              width: selected ? 3 : 1,
             ),
-          ],
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.swatchShadow,
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: selected
+              ? const Icon(Icons.check, color: AppColors.swatchCheck)
+              : null,
         ),
-        child: selected ? const Icon(Icons.check, color: Colors.white) : null,
       ),
     );
   }
@@ -1265,8 +1386,10 @@ class _SliderTile extends StatelessWidget {
         label: subtitle,
         onChanged: onChanged,
       ),
-      trailing: SizedBox(
-        width: 52,
+      trailing: ConstrainedBox(
+        // Same reasoning as `_PickerSlider`: a hard 52 dp wrapped the value
+        // ("180 天", "500 ms") once the text was scaled up.
+        constraints: const BoxConstraints(minWidth: 52),
         child: Text(subtitle, textAlign: TextAlign.end),
       ),
     );
@@ -1283,33 +1406,32 @@ class _DiagnosticsTile extends StatelessWidget {
     final path = diagnostics.logFile.path;
     return ListTile(
       leading: const Icon(Icons.bug_report_outlined),
-      title: const Text('诊断日志'),
+      title: Text(context.l10n.diagnosticsLog),
       subtitle: Text(path, maxLines: 2, overflow: TextOverflow.ellipsis),
       trailing: PopupMenuButton<String>(
+        // An icon-only overflow menu: without this the reader announces only
+        // "button" (and the popup's own items, which are text).
+        tooltip: context.l10n.moreActions,
         onSelected: (value) async {
           switch (value) {
             case 'copy':
               await Clipboard.setData(ClipboardData(text: path));
               if (!context.mounted) return;
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(const SnackBar(content: Text('日志路径已复制')));
+              showSuccessSnackBar(context, context.l10n.diagnosticsLogPathCopied);
               break;
             case 'clear':
               await diagnostics.clear();
               if (!context.mounted) return;
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(const SnackBar(content: Text('诊断日志已清空')));
+              showSuccessSnackBar(context, context.l10n.diagnosticsLogCleared);
               break;
           }
         },
-        itemBuilder: (context) => const [
+        itemBuilder: (context) => [
           PopupMenuItem(
             value: 'copy',
             child: ListTile(
               leading: Icon(Icons.copy),
-              title: Text('复制路径'),
+              title: Text(context.l10n.copyPath),
               dense: true,
               contentPadding: EdgeInsets.zero,
             ),
@@ -1318,7 +1440,7 @@ class _DiagnosticsTile extends StatelessWidget {
             value: 'clear',
             child: ListTile(
               leading: Icon(Icons.delete_outline),
-              title: Text('清空日志'),
+              title: Text(context.l10n.clearLog),
               dense: true,
               contentPadding: EdgeInsets.zero,
             ),
@@ -1392,13 +1514,13 @@ class _UiStyleTile extends StatelessWidget {
       key: const Key('ui-style-tile'),
       children: [
         _ThemeTile(
-          title: 'Material 风格',
+          title: context.l10n.uiStyleMaterial,
           icon: Icons.widgets_outlined,
           selected: selected == UiStyle.material,
           onTap: () => onSelected(UiStyle.material),
         ),
         _ThemeTile(
-          title: 'Miuix 风格',
+          title: context.l10n.uiStyleMiuix,
           icon: Icons.auto_awesome_mosaic_outlined,
           selected: selected == UiStyle.miuix,
           onTap: () => onSelected(UiStyle.miuix),
@@ -1435,13 +1557,15 @@ class _PlatformLoginTile extends StatelessWidget {
         backgroundColor: _platformColor().withValues(alpha: 0.12),
         child: Icon(_platformIcon(), color: _platformColor(), size: 20),
       ),
-      title: Text(platform.displayName),
+      // platform.label is the localizable path; displayName is the enum's
+      // own Chinese label and stays for the not-yet-migrated pages.
+      title: Text(platform.label(context.l10n)),
       subtitle: isLoggedIn
           ? Text(
-              user!.nickname.isNotEmpty ? user!.nickname : '已登录',
+              user!.nickname.isNotEmpty ? user!.nickname : context.l10n.accountLoggedIn,
               style: TextStyle(color: cs.outline, fontSize: 13),
             )
-          : Text('点击登录', style: TextStyle(color: cs.outline, fontSize: 13)),
+          : Text(context.l10n.accountTapToLogin, style: TextStyle(color: cs.outline, fontSize: 13)),
       trailing: isLoggedIn
           ? IconButton(
               icon: Icon(Icons.logout, size: 20, color: cs.error),
@@ -1449,19 +1573,22 @@ class _PlatformLoginTile extends StatelessWidget {
                 showDialog(
                   context: context,
                   builder: (ctx) => AlertDialog(
-                    title: const Text('退出登录'),
-                    content: Text('确定要退出 ${platform.displayName} 账号吗？'),
+                    title: Text(context.l10n.accountLogout),
+                    content: Text(context.l10n.accountLogoutConfirm(platform.label(context.l10n))),
                     actions: [
                       TextButton(
                         onPressed: () => Navigator.pop(ctx),
-                        child: const Text('取消'),
+                        child: Text(context.l10n.actionCancel),
                       ),
                       TextButton(
                         onPressed: () {
                           Navigator.pop(ctx);
                           onLogout();
                         },
-                        child: Text('退出', style: TextStyle(color: cs.error)),
+                        child: Text(
+                          context.l10n.actionLogout,
+                          style: TextStyle(color: cs.error),
+                        ),
                       ),
                     ],
                   ),

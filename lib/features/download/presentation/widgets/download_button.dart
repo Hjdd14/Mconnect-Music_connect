@@ -8,6 +8,7 @@ import '../../../../models/user.dart';
 import '../../../../platform/base/platform_registry.dart';
 import '../../domain/entities/download_task.dart';
 import '../providers/download_provider.dart';
+import '../../../../core/utils/snackbar_helper.dart';
 
 /// A button that initiates song download with quality selection.
 class DownloadButton extends ConsumerWidget {
@@ -113,9 +114,7 @@ class DownloadButton extends ConsumerWidget {
     } else {
       message = '该歌曲已在缓存列表中';
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
-    );
+    showSuccessSnackBar(context, message, duration: const Duration(seconds: 2));
   }
 
   void _showQualityPicker(BuildContext context, WidgetRef ref) {
@@ -273,17 +272,7 @@ class DownloadButton extends ConsumerWidget {
     final allowed = await notifier.checkVipForDownload(song, quality);
     if (!allowed && context.mounted) {
       final required = notifier.requiredVipLevel(quality);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '需要${required == VipLevel.svip ? "超级会员" : "VIP"}才能下载${quality.displayNameFor(song.platform)}音质',
-          ),
-          action: SnackBarAction(
-            label: '用标准音质',
-            onPressed: () => notifier.startDownload(song, AudioLevel.low),
-          ),
-        ),
-      );
+      showErrorSnackBar(context, '需要${required == VipLevel.svip ? "超级会员" : "VIP"}才能下载${quality.displayNameFor(song.platform)}音质');
       return;
     }
 
@@ -291,13 +280,6 @@ class DownloadButton extends ConsumerWidget {
     // snackbar below is only shown for a download that was really enqueued.
     await notifier.startDownload(song, quality);
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '已开始下载: ${song.name} (${quality.displayNameFor(song.platform)})',
-          ),
-          duration: const Duration(seconds: 2),
-        ),
-      );
+      showSuccessSnackBar(context, '已开始下载: ${song.name} (${quality.displayNameFor(song.platform)})', duration: const Duration(seconds: 2));
     }
   }}

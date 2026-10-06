@@ -6,6 +6,7 @@ import '../../../../core/widgets/app_scrollbar.dart';
 import '../../../../models/platform_type.dart';
 import '../../domain/smart_playlist_rule.dart';
 import '../providers/smart_playlists_provider.dart';
+import '../../../../core/utils/snackbar_helper.dart';
 
 class SmartPlaylistEditorPage extends ConsumerStatefulWidget {
   final String? ruleId;
@@ -144,9 +145,7 @@ class _SmartPlaylistEditorPageState
     // The old editor popped unconditionally, so a failed save looked successful.
     final error = ref.read(smartPlaylistsProvider).error;
     if (error != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(error)));
+      showErrorSnackBar(context, error);
       return;
     }
     context.pop();

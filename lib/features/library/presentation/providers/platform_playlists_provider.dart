@@ -1,6 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../../core/network/api_exception.dart';
+import '../../../../core/network/platform_http.dart';
+import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../../models/platform_type.dart';
 import '../../../../models/playlist.dart';
 import '../../../../platform/base/music_platform.dart';
@@ -49,6 +52,10 @@ class PlatformPlaylistsNotifier extends StateNotifier<PlatformPlaylistsState> {
   final List<PlatformType> Function() _supportedTypes;
   final MusicPlatform Function(PlatformType) _platformResolver;
   final Duration _operationTimeout;
+
+  /// Reported when the platform answers that the stored cookie is dead, so the
+  /// app can drop the stale session instead of showing it as a network error.
+  final void Function(PlatformType platform)? onSessionExpired;
   final Map<PlatformType, int> _loadTokens = {};
   int _nextLoadToken = 0;
 
@@ -56,6 +63,7 @@ class PlatformPlaylistsNotifier extends StateNotifier<PlatformPlaylistsState> {
     List<PlatformType>? supportedTypes,
     MusicPlatform Function(PlatformType)? platformResolver,
     this._operationTimeout = const Duration(seconds: 8),
+    this.onSessionExpired,
   })  : _supportedTypes = (() => supportedTypes ?? PlatformType.musicServices),
         _platformResolver = platformResolver ?? PlatformRegistry.get,
         super(const PlatformPlaylistsState());
@@ -93,7 +101,14 @@ class PlatformPlaylistsNotifier extends StateNotifier<PlatformPlaylistsState> {
     } on TimeoutException {
       error = '加载超时，请稍后重试';
     } catch (e) {
-      error = '加载失败：$e';
+      if (apiExceptionOf(e) is LoginExpiredException) {
+        // A dead cookie is not a load failure: report it so the app drops the
+        // stale session and offers a fresh login (task-5).
+        onSessionExpired?.call(platformType);
+        error = '登录已过期，请重新登录';
+      } else {
+        error = '加载失败：$e';
+      }
     }
 
     if (!mounted || _loadTokens[platformType] != token) return;
@@ -200,5 +215,10 @@ class PlatformPlaylistsNotifier extends StateNotifier<PlatformPlaylistsState> {
 
 final platformPlaylistsProvider =
     StateNotifierProvider<PlatformPlaylistsNotifier, PlatformPlaylistsState>((ref) {
-  return PlatformPlaylistsNotifier();
+  return PlatformPlaylistsNotifier(
+    // Production wiring for task-5: a 401 from the platform must clear the
+    // session, not just paint "加载失败" on the page.
+    onSessionExpired: (platform) =>
+        ref.read(authProvider.notifier).handleSessionExpired(platform),
+  );
 });

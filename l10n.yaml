@@ -1,0 +1,24 @@
+# Flutter 官方本地化工具链配置（`flutter gen-l10n`）。
+#
+# 选择「生成物入库」而不是 synthetic package：本仓库的 CI / 出包流程里没有
+# 额外生成步骤（`pubspec.yaml` 的 `flutter.generate` 保持关闭），把
+# `app_localizations*.dart` 生成到 `lib/l10n/` 并随源码一起入库，任何一次
+# `flutter analyze` / `flutter test` / `flutter build` 都能直接编译，
+# 不依赖"先跑一遍 gen-l10n"这一隐式前置条件。
+#
+# 改文案的流程：编辑 `lib/l10n/app_zh.arb`（模板）与 `app_en.arb`，然后
+#   flutter gen-l10n
+# 重新生成。`test/l10n_arb_test.dart` 会校验两个 ARB 的键集合完全一致，
+# 以及生成物里的键没有落后于 ARB。
+#
+# ⚠️ 本轮 `MaterialApp.supportedLocales` **只声明 `zh`**（见 `lib/app.dart` 的
+# `appSupportedLocales`）。en 的 ARB 与生成物都是完整可用的（有测试证明切到
+# `Locale('en')` 会出英文），只是全仓还有约 768 处中文未迁移，现在放开 en 会让
+# 英文设备看到"3 页英文 + 其余中文"的混合界面。放开条件 = 剩余中文迁完，
+# 改动量 **1 行**（把 `appSupportedLocales` 换成 `AppLocalizations.supportedLocales`）。
+arb-dir: lib/l10n
+template-arb-file: app_zh.arb
+output-localization-file: app_localizations.dart
+output-class: AppLocalizations
+output-dir: lib/l10n
+nullable-getter: true

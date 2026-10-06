@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:mconnect/core/theme/app_colors.dart';
 import '../../../../core/theme/platform_accent.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../../../../models/platform_type.dart';
 import '../../../../platform/base/music_platform.dart';
 import '../providers/auth_provider.dart';
+import '../../../../core/utils/snackbar_helper.dart';
 
 class LoginPage extends ConsumerStatefulWidget {
   final PlatformType platform;
@@ -83,9 +85,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                 .read(authProvider.notifier)
                 .onQrLoginSuccess(widget.platform);
             if (!mounted) return;
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(const SnackBar(content: Text('登录成功')));
+            showSuccessSnackBar(context, '登录成功');
             Navigator.pop(context);
           } else if (status == QrLoginStatus.expired) {
             // Allow retry
@@ -97,9 +97,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     final phone = _phoneController.text.trim();
     final code = _codeController.text.trim();
     if (phone.isEmpty || code.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('请输入手机号和验证码')));
+      showErrorSnackBar(context, '请输入手机号和验证码');
       return;
     }
     setState(() => _phoneLoading = true);
@@ -110,24 +108,18 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     setState(() => _phoneLoading = false);
     if (result.success) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('登录成功')));
+      showSuccessSnackBar(context, '登录成功');
       Navigator.pop(context);
     } else {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(result.error ?? '登录失败')));
+      showErrorSnackBar(context, result.error ?? '登录失败');
     }
   }
 
   Future<void> _handleSendCode() async {
     final phone = _phoneController.text.trim();
     if (phone.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('请输入手机号')));
+      showErrorSnackBar(context, '请输入手机号');
       return;
     }
     setState(() => _codeLoading = true);
@@ -136,11 +128,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
         .sendPhoneCode(widget.platform, phone, authVariant: _authVariant);
     if (!mounted) return;
     setState(() => _codeLoading = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(result.success ? '验证码已发送' : (result.error ?? '验证码发送失败')),
-      ),
-    );
+    showInfoSnackBar(context, result.success ? '验证码已发送' : (result.error ?? '验证码发送失败'));
   }
 
   Color _platformColor() => PlatformAccent.colorOf(context, widget.platform);
@@ -276,7 +264,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                           ? QrImageView(
                               data: _qrResult!.qrUrl!,
                               size: 200,
-                              backgroundColor: Colors.white,
+                              backgroundColor: AppColors.qrBackground,
                             )
                           : Container(
                               width: 200,
@@ -376,7 +364,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                           onPressed: _phoneLoading ? null : _handlePhoneLogin,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: platformColor,
-                            foregroundColor: Colors.white,
+                            foregroundColor: AppColors.onBrand,
                             padding: const EdgeInsets.symmetric(vertical: 14),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
@@ -388,7 +376,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                                   height: 20,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
-                                    color: Colors.white,
+                                    color: AppColors.onBrand,
                                   ),
                                 )
                               : const Text('登录'),

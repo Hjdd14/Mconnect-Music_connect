@@ -7,6 +7,7 @@ import '../../../../platform/base/platform_registry.dart';
 import '../../../player/presentation/providers/player_provider.dart';
 import '../../data/my_playlists_repository.dart';
 import '../providers/my_playlists_provider.dart';
+import '../../../../core/utils/snackbar_helper.dart';
 
 class ImportPlaylistPage extends ConsumerStatefulWidget {
   const ImportPlaylistPage({super.key});
@@ -64,9 +65,7 @@ class _ImportPlaylistPageState extends ConsumerState<ImportPlaylistPage> {
         _playlistName = localPlaylist.name;
         _isParsing = false;
       });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('已导入到我的歌单')));
+      showSuccessSnackBar(context, '已导入到我的歌单');
       return;
     }
 
@@ -119,9 +118,7 @@ class _ImportPlaylistPageState extends ConsumerState<ImportPlaylistPage> {
         .importPlaylist(name: name, songs: songs);
     if (!mounted) return;
     setState(() => _isSaving = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(playlist == null ? '保存失败' : '已保存到我的歌单')),
-    );
+    showInfoSnackBar(context, playlist == null ? '保存失败' : '已保存到我的歌单');
   }
 
   @override
