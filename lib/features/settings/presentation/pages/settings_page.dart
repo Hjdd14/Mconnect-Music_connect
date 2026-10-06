@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import '../../../../core/theme/platform_accent.dart';
 // Only for `_RenderIntrinsicOpaqueBox`, the pass-through box that lets the
 // dialog's preview answer the intrinsic query `AlertDialog` makes.
 import 'package:flutter/rendering.dart' show RenderProxyBox;
@@ -1420,31 +1421,9 @@ class _PlatformLoginTile extends StatelessWidget {
     required this.onLogout,
   });
 
-  Color _platformColor() {
-    switch (platform) {
-      case PlatformType.local:
-        return Colors.grey;
-      case PlatformType.netease:
-        return const Color(0xFFE60026);
-      case PlatformType.qq:
-        return const Color(0xFF31C27C);
-      case PlatformType.kugou:
-        return const Color(0xFF2CA2F9);
-    }
-  }
+  Color _platformColor() => PlatformAccent.neutralColorOf(platform);
 
-  IconData _platformIcon() {
-    switch (platform) {
-      case PlatformType.local:
-        return Icons.folder_open;
-      case PlatformType.netease:
-        return Icons.cloud_outlined;
-      case PlatformType.qq:
-        return Icons.music_note;
-      case PlatformType.kugou:
-        return Icons.headphones;
-    }
-  }
+  IconData _platformIcon() => PlatformAccent.iconOf(platform);
 
   @override
   Widget build(BuildContext context) {

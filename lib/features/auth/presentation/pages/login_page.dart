@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import '../../../../core/theme/platform_accent.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../../../../models/platform_type.dart';
@@ -142,18 +143,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     );
   }
 
-  Color _platformColor() {
-    switch (widget.platform) {
-      case PlatformType.local:
-        return Theme.of(context).colorScheme.primary;
-      case PlatformType.netease:
-        return const Color(0xFFE60026);
-      case PlatformType.qq:
-        return const Color(0xFF31C27C);
-      case PlatformType.kugou:
-        return const Color(0xFF2CA2F9);
-    }
-  }
+  Color _platformColor() => PlatformAccent.colorOf(context, widget.platform);
 
   String _statusText() {
     switch (_status) {

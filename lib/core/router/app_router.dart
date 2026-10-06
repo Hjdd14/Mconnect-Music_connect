@@ -8,6 +8,11 @@ import '../theme/app_background.dart';
 import '../theme/ui_style_provider.dart';
 import '../widgets/app_bottom_nav_bar.dart';
 import '../widgets/miuix_bottom_stack.dart';
+import '../../features/album/presentation/pages/album_page.dart';
+import '../../features/artist/presentation/pages/artist_page.dart';
+import '../../features/backup/presentation/pages/backup_page.dart';
+import '../../features/new_songs/presentation/pages/new_songs_page.dart';
+import '../../features/toplist/presentation/pages/toplists_page.dart';
 import '../../features/auth/presentation/pages/login_page.dart';
 import '../../features/discovery/presentation/pages/rankings_page.dart';
 import '../../features/discovery/presentation/pages/recommendations_page.dart';
@@ -117,10 +122,8 @@ final appRouter = GoRouter(
         GoRoute(
           path: '/playlist/:platform/:id',
           pageBuilder: (context, state) {
-            final platformStr = state.pathParameters['platform']!;
-            final platform = PlatformType.values.firstWhere(
-              (p) => p.name == platformStr,
-              orElse: () => PlatformType.netease,
+            final platform = PlatformType.parse(
+              state.pathParameters['platform']!,
             );
             return _appLeafPage(
               state,
@@ -132,6 +135,54 @@ final appRouter = GoRouter(
               ),
             );
           },
+        ),
+        GoRoute(
+          path: '/toplists',
+          pageBuilder: (context, state) =>
+              _appLeafPage(state, const ToplistsPage()),
+        ),
+        GoRoute(
+          path: '/toplist/:platform/:id',
+          pageBuilder: (context, state) => _appLeafPage(
+            state,
+            ToplistDetailPage(
+              platform: PlatformType.parse(state.pathParameters['platform']!),
+              toplistId: state.pathParameters['id']!,
+              toplistName: state.uri.queryParameters['name'],
+            ),
+          ),
+        ),
+        GoRoute(
+          path: '/album/:platform/:id',
+          pageBuilder: (context, state) => _appLeafPage(
+            state,
+            AlbumPage(
+              platform: PlatformType.parse(state.pathParameters['platform']!),
+              albumId: state.pathParameters['id']!,
+              albumName: state.uri.queryParameters['name'],
+            ),
+          ),
+        ),
+        GoRoute(
+          path: '/artist/:platform/:id',
+          pageBuilder: (context, state) => _appLeafPage(
+            state,
+            ArtistPage(
+              platform: PlatformType.parse(state.pathParameters['platform']!),
+              artistId: state.pathParameters['id']!,
+              artistName: state.uri.queryParameters['name'],
+            ),
+          ),
+        ),
+        GoRoute(
+          path: '/new-songs',
+          pageBuilder: (context, state) =>
+              _appLeafPage(state, const NewSongsPage()),
+        ),
+        GoRoute(
+          path: '/backup',
+          pageBuilder: (context, state) =>
+              _appLeafPage(state, const BackupPage()),
         ),
         GoRoute(
           path: '/settings',
@@ -166,10 +217,8 @@ final appRouter = GoRouter(
         GoRoute(
           path: '/login/:platform',
           pageBuilder: (context, state) {
-            final platformStr = state.pathParameters['platform']!;
-            final platform = PlatformType.values.firstWhere(
-              (p) => p.name == platformStr,
-              orElse: () => PlatformType.netease,
+            final platform = PlatformType.parse(
+              state.pathParameters['platform']!,
             );
             return _appLeafPage(state, LoginPage(platform: platform));
           },

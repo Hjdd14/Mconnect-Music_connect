@@ -34,10 +34,11 @@ class User {
     id: json['id'] as String,
     nickname: json['nickname'] as String? ?? '',
     avatarUrl: json['avatarUrl'] as String?,
-    platform: PlatformType.values.firstWhere(
-      (p) => p.name == json['platform'],
-      orElse: () => PlatformType.netease,
-    ),
+    // Throws on an unknown platform rather than defaulting to 网易云: the only
+    // caller (SessionStorage.loadUser) catches and returns null, so corrupt or
+    // legacy data degrades to "not logged in" instead of "logged in as the
+    // wrong platform".
+    platform: PlatformType.parse(json['platform']?.toString() ?? ''),
     vipLevel: VipLevel.values[json['vipLevel'] as int? ?? 0],
   );
 }
