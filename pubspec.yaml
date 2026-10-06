@@ -108,3 +108,9 @@ flutter_native_splash:
 
 flutter:
   uses-material-design: true
+
+  # Required by `flutter gen-l10n`: without it the tool refuses to emit
+  # AppLocalizations ("Attempted to generate localizations code without having
+  # the flutter: generate flag turned on"). The generated files are committed,
+  # so builds and CI need no extra generation step.
+  generate: true
