@@ -87,8 +87,16 @@ local_music/
 LocalMusic/
 playlists/
 exports/
-backup/
-backups/
+# Anchored to the repository root. Unanchored, `backup/` matched a directory of
+# that name at ANY depth and silently swallowed the source directory
+# `lib/features/backup/` (the whole backup/restore feature, which
+# `lib/core/router/app_router.dart` imports - so a fresh clone would not have
+# compiled). The negations below follow the precedent already set for
+# `local_music/` two lines up.
+/backup/
+/backups/
+!lib/features/backup/
+!lib/features/backup/**
 device_data/
 app_flutter/
 shared_prefs/
