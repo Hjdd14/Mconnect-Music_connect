@@ -85,11 +85,42 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
                     color: Theme.of(context).colorScheme.onTertiaryContainer,
                   ),
                 ),
-                title: const Text('排行榜'),
-                subtitle: const Text('各平台热歌榜'),
+                title: const Text('榜单中心'),
+                subtitle: const Text('各平台榜单 · QQ 热歌榜 300 首'),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () => context.push('/rankings'),
+                onTap: () => context.push('/toplists'),
               ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _DiscoveryEntry(
+                    icon: Icons.leaderboard_outlined,
+                    label: '榜单中心',
+                    onTap: () => context.push('/toplists'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _DiscoveryEntry(
+                    icon: Icons.fiber_new_outlined,
+                    label: '新歌速递',
+                    onTap: () => context.push('/new-songs'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _DiscoveryEntry(
+                    icon: Icons.person_search_outlined,
+                    label: '艺人 / 专辑',
+                    // Artists and albums are addressed by platform id, which only
+                    // a search can produce, so this entry hands over to the
+                    // search tab instead of inventing an id-less route.
+                    onTap: () => context.go('/?tab=0'),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 16),
             Row(
@@ -137,6 +168,48 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
                     ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A compact entry tile for the 榜单中心 / 新歌速递 / 艺人·专辑 row.
+class _DiscoveryEntry extends StatelessWidget {
+  const _DiscoveryEntry({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Card(
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 22, color: cs.primary),
+              const SizedBox(height: 6),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12),
+              ),
+            ],
+          ),
         ),
       ),
     );

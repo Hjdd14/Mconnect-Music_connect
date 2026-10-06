@@ -3,6 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:go_router/go_router.dart';
+import '../../../../core/network/api_exception.dart';
+import '../../../../core/network/platform_http.dart';
+import '../../../../core/share/song_actions.dart';
+import '../../../../core/theme/platform_accent.dart';
 import '../../../../core/widgets/app_scrollbar.dart';
 import '../../../../models/playlist.dart';
 import '../../../../models/song.dart';
@@ -10,6 +14,8 @@ import '../../../../models/platform_type.dart';
 import '../../../../platform/base/platform_registry.dart';
 import '../../../download/presentation/widgets/download_button.dart';
 import '../../../player/presentation/providers/player_provider.dart';
+import '../providers/aggregated_search_provider.dart';
+import '../widgets/search_skeleton.dart';
 
 final selectedPlatformProvider = StateProvider<PlatformType>(
   (ref) => PlatformType.netease,
@@ -21,6 +27,11 @@ enum SearchMode { songs, playlists }
 
 final searchModeProvider = StateProvider<SearchMode>((ref) => SearchMode.songs);
 
+/// Single-platform song results (page 1).
+///
+/// Kept as the authoritative first page of the single-platform mode; pages ≥ 2
+/// are appended by the screen through [SearchScreenState._loadMoreSingle], which
+/// passes the real `page` to the platform instead of always asking for page 1.
 final searchResultsProvider = FutureProvider.autoDispose<List<Song>>((
   ref,
 ) async {
@@ -55,6 +66,15 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   final _hasText = ValueNotifier<bool>(false);
   Timer? _debounce;
 
+  /// Pages 2+ of the single-platform mode, accumulated locally so page 1 keeps
+  /// coming from [searchResultsProvider] (which other code and tests override).
+  final List<Song> _extraSongs = [];
+  int _page = 1;
+  bool _exhausted = false;
+  bool _loadingMore = false;
+
+  static const int _pageSize = 30;
+
   @override
   void dispose() {
     _debounce?.cancel();
@@ -71,9 +91,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     });
   }
 
-  void _submitSearch() {
+  void _submitSearch({String? value}) {
     _debounce?.cancel();
-    ref.read(searchQueryProvider.notifier).state = _controller.text.trim();
+    final query = (value ?? _controller.text).trim();
+    if (value != null) _controller.text = value;
+    _hasText.value = query.isNotEmpty;
+    ref.read(searchQueryProvider.notifier).state = query;
     _focusNode.unfocus();
   }
 
@@ -84,13 +107,103 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     ref.read(searchQueryProvider.notifier).state = '';
   }
 
+  void _resetPaging() {
+    _extraSongs.clear();
+    _page = 1;
+    _exhausted = false;
+  }
+
+  /// Loads the next page for whichever mode is active.
+  Future<void> _loadMore() async {
+    final query = ref.read(searchQueryProvider).trim();
+    if (query.isEmpty) return;
+    if (ref.read(searchModeProvider) != SearchMode.songs) return;
+
+    if (ref.read(searchAcrossPlatformsProvider)) {
+      await ref.read(aggregatedSearchProvider.notifier).loadMore();
+      return;
+    }
+    if (_loadingMore || _exhausted) return;
+    _loadingMore = true;
+    try {
+      final platform = PlatformRegistry.get(ref.read(selectedPlatformProvider));
+      final next = await platform
+          .search(query, page: _page + 1, limit: _pageSize)
+          .timeout(const Duration(seconds: 12));
+      if (!mounted) return;
+      setState(() {
+        if (next.isEmpty) {
+          _exhausted = true;
+        } else {
+          _page += 1;
+          for (final song in next) {
+            final already = _extraSongs.any(
+              (existing) =>
+                  existing.id == song.id && existing.platform == song.platform,
+            );
+            if (!already) _extraSongs.add(song);
+          }
+          if (next.length < _pageSize) _exhausted = true;
+        }
+      });
+    } catch (_) {
+      // A failed extra page must not break the results already on screen.
+      if (mounted) setState(() => _exhausted = true);
+    } finally {
+      _loadingMore = false;
+    }
+  }
+
+  bool _onScroll(ScrollNotification notification) {
+    final metrics = notification.metrics;
+    if (metrics.maxScrollExtent - metrics.pixels < 400) {
+      unawaited(_loadMore());
+    }
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final selectedPlatform = ref.watch(selectedPlatformProvider);
+    final aggregate = ref.watch(searchAcrossPlatformsProvider);
     final mode = ref.watch(searchModeProvider);
     final query = ref.watch(searchQueryProvider);
     final results = ref.watch(searchResultsProvider);
     final playlistResults = ref.watch(playlistSearchResultsProvider);
+    final aggregated = ref.watch(aggregatedSearchProvider);
+    final history = ref.watch(searchHistoryProvider);
+
+    // A new query (or platform/mode switch) restarts paging and, in aggregate
+    // mode, the cross-platform search; history is recorded once per query.
+    ref.listen<String>(searchQueryProvider, (previous, next) {
+      _resetPaging();
+      if (next.trim().isEmpty) {
+        ref.read(aggregatedSearchProvider.notifier).clear();
+        return;
+      }
+      ref.read(searchHistoryProvider.notifier).record(next.trim());
+      if (ref.read(searchAcrossPlatformsProvider)) {
+        ref.read(aggregatedSearchProvider.notifier).search(next);
+      }
+    });
+    ref.listen<bool>(searchAcrossPlatformsProvider, (previous, next) {
+      _resetPaging();
+      final current = ref.read(searchQueryProvider).trim();
+      if (next && current.isNotEmpty) {
+        ref.read(aggregatedSearchProvider.notifier).search(current);
+      }
+    });
+    ref.listen<PlatformType>(selectedPlatformProvider, (previous, next) {
+      _resetPaging();
+    });
+
+    final suggestions = searchSuggestions(
+      query: query,
+      history: history,
+      songNames: aggregate
+          ? aggregated.songs.map((merged) => merged.primary.name).toList()
+          : const [],
+    );
 
     return SafeArea(
       child: Column(
@@ -103,15 +216,27 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                   height: 40,
                   child: ListView.separated(
                     scrollDirection: Axis.horizontal,
-                    itemCount: PlatformType.musicServices.length,
+                    itemCount: PlatformType.musicServices.length + 1,
                     separatorBuilder: (_, _) => const SizedBox(width: 8),
                     itemBuilder: (context, index) {
-                      final type = PlatformType.musicServices[index];
-                      final isSelected = type == selectedPlatform;
+                      if (index == 0) {
+                        return ChoiceChip(
+                          label: const Text('全部平台'),
+                          selected: aggregate,
+                          onSelected: (_) => ref
+                              .read(searchAcrossPlatformsProvider.notifier)
+                              .state = true,
+                        );
+                      }
+                      final type = PlatformType.musicServices[index - 1];
+                      final isSelected = !aggregate && type == selectedPlatform;
                       return ChoiceChip(
                         label: Text(type.displayName),
                         selected: isSelected,
                         onSelected: (_) {
+                          ref
+                              .read(searchAcrossPlatformsProvider.notifier)
+                              .state = false;
                           ref.read(selectedPlatformProvider.notifier).state =
                               type;
                         },
@@ -147,7 +272,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                   controller: _controller,
                   focusNode: _focusNode,
                   decoration: InputDecoration(
-                    hintText: mode == SearchMode.songs ? '搜索歌曲、歌手、专辑' : '搜索歌单',
+                    hintText: mode == SearchMode.songs
+                        ? '搜索歌曲、歌手、专辑'
+                        : '搜索歌单',
                     prefixIcon: const Icon(Icons.search),
                     suffixIcon: ValueListenableBuilder<bool>(
                       valueListenable: _hasText,
@@ -173,51 +300,311 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                     _scheduleSearch();
                   },
                 ),
+                if (mode == SearchMode.songs && suggestions.isNotEmpty)
+                  SizedBox(
+                    height: 36,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.only(top: 8),
+                      itemCount: suggestions.length,
+                      separatorBuilder: (_, _) => const SizedBox(width: 8),
+                      itemBuilder: (context, index) => ActionChip(
+                        label: Text(
+                          suggestions[index],
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        onPressed: () =>
+                            _submitSearch(value: suggestions[index]),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
           Expanded(
             child: mode == SearchMode.songs
-                ? results.when(
-                    data: (songs) {
-                      if (songs.isEmpty) {
-                        return _SearchEmptyState(
-                          hasQuery: query.trim().isNotEmpty,
-                        );
-                      }
-                      return AppScrollbar(
-                        builder: (controller) => ListView.builder(
-                          controller: controller,
-                          itemCount: songs.length,
-                          itemBuilder: (context, index) =>
-                              _SongTile(songs: songs, index: index),
+                ? (aggregate
+                      ? _buildAggregated(aggregated)
+                      : _buildSinglePlatform(results, query))
+                : _buildPlaylists(playlistResults, query),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSinglePlatform(AsyncValue<List<Song>> results, String query) {
+    if (query.trim().isEmpty) {
+      return _buildIdleState();
+    }
+    return results.when(
+      data: (songs) {
+        final all = [
+          ...songs,
+          ..._extraSongs.where(
+            (extra) => !songs.any(
+              (song) => song.id == extra.id && song.platform == extra.platform,
+            ),
+          ),
+        ];
+        if (all.isEmpty) {
+          return _SearchEmptyState(hasQuery: true);
+        }
+        return RefreshIndicator(
+          onRefresh: () async {
+            _resetPaging();
+            ref.invalidate(searchResultsProvider);
+          },
+          child: NotificationListener<ScrollNotification>(
+            onNotification: _onScroll,
+            child: AppScrollbar(
+              builder: (controller) => ListView.builder(
+                controller: controller,
+                itemCount: all.length + (_loadingMore ? 1 : 0),
+                itemBuilder: (context, index) {
+                  if (index >= all.length) {
+                    return const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Center(
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
                         ),
-                      );
-                    },
-                    loading: () =>
-                        const Center(child: CircularProgressIndicator()),
-                    error: (e, _) => _ErrorState(error: e),
-                  )
-                : playlistResults.when(
-                    data: (playlists) {
-                      if (playlists.isEmpty) {
-                        return _SearchEmptyState(
-                          hasQuery: query.trim().isNotEmpty,
-                        );
-                      }
-                      return AppScrollbar(
-                        builder: (controller) => ListView.builder(
-                          controller: controller,
-                          itemCount: playlists.length,
-                          itemBuilder: (context, index) =>
-                              _PlaylistTile(playlist: playlists[index]),
-                        ),
-                      );
-                    },
-                    loading: () =>
-                        const Center(child: CircularProgressIndicator()),
-                    error: (e, _) => _ErrorState(error: e),
+                      ),
+                    );
+                  }
+                  return _SongTile(songs: all, index: index);
+                },
+              ),
+            ),
+          ),
+        );
+      },
+      loading: () => const SearchResultsSkeleton(),
+      error: (e, _) => _ErrorState(error: e, onRetry: () {
+        ref.invalidate(searchResultsProvider);
+      }),
+    );
+  }
+
+  Widget _buildAggregated(AggregatedSearchState state) {
+    if (state.query.trim().isEmpty) {
+      return _buildIdleState();
+    }
+    if (state.isLoading) {
+      return const SearchResultsSkeleton();
+    }
+    if (state.songs.isEmpty) {
+      if (state.error != null) {
+        return _ErrorState(
+          error: _MessageException(state.error!),
+          onRetry: () => ref
+              .read(aggregatedSearchProvider.notifier)
+              .search(state.query),
+        );
+      }
+      return _SearchEmptyState(hasQuery: true);
+    }
+
+    final songs = state.playableSongs;
+    return RefreshIndicator(
+      onRefresh: () =>
+          ref.read(aggregatedSearchProvider.notifier).search(state.query),
+      child: NotificationListener<ScrollNotification>(
+        onNotification: _onScroll,
+        child: AppScrollbar(
+          builder: (controller) => ListView.builder(
+            controller: controller,
+            itemCount:
+                state.songs.length +
+                (state.errorCount > 0 ? 1 : 0) +
+                (state.isLoadingMore ? 1 : 0),
+            itemBuilder: (context, index) {
+              if (state.errorCount > 0 && index == 0) {
+                return _PlatformErrorStrip(errors: state.errorsByPlatform);
+              }
+              final offset = state.errorCount > 0 ? 1 : 0;
+              final songIndex = index - offset;
+              if (songIndex >= state.songs.length) {
+                return const Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Center(
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
                   ),
+                );
+              }
+              final merged = state.songs[songIndex];
+              return _MergedSongTile(
+                merged: merged,
+                song: state.sourceFor(merged),
+                playlist: songs,
+                index: songIndex,
+                onChooseSource: merged.sourceCount > 1
+                    ? () => _pickSource(merged)
+                    : null,
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlaylists(AsyncValue<List<Playlist>> results, String query) {
+    if (query.trim().isEmpty) {
+      return _buildIdleState();
+    }
+    return results.when(
+      data: (playlists) {
+        if (playlists.isEmpty) return _SearchEmptyState(hasQuery: true);
+        return RefreshIndicator(
+          onRefresh: () async => ref.invalidate(playlistSearchResultsProvider),
+          child: AppScrollbar(
+            builder: (controller) => ListView.builder(
+              controller: controller,
+              itemCount: playlists.length,
+              itemBuilder: (context, index) =>
+                  _PlaylistTile(playlist: playlists[index]),
+            ),
+          ),
+        );
+      },
+      loading: () => const SearchResultsSkeleton(),
+      error: (e, _) => _ErrorState(error: e, onRetry: () {
+        ref.invalidate(playlistSearchResultsProvider);
+      }),
+    );
+  }
+
+  /// What the page shows before anything is typed: recent queries (tap to
+  /// search, long-press to forget) plus the original prompt.
+  Widget _buildIdleState() {
+    final history = ref.watch(searchHistoryProvider);
+    return ListView(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      children: [
+        if (history.isNotEmpty) ...[
+          Row(
+            children: [
+              const Text(
+                '搜索历史',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+              ),
+              const Spacer(),
+              TextButton(
+                onPressed: () => ref.read(searchHistoryProvider.notifier).clear(),
+                child: const Text('清空'),
+              ),
+            ],
+          ),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              for (final entry in history)
+                InputChip(
+                  label: Text(entry),
+                  onPressed: () => _submitSearch(value: entry),
+                  onDeleted: () =>
+                      ref.read(searchHistoryProvider.notifier).remove(entry),
+                ),
+            ],
+          ),
+          const SizedBox(height: 24),
+        ],
+        Center(
+          child: Text(
+            '请输入关键词',
+            style: TextStyle(color: Theme.of(context).colorScheme.outline),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickSource(MergedSong merged) async {
+    final state = ref.read(aggregatedSearchProvider);
+    final current = state.sourceFor(merged);
+    final chosen = await showModalBottomSheet<Song>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(
+              dense: true,
+              title: Text('选择播放来源'),
+            ),
+            for (final source in merged.sources)
+              ListTile(
+                leading: Icon(PlatformAccent.iconOf(source.platform)),
+                title: Text(source.platform.displayName),
+                subtitle: Text(
+                  source.album?.name ?? source.artistNames,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing:
+                    source.id == current.id &&
+                        source.platform == current.platform
+                    ? const Icon(Icons.check)
+                    : null,
+                onTap: () => Navigator.of(sheetContext).pop(source),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (chosen != null) {
+      ref.read(aggregatedSearchProvider.notifier).chooseSource(chosen);
+    }
+  }
+}
+
+/// A plain [Exception] wrapper so [_ErrorState] can render a message that did
+/// not come from a thrown object.
+class _MessageException implements Exception {
+  _MessageException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+class _PlatformErrorStrip extends StatelessWidget {
+  const _PlatformErrorStrip({required this.errors});
+
+  final Map<PlatformType, String> errors;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      key: const Key('aggregated-search-errors'),
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: cs.errorContainer.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.wifi_off, size: 16, color: cs.error),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              errors.entries
+                  .map((entry) => '${entry.key.displayName}：${entry.value}')
+                  .join('\n'),
+              style: TextStyle(fontSize: 12, color: cs.onErrorContainer),
+            ),
           ),
         ],
       ),
@@ -243,26 +630,129 @@ class _SearchEmptyState extends StatelessWidget {
 
 class _ErrorState extends StatelessWidget {
   final Object error;
-  const _ErrorState({required this.error});
+  final VoidCallback? onRetry;
+
+  const _ErrorState({required this.error, this.onRetry});
 
   @override
   Widget build(BuildContext context) {
+    final typed = apiExceptionOf(error);
+    final isNetwork =
+        typed is NetworkException || typed.message.contains('网络');
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            Icons.error_outline,
+            isNetwork ? Icons.wifi_off : Icons.error_outline,
             size: 48,
             color: Theme.of(context).colorScheme.outline,
           ),
           const SizedBox(height: 8),
           Text(
-            '加载失败：$error',
+            typed.message,
+            textAlign: TextAlign.center,
             style: TextStyle(color: Theme.of(context).colorScheme.outline),
           ),
+          if (onRetry != null) ...[
+            const SizedBox(height: 12),
+            ElevatedButton(onPressed: onRetry, child: const Text('重试')),
+          ],
         ],
       ),
+    );
+  }
+}
+
+class _MergedSongTile extends ConsumerWidget {
+  const _MergedSongTile({
+    required this.merged,
+    required this.song,
+    required this.playlist,
+    required this.index,
+    required this.onChooseSource,
+  });
+
+  final MergedSong merged;
+  final Song song;
+  final List<Song> playlist;
+  final int index;
+  final VoidCallback? onChooseSource;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cs = Theme.of(context).colorScheme;
+    return ListTile(
+      leading: _Cover(url: song.coverUrl, icon: Icons.music_note),
+      title: Text(song.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+            decoration: BoxDecoration(
+              color: PlatformAccent.neutralColorOf(
+                song.platform,
+              ).withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              song.platform.displayName,
+              style: TextStyle(
+                fontSize: 10,
+                color: PlatformAccent.neutralColorOf(song.platform),
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              song.artistNames,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 13, color: cs.outline),
+            ),
+          ),
+          if (onChooseSource != null)
+            TextButton(
+              key: ValueKey('source-picker-${merged.dedupeKey}'),
+              onPressed: onChooseSource,
+              child: Text(
+                '${merged.sourceCount} 个来源',
+                style: const TextStyle(fontSize: 11),
+              ),
+            ),
+        ],
+      ),
+      trailing: DownloadButton(song: song, size: 22),
+      onTap: () => ref
+          .read(playerProvider.notifier)
+          .playPlaylist(playlist, startIndex: index),
+      onLongPress: () => showSongActionsMenu(context, ref, song: song),
+    );
+  }
+}
+
+class _Cover extends StatelessWidget {
+  const _Cover({required this.url, required this.icon});
+
+  final String? url;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: url != null && url!.isNotEmpty
+          ? CachedNetworkImage(
+              imageUrl: url!,
+              width: 48,
+              height: 48,
+              memCacheWidth: 96,
+              fit: BoxFit.cover,
+              placeholder: (_, _) => _ArtPlaceholder(icon: icon),
+              errorWidget: (_, _, _) => _ArtPlaceholder(icon: icon),
+            )
+          : _ArtPlaceholder(icon: icon),
     );
   }
 }
@@ -277,21 +767,7 @@ class _SongTile extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return ListTile(
-      leading: ClipRRect(
-        borderRadius: BorderRadius.circular(4),
-        child: song.coverUrl != null
-            ? CachedNetworkImage(
-                imageUrl: song.coverUrl!,
-                width: 48,
-                height: 48,
-                memCacheWidth: 96,
-                fit: BoxFit.cover,
-                placeholder: (_, _) => _ArtPlaceholder(icon: Icons.music_note),
-                errorWidget: (_, _, _) =>
-                    _ArtPlaceholder(icon: Icons.music_note),
-              )
-            : _ArtPlaceholder(icon: Icons.music_note),
-      ),
+      leading: _Cover(url: song.coverUrl, icon: Icons.music_note),
       title: Text(song.name, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Text(
         song.album?.name != null
@@ -339,6 +815,7 @@ class _SongTile extends ConsumerWidget {
             .read(playerProvider.notifier)
             .playPlaylist(songs, startIndex: index);
       },
+      onLongPress: () => showSongActionsMenu(context, ref, song: song),
     );
   }
 }
@@ -363,22 +840,7 @@ class _PlaylistTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return ListTile(
-      leading: ClipRRect(
-        borderRadius: BorderRadius.circular(4),
-        child: playlist.coverUrl != null
-            ? CachedNetworkImage(
-                imageUrl: playlist.coverUrl!,
-                width: 48,
-                height: 48,
-                memCacheWidth: 96,
-                fit: BoxFit.cover,
-                placeholder: (_, _) =>
-                    _ArtPlaceholder(icon: Icons.queue_music),
-                errorWidget: (_, _, _) =>
-                    _ArtPlaceholder(icon: Icons.queue_music),
-              )
-            : _ArtPlaceholder(icon: Icons.queue_music),
-      ),
+      leading: _Cover(url: playlist.coverUrl, icon: Icons.queue_music),
       title: Text(playlist.name, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Text(
         '${playlist.songCount} 首${playlist.creatorName == null ? '' : ' - ${playlist.creatorName}'}',

@@ -73,6 +73,23 @@ class LibraryScreen extends StatelessWidget {
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.go('/?tab=3'),
             ),
+            // Wave 3 content entries. They live here (and on the discovery tab)
+            // instead of a fifth bottom tab: the floating nav capsule has no
+            // room for another destination, and both content families are
+            // "browse" actions rather than top-level places.
+            ListTile(
+              leading: const Icon(Icons.leaderboard_outlined),
+              title: const Text('榜单中心'),
+              subtitle: const Text('各平台榜单 · QQ 热歌榜'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/toplists'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.fiber_new_outlined),
+              title: const Text('新歌速递'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/new-songs'),
+            ),
             const Divider(),
             ListTile(
               leading: const Icon(Icons.settings),
