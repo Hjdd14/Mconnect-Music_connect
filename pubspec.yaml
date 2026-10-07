@@ -1,7 +1,7 @@
 name: mconnect
 description: "Multi-platform music aggregator"
 publish_to: 'none'
-version: 1.4.1+12
+version: 1.4.2+13
 
 environment:
   # 3.13.0 与 Flutter 3.47.5 自带的 Dart 3.13.4 对齐。

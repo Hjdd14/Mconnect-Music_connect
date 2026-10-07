@@ -2958,3 +2958,60 @@ i18n 需要两个 **Lead 冻结文件**里的一行，队友无法自行加：
 
 
 
+
+---
+
+## 阶段 R — v1.4.2 卡死修复（快速切页/连点导致整机无响应）
+
+### 报告的现象与日志证据
+用户报告：快速切页或连点会让 App 整个无响应，必须退出重进。日志（`10-7.txt`）给出三条硬证据：
+1. 8 分钟内 **6 次进程级启动**（`[lifecycle] diagnostics_initialized` 在 `runApp` 前打印）→ 与"无响应→强杀→重进"循环一致；
+2. `position_ms` **冻住十几分钟**（170045 从 13:19 到 15:24；换歌后又冻在 1199）；
+3. `[background_playback] reassert` 高频成簇且**全部 `is_playing:false`** → `player_provider.dart:413` 在 `!isPlaying` 时直接 return，说明这些日志是"什么都没做"，成簇来自生命周期抖动（ANR 对话框/强杀会制造这种抖动）。
+
+**关键前提**：Android 上 Flutter 的 Dart isolate 与原生主线程是**同一条线程**，所以原生主线程阻塞 = UI 冻结 + 所有 `await` 停摆。
+
+### 根因（两类，互相放大）
+**A 类 — "一次失败后进程内再也起不来"**
+1. `_AudioMutex` 是一条 `await` 链，**无超时、无上界**（`:163 await prev`）：任一平台调用吊住 → 后续每次点击永久排队；连点则无界堆积。附带：`completer.complete()` 在 `try` 之外，同步段抛错即**断链**。
+2. `_recreatePlayer()` **零并发防护且在锁外**，7 个触发点（多个 `unawaited`）会 cancel 掉持锁操作正在用的 subscriptions 并替换 controller。
+3. **自愈被自己的前提关死**：`_canCheckPlaybackHealth`（`:511-525`）要求 `isPlaying` 且 `controller.playing`；`_ensurePlaybackVolume` 同样。因此日志中"`is_playing:false` + 位置冻住"时 **12s 停滞自愈 100% 不触发**；而 `_isRecoveringPlayback` 被锁吊住后 `finally` 不执行 → 自愈永久关闭。**这是"只能强杀"的直接原因。**
+4. 次生：转场看门狗的守卫 `requestId != _playRequestId` 会在"新请求已推进 id 但卡在队列里"时**拒绝复位** `isTransitioning`（恰是最需要它的时刻），使 `:520`/`:570`/`:1117` 三处门禁永久关闭。
+5. 小漏点：`playSong` 失败路径不复位 `_restoredSourceNeedsLoad`（只在成功路径写 false）→ 之后每次 togglePlay 都重进一条必然失败的路径。
+
+**B 类 — "把主线程压死"**
+6. `mini_player_bar` 打开播放器**无任何守卫** → 连点 N 次叠 N 层播放页，每层是全屏 blur18 + glass + 各自定时器。
+7. 底栏胶囊的 `BackdropFilter` **无 RepaintBoundary**，而进度环播放时逐帧重绘 → backdrop 每帧重采样，持续耗尽帧预算（把 6 从"卡一下"放大成"永久无响应"）。
+8. 通知/MediaSession **每次状态变更无条件全量重建**（整条歌单映射成 MediaItem），一次 playSong 连发 3-4 次、位置 tick 也走同一条路 → 大歌单 O(n) + 通道消息，Android 主线程反复重建通知。
+9. tab 防抖写在**生产不执行的路径**上（`home_screen` 那套 80ms 在 ShellRoute 存在时不跑），真正执行的 `_onTabSelected` 无防抖 → 每次点击重建整个外壳并导航。（本仓库反复踩的"保护写在了没走的路径上"。）
+10. `build` 内同步文件 I/O：外壳三处 `existsSync()`（每个二级路由都套这层，每次导航出栈+入栈都 build）+ **本地音乐列表行级 `existsSync()`**（几百首时每次重建几百次同步 stat，Android 外置存储 FUSE 下单次数百 µs）。
+11. 原生侧在主线程做 binder/IO：SAF 权限查询/授权/释放、文件打开器的 `File.exists()` + 3× `resolveActivity`、悬浮歌词 `canDrawOverlays`。
+12. 两条通道分支**永不回调**（选择器进行中页面被销毁、扫描结果跨 `onDestroy`）→ Dart 永久 `await`、界面永久转圈。
+13. 悬浮歌词让主线程永不停表：16ms 帧循环自重排 + 三个无限跑马灯 + 隐藏后被下一次 update **重建窗口** + 每次 update 重查权限。
+
+### 修复
+- **A1** `_AudioMutex`：等待带超时（8s）、等待数有上界（8）、`complete()` 移入覆盖同步前缀的 `finally`；超时/溢出记 `audio_mutex_wedged` / `audio_mutex_overflow`。正常路径仍是唯一串行点。
+- **A2** `_recreatePlayer` 单飞（先发布在途 future 再干活，同步重入也合并）；补 `mounted` 与 `identical(_audioController, previous)` 判断。
+- **A3** 新增**卡死看门狗**：不以 `isPlaying` 为前提；触发即作废代际、清四个忙标志、记 `player_forced_reset`、给用户可见提示"播放未能恢复，已重置播放器，请重试"、走单飞重建（**不进 mutex**，那正是卡死源头）。
+- **A4** 转场看门狗去掉请求号守卫（`isTransitioning` 是全局标志）；**A5** 失败路径补复位 `_restoredSourceNeedsLoad`。
+- **B6** 播放器打开加实例级在途守卫（同一帧只放行一次）——第一版用"700ms 冷却 + 模块级时间戳"被既有测试打回（"打开→关闭→再打开"是合法操作且模块级状态会跨测试泄漏）。
+- **B7** 加 `RepaintBoundary` 隔离逐帧重绘的进度环与 backdrop（不改变像素）。
+- **B8** 通知去重：仅当曲目/歌单/序号/控件/喜欢/悬浮歌词**真的变了**才重建；位置的**同一 List 身份**先做零成本短路，再比长度与首尾元素（刻意不做逐元素深比较，那正是要删的每秒 O(n)）；位置类只广播并按 1s 节流，seek 立即发；迟到 duration 只刷 item 不刷队列。
+- **B9** 防抖挪到真正执行的 `_onTabSelected`（可注入时钟、同 tab no-op）。
+- **B10** 全部改为按路径记忆的缓存（背景 + 行级封面，封面键含曲库版本），测试可注入可计数探针。
+- **B11** 原生 IO 移到后台 executor，结果回主线程再回调（通道名/签名不变）。
+- **B12** 所有 pending 分支保证调用 `result.error(...)`，不再有无人应答的等待。
+- **B13** 帧循环与跑马灯只在"可见且确实在播放"时运行，隐藏即停、不再被重建、权限缓存；Dart 侧加在途丢弃 + 突发合并。
+
+### 门禁
+`flutter analyze --no-pub` **0 issue**；`flutter test --no-pub -j 1` **1083 passed / 10 skipped / 0 failed**；`flutter build apk --release --split-per-abi` 成功（28.5 / 31.9 / 34.5 MB，无 universal）。红→绿：4 条播放器用例（锁吊死后连发 30 次、看门狗在"已暂停"时复位、并发重建只 dispose 一次、恢复失败不 latch）+ 5 条 UI 用例（连点叠 10 层、缺 RepaintBoundary、tab 切到 2、11 次 build = 11 次 stat、旧搜索结果覆盖新结果）各自先还原旧结构确认失败。
+
+### 教训（下一轮务必遵守）
+1. **"保护写在没走的路径上"是本仓库的高频事故**：tab 防抖、之前的 `HomeScreen` 守卫都是这样。改动防护类代码时必须先确认该分支在生产真的会执行（用 `ownsBottomLayer`/ShellRoute 这类既有判据核对）。
+2. **自愈/看门狗类机制，绝不能要求"故障状态下为真的前提"**：`isPlaying` 前提让 12s 自愈在最需要它时永不触发。写自愈前先问"它要修的那个状态下，这个条件还成立吗？"。
+3. **单一串行点必须有超时与上界**，否则一个吊住的平台调用会永久污染整条链路。
+4. **并发重建必须先单飞**：fire-and-forget 的"销毁并重建"会 cancel 掉别人正在用的订阅。
+5. **测试断言要有判别力**：单飞用例最初只断言"只创建 1 个 controller"，在旧代码上**也能通过**（被 `!identical` 顺手挡住），改成"只 dispose 一次"才真红。写完红→绿要问一句"这条断言在旧代码上真的会失败吗"。
+6. **`build` 内不允许同步 I/O**，尤其是列表行级（几百次 stat/帧）。
+7. **测试基建坑**：通知 handler 的 `queue`/`mediaItem`/`playbackState` 是 seeded `BehaviorSubject`（订阅即重放），计数助手必须先等重放到达再 arm，否则每条断言差 1。
+8. **本环境无法验证 Android 真机行为**：涉及存储/主线程/悬浮窗的修复只能做到"编译通过 + 打包含新类 + Dart 单测"，必须随交付给出可量化的真机判据（本次是 `dumpsys gfxinfo` 暂停后帧数应≈0）。
