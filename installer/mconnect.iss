@@ -2,7 +2,7 @@
 ; Build with: "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\mconnect.iss
 
 #define MyAppName "Mconnect"
-#define MyAppVersion "1.4.0"
+#define MyAppVersion "1.4.1"
 #define MyAppPublisher "Mconnect"
 #define MyAppURL "https://github.com/Hjdd14/Mconnect-Music_connect"
 #define MyAppExeName "mconnect.exe"

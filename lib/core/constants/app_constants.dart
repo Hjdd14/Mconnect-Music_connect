@@ -20,7 +20,7 @@ class AppConstants {
   /// Shown on the settings page. Must be kept in sync with `pubspec.yaml`,
   /// `installer/mconnect.iss`, `windows/runner/Runner.rc`, `PROJECT.md` and
   /// `test/settings_page_test.dart` (see `AGENTS.md` §2).
-  static const String appVersion = 'v1.4.0';
+  static const String appVersion = 'v1.4.1';
 
   /// Image cache budget, applied by `main.dart` to
   /// `PaintingBinding.instance.imageCache.maximumSizeBytes`.
