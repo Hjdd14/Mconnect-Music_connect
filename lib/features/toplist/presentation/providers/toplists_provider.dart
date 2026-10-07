@@ -18,11 +18,11 @@ const String qqHotToplistName = '热歌榜';
 
 /// Chart hub state: every chart of every platform, with per-platform errors.
 ///
-/// Why per-platform errors: the previous `rankingsProvider` dropped a platform
-/// entirely when its call failed (`if (songs.isNotEmpty)` + an empty `catch`),
-/// so a QQ failure made the QQ tab silently disappear — half of the reported
-/// "QQ 榜没有入口". Every platform now always appears in the state, with either
-/// charts or an error message.
+/// Why per-platform errors: the removed `rankingsProvider` (deleted in v1.4.1)
+/// dropped a platform entirely when its call failed (`if (songs.isNotEmpty)` +
+/// an empty `catch`), so a QQ failure made the QQ tab silently disappear — half
+/// of the reported "QQ 榜没有入口". Every platform now always appears in the
+/// state, with either charts or an error message.
 class ToplistsState {
   final Map<PlatformType, List<Toplist>> toplistsByPlatform;
   final Map<PlatformType, String> errorsByPlatform;

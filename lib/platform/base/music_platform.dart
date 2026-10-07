@@ -82,6 +82,19 @@ abstract class MusicPlatform {
   Future<List<Song>> getDailyRecommendations();
 
   // Rankings
+  //
+  // Legacy flat entry point: "the platform's first/default chart".
+  //
+  // The UI no longer uses it — the chart hub goes through [getToplists] and
+  // [getRankedSongs], which expose every chart with ids, metadata and per-track
+  // rank/movement. It is kept because the platform probes and several tests use
+  // it as a cheap "is the chart plumbing still working" check, and because it
+  // is the non-breaking fallback for a platform whose toplist endpoint is not
+  // reachable.
+  //
+  // Do NOT reintroduce a provider around it: the removed `rankingsProvider` was
+  // a second, competing chart implementation whose only consumer had already
+  // moved to [getToplists] (see docs/mconnect-improvement-plan.md).
   Future<List<Song>> getRankingList();
 
   // VIP
