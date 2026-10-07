@@ -9,6 +9,17 @@ import 'saf_tree_store.dart';
 
 typedef SafStagingDirectoryProvider = Future<Directory> Function();
 
+/// True when [path] identifies a file through a document URI — i.e. one that was
+/// published into the user's SAF folder — rather than a plain filesystem path.
+///
+/// Every file operation has to branch on this: `File(contentUri).exists()` is
+/// false, so a naive `File(path).delete()` reports success while the song stays
+/// in the user's folder, and `p.dirname(contentUri)` is meaningless.
+bool isSafDocumentUri(String path) {
+  final uri = Uri.tryParse(path.trim());
+  return uri != null && (uri.scheme == 'content' || uri.scheme == 'file');
+}
+
 /// The staging directory downloads are written to before they are copied into
 /// the user's SAF folder.
 ///
@@ -103,13 +114,33 @@ class SafDownloadWriter {
   final SafTreeStore store;
   final SafStagingDirectoryProvider _stagingDirectoryProvider;
 
-  /// The folder downloads are staged in (created on demand).
-  Future<Directory> stagingDirectory() async {
+  /// The folder downloads are staged in (created on demand unless
+  /// `create: false` — resolving a path must not have the side effect of
+  /// creating a directory).
+  Future<Directory> stagingDirectory({bool create = true}) async {
     final directory = await _stagingDirectoryProvider();
-    if (!await directory.exists()) {
+    if (create && !await directory.exists()) {
       await directory.create(recursive: true);
     }
     return directory;
+  }
+
+  /// The configured folder, or null when SAF is not in use.
+  Future<SafTreeSelection?> currentSelection() => store.read();
+
+  /// Deletes a file that was written into the tree.
+  ///
+  /// Returns false when the provider refused (or the platform has no SAF), the
+  /// same contract as the filesystem delete this replaces. Needed because
+  /// `File(contentUri).delete()` cannot work — and, worse, silently reported
+  /// success because the "file" never "existed".
+  Future<bool> deleteDocument(String documentUri) async {
+    if (documentUri.trim().isEmpty) return true;
+    try {
+      return await tree.deleteDocument(documentUri);
+    } on SafDocumentTreeException {
+      return false;
+    }
   }
 
   /// Decides what a download that targets the SAF folder should do.

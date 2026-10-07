@@ -21,12 +21,15 @@ class _FakeTree implements SafDocumentTree {
   SafDocumentTreeException? pickError;
   bool openResult = true;
   SafDocumentTreeException? openError;
+  bool deleteResult = true;
+  SafDocumentTreeException? deleteError;
 
   int pickCalls = 0;
   int grantChecks = 0;
   int releaseCalls = 0;
   int openCalls = 0;
   final List<Map<String, Object?>> copyCalls = [];
+  final List<String> deletedUris = [];
 
   @override
   Future<SafTreeSelection?> pickDirectory() async {
@@ -74,6 +77,13 @@ class _FakeTree implements SafDocumentTree {
     if (openError != null) throw openError!;
     return openResult;
   }
+
+  @override
+  Future<bool> deleteDocument(String documentUri) async {
+    deletedUris.add(documentUri);
+    if (deleteError != null) throw deleteError!;
+    return deleteResult;
+  }
 }
 
 /// A tree whose grant check fails the way an unsupported platform does.
@@ -100,6 +110,10 @@ class _ThrowingGrantTree implements SafDocumentTree {
 
   @override
   Future<bool> openTree(String treeUri) async => throw UnimplementedError();
+
+  @override
+  Future<bool> deleteDocument(String documentUri) async =>
+      throw UnimplementedError('deleteDocument must not be reached');
 }
 
 void main() {
@@ -380,6 +394,40 @@ void main() {
       isFalse,
       reason: '没有选过目录时不应调用平台',
     );
+  });
+
+  test('deleteDocument() deletes through the tree, not through a path', () async {
+    expect(await writer().deleteDocument('content://tree/1/document/x'), isTrue);
+    expect(tree.deletedUris, ['content://tree/1/document/x']);
+  });
+
+  test('deleteDocument() reports a platform refusal as false', () async {
+    tree.deleteResult = false;
+    expect(await writer().deleteDocument('content://tree/1/document/x'), isFalse);
+
+    tree.deleteError = const SafDocumentTreeException(
+      SafErrorCodes.deleteFailed,
+      '删除失败',
+    );
+    expect(await writer().deleteDocument('content://tree/1/document/x'), isFalse);
+  });
+
+  test('deleteDocument() treats an empty uri as already gone', () async {
+    expect(await writer().deleteDocument('   '), isTrue);
+    expect(tree.deletedUris, isEmpty);
+  });
+
+  test('stagingDirectory(create: false) resolves without creating anything', () async {
+    final nested = Directory('${tempDir.path}${Platform.pathSeparator}not-yet');
+
+    final resolved = await SafDownloadWriter(
+      tree: tree,
+      store: store,
+      stagingDirectoryProvider: () async => nested,
+    ).stagingDirectory(create: false);
+
+    expect(resolved.path, nested.path);
+    expect(nested.existsSync(), isFalse);
   });
 
   test('stagingDirectory() creates the configured directory', () async {

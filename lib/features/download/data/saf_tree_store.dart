@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:hive_flutter/hive_flutter.dart';
 
 /// A folder the user granted through SAF, as persisted by the app.
@@ -44,12 +46,25 @@ class HiveSafTreeStore implements SafTreeStore {
   /// inside unit tests, where Hive has not been initialised. Not being able to
   /// remember a folder must not throw at the caller — it reports "nothing
   /// saved", which the callers already handle as "no SAF folder".
+  ///
+  /// The guarded zone is not paranoia. Before `Hive.initFlutter()` runs,
+  /// `Hive.openBox` fails in a way that reaches **both** the returned future and
+  /// the ambient zone; `flutter_test` treats that zone copy as a test failure
+  /// even when the future error is caught (verified with a probe), so a plain
+  /// `try`/`catch` is not enough to keep an unrelated widget test green.
   Future<Box<dynamic>?> _box() async {
-    try {
-      return await Hive.openBox<dynamic>(boxName);
-    } catch (_) {
-      return null;
-    }
+    if (Hive.isBoxOpen(boxName)) return Hive.box<dynamic>(boxName);
+    Box<dynamic>? box;
+    await runZonedGuarded(() async {
+      try {
+        box = await Hive.openBox<dynamic>(boxName);
+      } catch (_) {
+        box = null;
+      }
+    }, (error, stack) {
+      box = null;
+    });
+    return box;
   }
 
   @override

@@ -7,6 +7,9 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../../models/audio_quality.dart';
 import '../../../models/platform_type.dart';
+import '../domain/entities/download_failure.dart';
+import 'saf_download_writer.dart';
+import 'saf_tree_store.dart';
 
 typedef DefaultDownloadRootProvider = Future<Directory> Function();
 
@@ -51,12 +54,17 @@ enum DownloadRootRejection {
   notWritable,
 
   /// The directory is usable but persisting the choice failed.
-  storeFailed;
+  storeFailed,
+
+  /// The user closed the picker without choosing. Not a failure: the UI stays
+  /// silent, exactly like the `null` a cancelled `file_picker` returns.
+  cancelled;
 
   /// User-facing reason. The two "cannot write there" cases share one message:
   /// the distinction is a diagnostic detail, not something a user acts on
   /// differently.
   String get message => switch (this) {
+    DownloadRootRejection.cancelled => '',
     DownloadRootRejection.blankPath => '请选择有效的下载目录',
     DownloadRootRejection.filesystemRoot => '不能把磁盘根目录设为下载目录',
     DownloadRootRejection.notADirectory => '该路径不是文件夹，请重新选择',
@@ -66,13 +74,58 @@ enum DownloadRootRejection {
   };
 }
 
+/// Where the bytes of one download go, and what has to happen afterwards.
+///
+/// Three cases instead of a `Directory`, because "a SAF folder is configured but
+/// its grant is gone" must **fail** rather than quietly land in the default
+/// folder: a user who believes the file is in their own `Music` folder and finds
+/// it in the app sandbox is worse off than one who sees an error.
+sealed class DownloadDestination {
+  const DownloadDestination();
+}
+
+/// No SAF folder configured — the pre-existing filesystem behaviour.
+class FileSystemDownloadDestination extends DownloadDestination {
+  const FileSystemDownloadDestination(this.directory);
+
+  final Directory directory;
+}
+
+/// SAF folder configured and writable: write into [stagingDirectory] with the
+/// existing resumable pipeline, then copy into the tree.
+class SafDownloadDestination extends DownloadDestination {
+  const SafDownloadDestination({
+    required this.stagingDirectory,
+    required this.relativePath,
+    required this.treeName,
+  });
+
+  final Directory stagingDirectory;
+
+  /// Sub-path inside the tree (`netease/mp3`, mirroring the sandbox layout).
+  final String relativePath;
+
+  /// Display name of the chosen folder, for messages.
+  final String treeName;
+}
+
+/// SAF folder configured but unusable — the caller must report, not fall back.
+class UnusableDownloadDestination extends DownloadDestination {
+  const UnusableDownloadDestination(this.failure);
+
+  final DownloadFailure failure;
+}
+
 /// Outcome of trying to use a directory as the download root.
 class DownloadRootResult {
   /// True when [path] is now the download root.
   final bool isOk;
 
-  /// The usable (normalized) path, or null on failure.
+  /// The usable (normalized) path — or the SAF tree URI — or null on failure.
   final String? path;
+
+  /// Display name for a SAF folder (null for plain paths).
+  final String? displayName;
 
   /// Why it failed; null on success.
   final DownloadRootRejection? rejection;
@@ -80,22 +133,28 @@ class DownloadRootResult {
   /// Technical detail (OS error text) for logs/diagnostics.
   final String? detail;
 
-  const DownloadRootResult.success(String this.path)
+  const DownloadRootResult.success(String this.path, {this.displayName})
     : isOk = true,
       rejection = null,
       detail = null;
 
   const DownloadRootResult.failure(this.rejection, {this.detail})
     : isOk = false,
-      path = null;
+      path = null,
+      displayName = null;
+
+  /// The user closed the picker: not an error, so the UI stays silent.
+  bool get isCancelled => rejection == DownloadRootRejection.cancelled;
 
   /// Message to show the user.
-  String get message =>
-      isOk ? '下载目录已更新' : (rejection ?? DownloadRootRejection.notWritable).message;
+  String get message => isOk
+      ? '下载目录已更新'
+      : (rejection ?? DownloadRootRejection.notWritable).message;
 
   @override
   String toString() =>
-      'DownloadRootResult(${isOk ? 'ok' : rejection?.name}: $path$detail)';
+      'DownloadRootResult(${isOk ? 'ok' : rejection?.name}: '
+      '${displayName ?? path}$detail)';
 }
 
 /// One entry in the "download directory" picker.
@@ -205,17 +264,20 @@ class DownloadDirectoryService {
   final DefaultDownloadRootProvider _defaultRootProvider;
   final ExternalDownloadRootProvider _externalRootProvider;
   final DownloadDirectoryGuard guard;
+  final SafDownloadWriter safWriter;
 
   DownloadDirectoryService({
     DownloadDirectoryStore? store,
     DefaultDownloadRootProvider? defaultRootProvider,
     ExternalDownloadRootProvider? externalRootProvider,
     DownloadDirectoryGuard? guard,
+    SafDownloadWriter? safWriter,
   }) : store = store ?? HiveDownloadDirectoryStore(),
        _defaultRootProvider =
            defaultRootProvider ?? getApplicationDocumentsDirectory,
        _externalRootProvider = externalRootProvider ?? _defaultExternalRoot,
-       guard = guard ?? const DownloadDirectoryGuard();
+       guard = guard ?? const DownloadDirectoryGuard(),
+       safWriter = safWriter ?? SafDownloadWriter();
 
   /// `getExternalStorageDirectory()` is Android-only; everywhere else this is
   /// null and the picker simply offers one fewer option.
@@ -379,6 +441,100 @@ class DownloadDirectoryService {
       (await applyCustomRootDirectory(path)).isOk;
 
   Future<void> resetCustomRootDirectory() => store.clearCustomRootPath();
+
+  // --- SAF custom folder ------------------------------------------------------
+
+  /// The folder the user granted through SAF, or null when none is configured.
+  Future<SafTreeSelection?> currentTreeSelection() => safWriter.currentSelection();
+
+  /// Whether downloads currently target a SAF folder (as opposed to a plain
+  /// filesystem path).
+  Future<bool> isSafTarget() async =>
+      await safWriter.targetState() == SafTargetState.ready;
+
+  /// Resolves where one download's bytes go.
+  ///
+  /// * **No SAF folder** → `targetDirectory(...)`, byte for byte the old
+  ///   behaviour (this is the branch every existing install takes);
+  /// * **SAF folder, grant alive** → the staging directory plus the sub-path to
+  ///   copy into afterwards;
+  /// * **SAF folder, grant gone** → an [UnusableDownloadDestination] carrying a
+  ///   [DownloadFailureKind.storagePermission] failure. The caller reports it
+  ///   and stops; it must not fall back to another folder.
+  ///
+  /// [create] is false for path *resolution* (see `DownloadManager`), where
+  /// creating a directory would be an unwanted side effect.
+  Future<DownloadDestination> resolveDownloadDestination(
+    PlatformType platformType,
+    AudioLevel quality, {
+    bool create = true,
+  }) async {
+    final state = await safWriter.targetState();
+    switch (state) {
+      case SafTargetState.notConfigured:
+        return FileSystemDownloadDestination(
+          await targetDirectory(platformType, quality, create: create),
+        );
+      case SafTargetState.permissionLost:
+        return const UnusableDownloadDestination(
+          DownloadFailure(
+            kind: DownloadFailureKind.storagePermission,
+            message: '自定义下载目录的访问权限已失效，请在下载设置中重新选择目录',
+          ),
+        );
+      case SafTargetState.ready:
+        final selection = await safWriter.currentSelection();
+        return SafDownloadDestination(
+          stagingDirectory: await safWriter.stagingDirectory(create: create),
+          // `平台/音质`, mirroring the sandbox layout. Approved as-is for
+          // v1.4.1: a provider that refuses to create these sub-directories
+          // surfaces `CREATE_DIR_FAILED` (classified `unknown`, not auto-retried)
+          // and flattening to the tree root is a decision for after a real-device
+          // report, not a guess made now.
+          relativePath:
+              '${platformType.name}/${quality.isLossless ? 'flac' : 'mp3'}',
+          treeName: selection?.name ?? '自定义目录',
+        );
+    }
+  }
+
+  /// Opens the SAF folder picker and makes the result the download root.
+  ///
+  /// Never throws (same contract as [applyCustomRootDirectory]): a cancelled
+  /// picker and a refused grant both come back as a [DownloadRootResult]. The
+  /// legacy plain path is deliberately **left in place** — switching to a SAF
+  /// folder must not destroy the directory an earlier build saved, so switching
+  /// back to "默认位置" still works after a reset.
+  Future<DownloadRootResult> applySafTreeDirectory() async {
+    try {
+      final selection = await safWriter.pickDirectory();
+      if (selection == null) {
+        return const DownloadRootResult.failure(
+          DownloadRootRejection.cancelled,
+        );
+      }
+      return DownloadRootResult.success(selection.uri, displayName: selection.name);
+    } on SafDownloadException catch (error) {
+      return DownloadRootResult.failure(
+        DownloadRootRejection.notWritable,
+        detail: error.failure.detail ?? error.failure.message,
+      );
+    } on Object catch (error) {
+      return DownloadRootResult.failure(
+        DownloadRootRejection.notWritable,
+        detail: error.toString(),
+      );
+    }
+  }
+
+  /// Stops using the SAF folder: releases the platform grant and forgets it.
+  ///
+  /// The legacy `custom_root_path` is untouched, so the plain-path behaviour
+  /// comes straight back.
+  Future<void> resetSafTreeDirectory() => safWriter.clear();
+
+  /// Opens the configured SAF folder in a file manager, if one accepts it.
+  Future<bool> openSafDirectory() => safWriter.openDirectory();
 
 
   /// Whether the legacy `Permission.storage` request is both **needed** and

@@ -91,6 +91,13 @@ abstract class SafDocumentTree {
     required String sourcePath,
   });
 
+  /// Deletes a document previously created by [copyToTree].
+  ///
+  /// Needed because a SAF download is identified by a `content://` URI, which
+  /// `File(...).delete()` cannot touch — without this, "删除下载文件" would
+  /// silently report success and leave the file in the user's folder.
+  Future<bool> deleteDocument(String documentUri);
+
   /// Opens the folder in a file manager. `FileOpener.openFolder` cannot do this
   /// for a `content://` tree.
   Future<bool> openTree(String treeUri);
@@ -152,6 +159,10 @@ class MethodChannelSafDocumentTree implements SafDocumentTree {
       displayName: result['displayName']?.toString() ?? fileName,
     );
   }
+
+  @override
+  Future<bool> deleteDocument(String documentUri) async =>
+      await _invoke<bool>('deleteDocument', {'uri': documentUri}) ?? false;
 
   @override
   Future<bool> openTree(String treeUri) async =>

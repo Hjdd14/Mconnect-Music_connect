@@ -65,6 +65,7 @@ class SafDocumentTreeController(private val activity: Activity) {
             "isGranted" -> result.success(isGranted(call.argument<String>("uri")))
             "release" -> result.success(release(call.argument<String>("uri")))
             "copyToTree" -> copyToTree(call, result)
+            "deleteDocument" -> deleteDocument(call, result)
             "openTree" -> openTree(call, result)
             else -> result.notImplemented()
         }
@@ -292,6 +293,39 @@ class SafDocumentTreeController(private val activity: Activity) {
         if (extension.isEmpty()) return "application/octet-stream"
         return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
             ?: "application/octet-stream"
+    }
+
+    // --- delete -----------------------------------------------------------------
+
+    /**
+     * Deletes one document that [copyToTree] created.
+     *
+     * A SAF download is stored under a `content://` URI, so the Dart side cannot
+     * delete it with `File(...)`: without this method "删除下载文件" would report
+     * success (the path never "existed" as a file) and leave the song behind.
+     */
+    private fun deleteDocument(call: MethodCall, result: MethodChannel.Result) {
+        val documentUri = call.argument<String>("uri")
+        if (documentUri.isNullOrBlank()) {
+            result.error("INVALID_ARGS", "deleteDocument 缺少 uri", null)
+            return
+        }
+        Thread {
+            try {
+                val document = DocumentFile.fromSingleUri(activity, Uri.parse(documentUri))
+                if (document == null || !document.exists()) {
+                    // Already gone: deleting something that is not there is a
+                    // success, exactly like `File.delete()` on a missing path.
+                    activity.runOnUiThread { result.success(true) }
+                    return@Thread
+                }
+                activity.runOnUiThread { result.success(document.delete()) }
+            } catch (error: Exception) {
+                activity.runOnUiThread {
+                    result.error("DELETE_FAILED", error.message ?: "删除文件失败", null)
+                }
+            }
+        }.start()
     }
 
     // --- open in a file manager -------------------------------------------------

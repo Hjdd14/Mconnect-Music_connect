@@ -12,6 +12,7 @@ import '../../data/download_directory_service.dart';
 import '../../data/download_scheduler.dart';
 import '../../data/download_task_store.dart';
 import '../../data/repositories/download_manager.dart';
+import '../../data/saf_download_writer.dart' show isSafDocumentUri;
 import '../../domain/entities/download_failure.dart';
 import '../../domain/entities/download_task.dart';
 import '../../../offline_cache/presentation/providers/offline_cache_provider.dart';
@@ -249,6 +250,12 @@ class DownloadNotifier extends StateNotifier<DownloadState> {
   static Future<int> _defaultTaskFileSize(DownloadTask task) async {
     final path = task.filePath;
     if (path == null || path.trim().isEmpty) return 0;
+    // A download published into the user's SAF folder is recorded as a
+    // `content://` document URI, which `File` cannot measure. The recorded
+    // total is the size the app itself wrote (and verified) before the copy, so
+    // it is the right answer for cache accounting — and it costs no extra
+    // platform round trip per task.
+    if (isSafDocumentUri(path)) return task.totalBytes ?? task.downloadedBytes;
     try {
       final file = File(path);
       if (!await file.exists()) return 0;
@@ -500,6 +507,11 @@ class DownloadNotifier extends StateNotifier<DownloadState> {
 
     for (final task in candidates) {
       final path = task.filePath!;
+      // A song published into the user's SAF folder is a `content://` document,
+      // not a playback path: handing it to the player as a file path fails, and
+      // `File(path).exists()` is false anyway. Skip it so offline playback
+      // falls back to the stream instead of "discovering" a file it cannot use.
+      if (isSafDocumentUri(path)) continue;
       if (await _fileExists(path)) {
         await _touchAccess(task);
         return path;
@@ -919,6 +931,14 @@ class DownloadNotifier extends StateNotifier<DownloadState> {
       case DownloadStatus.completed:
         final path = task.filePath;
         if (path == null || path.trim().isEmpty) return null;
+        // A SAF download's file lives in the user's own folder and is identified
+        // by a `content://` URI, which `File(path).exists()` always answers
+        // "false" for. Dropping it here (and then persisting the shortened list
+        // above) made every song downloaded into a custom folder vanish from the
+        // list after a restart, even though the file was still there. Existence
+        // for those is the SAF side's business — the grant is checked before the
+        // next download, and a refused delete is reported.
+        if (isSafDocumentUri(path)) return task;
         return await _fileExists(path) ? task : null;
       case DownloadStatus.failed:
         return task;

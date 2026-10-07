@@ -4,11 +4,14 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
+import '../../../../core/platform/platform_utils.dart';
 import '../../../../core/utils/snackbar_helper.dart';
 import '../../../../core/widgets/app_scrollbar.dart';
 import '../../../../utils/file_opener.dart';
 import '../../data/download_directory_service.dart';
 import '../../data/download_scheduler.dart';
+import '../../data/saf_download_writer.dart';
+import '../../data/saf_tree_store.dart';
 import '../providers/download_provider.dart';
 import '../../domain/entities/download_task.dart';
 
@@ -36,13 +39,46 @@ class DownloadPage extends ConsumerWidget {
     return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
   }
 
+  /// Opens the folder a completed download lives in.
+  ///
+  /// Two shapes: a plain path (the filesystem behaviour, unchanged) or a SAF
+  /// document URI, which `FileOpener.openFolder` can never open — it takes a
+  /// path and requires `File(path).exists()`. For a SAF target the sheet is
+  /// opened through the tree, and when no file manager accepts it the user is
+  /// told, instead of the button appearing to do nothing.
+  Future<void> _openFolderFor(
+    BuildContext context,
+    DownloadDirectoryService service,
+    DownloadTask task,
+  ) async {
+    final filePath = task.filePath;
+    if (filePath == null || filePath.trim().isEmpty) return;
+    try {
+      if (isSafDocumentUri(filePath)) {
+        final opened = await service.openSafDirectory();
+        if (!context.mounted || opened) return;
+        showErrorSnackBar(
+          context,
+          '当前设备没有可以打开该目录的应用，文件已保存到自定义下载目录',
+        );
+        return;
+      }
+      await FileOpener.openFolder(p.dirname(filePath));
+    } catch (e) {
+      if (!context.mounted) return;
+      showErrorSnackBar(context, e.toString());
+    }
+  }
+
   Future<void> _showDownloadDirectorySheet(
     BuildContext context,
     WidgetRef ref,
   ) async {
     final notifier = ref.read(downloadProvider.notifier);
+    final service = notifier.manager.directoryService;
     final currentPath = await notifier.currentDownloadRootPath();
     final options = await notifier.availableDownloadRoots();
+    final currentTree = await service.currentTreeSelection();
     if (!context.mounted) return;
 
     await showModalBottomSheet<void>(
@@ -52,7 +88,13 @@ class DownloadPage extends ConsumerWidget {
       useRootNavigator: true,
       showDragHandle: true,
       builder: (sheetContext) {
-        var displayedPath = currentPath;
+        // A SAF folder is displayed by its own name: its "path" is a captured
+        // `content://` URI, which is not something a user can read.
+        String displayFor(SafTreeSelection? tree, String path) =>
+            tree == null ? path : '${tree.name}（自定义目录）';
+
+        var displayedPath = displayFor(currentTree, currentPath);
+        var isSafTarget = currentTree != null;
         var currentOptions = options;
         var isSaving = false;
 
@@ -65,9 +107,11 @@ class DownloadPage extends ConsumerWidget {
             Future<void> refreshPath() async {
               final path = await notifier.currentDownloadRootPath();
               final refreshed = await notifier.availableDownloadRoots();
+              final tree = await service.currentTreeSelection();
               if (!sheetContext.mounted) return;
               setSheetState(() {
-                displayedPath = path;
+                displayedPath = displayFor(tree, path);
+                isSafTarget = tree != null;
                 currentOptions = refreshed;
               });
             }
@@ -107,6 +151,17 @@ class DownloadPage extends ConsumerWidget {
 
               await refreshPath();
               if (!sheetContext.mounted) return;
+
+              // A closed picker is a normal action, not a failure: no message
+              // and no snack bar (this is the SAF counterpart of the `null`
+              // `file_picker` returns on cancel).
+              if (result.isCancelled) {
+                setSheetState(() {
+                  errorMessage = null;
+                });
+                return;
+              }
+
               setSheetState(() {
                 errorMessage = result.isOk ? null : result.message;
               });
@@ -120,6 +175,19 @@ class DownloadPage extends ConsumerWidget {
             }
 
             Future<void> chooseCustomDirectory() async {
+              // Android cannot write a user-picked folder through a plain path
+              // (scoped storage), so the real Storage Access Framework tree
+              // picker is used there and only the returned tree URI is kept.
+              // `file_picker` maps a SAF tree to a synthetic path for `type=dir`,
+              // which is exactly the path the write later fails on with EACCES.
+              if (PlatformUtils.isAndroid) {
+                await applyRoot(
+                  service.applySafTreeDirectory,
+                  successMessage: '下载目录已更新',
+                );
+                return;
+              }
+
               String? path;
               try {
                 path = await pickDirectory('选择下载目录');
@@ -168,6 +236,10 @@ class DownloadPage extends ConsumerWidget {
               });
               try {
                 await notifier.resetDownloadRoot();
+                // Also drop a SAF folder: otherwise the tree would still be
+                // configured and keep being the target, so "恢复默认" would look
+                // like it did nothing.
+                await service.resetSafTreeDirectory();
               } on Object catch (error) {
                 debugPrint('resetDownloadRoot failed: $error');
               } finally {
@@ -189,6 +261,18 @@ class DownloadPage extends ConsumerWidget {
 
             Future<void> openDownloadFolder() async {
               try {
+                if (isSafTarget) {
+                  // `FileOpener.openFolder` takes a filesystem path and requires
+                  // `File(path).exists()`, which never holds for a SAF tree — so
+                  // the sheet would silently do nothing.
+                  final opened = await service.openSafDirectory();
+                  if (opened || !context.mounted) return;
+                  showErrorSnackBar(
+                    context,
+                    '当前设备没有可以打开该目录的应用，文件已保存到「$displayedPath」',
+                  );
+                  return;
+                }
                 await FileOpener.openFolder(displayedPath);
               } catch (e) {
                 if (!context.mounted) return;
@@ -224,7 +308,12 @@ class DownloadPage extends ConsumerWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '只能写入应用可访问的位置；下面两项都无需额外权限。',
+                        PlatformUtils.isAndroid
+                            // Android cannot write a user-picked folder through
+                            // a plain path, so "选择其他位置" goes through the
+                            // system Storage Access Framework picker there.
+                            ? '前两项无需权限；「选择其他位置」可用系统目录选择器选择 SD 卡/公共目录（SAF）。'
+                            : '只能写入应用可访问的位置；下面两项都无需额外权限。',
                         style: TextStyle(
                           fontSize: 12,
                           color: Theme.of(sheetContext).colorScheme.outline,
@@ -269,8 +358,10 @@ class DownloadPage extends ConsumerWidget {
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(Icons.drive_folder_upload),
                         title: const Text('选择其他位置…'),
-                        subtitle: const Text(
-                          '系统文件夹选择器；不可写时会提示，不会改动设置',
+                        subtitle: Text(
+                          PlatformUtils.isAndroid
+                              ? '系统目录选择器（SAF）：可直接选择 SD 卡或其他目录'
+                              : '系统文件夹选择器；不可写时会提示，不会改动设置',
                         ),
                         enabled: !isSaving,
                         onTap: chooseCustomDirectory,
@@ -405,6 +496,11 @@ class DownloadPage extends ConsumerWidget {
                     tasks: completedTasks,
                     formatBytes: _formatBytes,
                     onRemove: notifier.removeTask,
+                    onOpenFolder: (task) => _openFolderFor(
+                      context,
+                      notifier.manager.directoryService,
+                      task,
+                    ),
                   ),
                   // Failed downloads
                   _DownloadList(
@@ -433,6 +529,10 @@ class _DownloadList extends StatelessWidget {
   final void Function(DownloadTask)? onRetry;
   final Future<DownloadEnqueueOutcome> Function(String)? onStart;
 
+  /// Opens the folder a completed download is in. A callback (not an inline
+  /// call) because the target may be a SAF tree, which needs the service.
+  final Future<void> Function(DownloadTask)? onOpenFolder;
+
   const _DownloadList({
     required this.tasks,
     required this.formatBytes,
@@ -442,6 +542,7 @@ class _DownloadList extends StatelessWidget {
     this.onRemove,
     this.onRetry,
     this.onStart,
+    this.onOpenFolder,
   });
 
   @override
@@ -481,6 +582,7 @@ class _DownloadList extends StatelessWidget {
             onRemove: onRemove,
             onRetry: onRetry,
             onStart: onStart,
+            onOpenFolder: onOpenFolder,
           );
         },
       ),
@@ -497,6 +599,7 @@ class _DownloadTile extends StatelessWidget {
   final Future<bool> Function(String)? onRemove;
   final void Function(DownloadTask)? onRetry;
   final Future<DownloadEnqueueOutcome> Function(String)? onStart;
+  final Future<void> Function(DownloadTask)? onOpenFolder;
 
   const _DownloadTile({
     required this.task,
@@ -507,6 +610,7 @@ class _DownloadTile extends StatelessWidget {
     this.onRemove,
     this.onRetry,
     this.onStart,
+    this.onOpenFolder,
   });
 
   @override
@@ -688,16 +792,9 @@ class _DownloadTile extends StatelessWidget {
               IconButton(
                 icon: const Icon(Icons.folder_open, size: 20),
                 tooltip: '打开文件夹',
-                onPressed: () async {
-                  final filePath = task.filePath;
-                  if (filePath == null) return;
-                  try {
-                    await FileOpener.openFolder(p.dirname(filePath));
-                  } catch (e) {
-                    if (!context.mounted) return;
-                    showErrorSnackBar(context, e.toString());
-                  }
-                },
+                onPressed: onOpenFolder == null
+                    ? null
+                    : () => onOpenFolder!(task),
               ),
             if (onRemove != null)
               IconButton(

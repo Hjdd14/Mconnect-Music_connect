@@ -8,6 +8,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../../../../platform/base/platform_registry.dart';
 import '../download_directory_service.dart';
+import '../saf_download_writer.dart';
 import '../../domain/entities/download_failure.dart';
 import '../../domain/entities/download_task.dart';
 import '../download_scheduler.dart' show kMaxConcurrentDownloads;
@@ -62,6 +63,7 @@ class DownloadManager {
   DownloadManager({
     Dio? dio,
     DownloadDirectoryService? directoryService,
+    this.safWriter,
     int maxConcurrent = kMaxConcurrentDownloads,
     FreeSpaceProbe? freeSpaceProbe,
   }) : maxConcurrent = maxConcurrent,
@@ -76,6 +78,12 @@ class DownloadManager {
                receiveTimeout: const Duration(minutes: 10),
              ),
            );
+
+  /// Overrides the SAF writer. By default the directory service's own writer is
+  /// used, so injecting a service built on a fake tree is enough.
+  final SafDownloadWriter? safWriter;
+
+  SafDownloadWriter get _safWriter => safWriter ?? _directoryService.safWriter;
 
   DownloadDirectoryService get directoryService => _directoryService;
 
@@ -95,6 +103,12 @@ class DownloadManager {
   Future<bool> deleteDownloadedFile(DownloadTask task) async {
     final filePath = task.filePath;
     if (filePath == null || filePath.trim().isEmpty) return true;
+    // A file that lives in the user's SAF folder is identified by a
+    // `content://` URI. `File(uri).exists()` is false, so the plain path below
+    // would report "deleted" while leaving the song in their folder.
+    if (isDocumentUri(filePath)) {
+      return _safWriter.deleteDocument(filePath);
+    }
     try {
       final file = File(filePath);
       if (await file.exists()) {
@@ -105,6 +119,10 @@ class DownloadManager {
       return false;
     }
   }
+
+  /// True for a `content://` (or `file://`) document URI, i.e. a file that was
+  /// published into a SAF folder rather than written to a plain path.
+  static bool isDocumentUri(String path) => isSafDocumentUri(path);
 
   /// Size of a task's file on disk, or 0 when it is missing.
   Future<int> partialBytesOf(DownloadTask task) async {
@@ -132,16 +150,31 @@ class DownloadManager {
 
   /// Where [task] is (or would be) written: the recorded path, else the path
   /// derived from the download directory layout.
+  ///
+  /// A SAF task's *partial* bytes live in the staging directory even though its
+  /// published file is a document URI, so resolution goes through the same
+  /// destination switch the transfer uses — otherwise a paused SAF download
+  /// would report its progress from a path nothing ever wrote to.
   Future<String?> _resolveFilePath(DownloadTask task) async {
     final recorded = task.filePath;
-    if (recorded != null && recorded.trim().isNotEmpty) return recorded;
+    if (recorded != null &&
+        recorded.trim().isNotEmpty &&
+        !isDocumentUri(recorded)) {
+      return recorded;
+    }
     try {
-      final dir = await _directoryService.targetDirectory(
+      final destination = await _directoryService.resolveDownloadDestination(
         task.song.platform,
         task.quality,
         create: false,
       );
-      return '${dir.path}/${task.fileName}';
+      return switch (destination) {
+        FileSystemDownloadDestination(:final directory) =>
+          '${directory.path}/${task.fileName}',
+        SafDownloadDestination(:final stagingDirectory) =>
+          '${stagingDirectory.path}/${task.fileName}',
+        UnusableDownloadDestination() => null,
+      };
     } catch (_) {
       return null;
     }
@@ -173,10 +206,35 @@ class DownloadManager {
     await _slots.acquire();
 
     String? filePath;
+    // Set only while a download targets the user's SAF folder: the transfer
+    // writes into staging exactly as before, and the file is moved into the
+    // tree once it is complete and size-checked.
+    SafDownloadDestination? safTarget;
     try {
       if (controller.isClosed || cancelToken.isCancelled) return;
 
       _activeDownloads++;
+
+      // Where the bytes go is resolved BEFORE the network is touched. A SAF
+      // folder whose grant has been revoked has to fail here, with a reason the
+      // user can act on — falling back to the app sandbox would put the file
+      // somewhere they will never look.
+      final destination = await _directoryService.resolveDownloadDestination(
+        task.song.platform,
+        task.quality,
+      );
+      final Directory dir;
+      switch (destination) {
+        case UnusableDownloadDestination(:final failure):
+          _emitFailure(controller, task, failure);
+          return;
+        case SafDownloadDestination():
+          dir = destination.stagingDirectory;
+          safTarget = destination;
+        case FileSystemDownloadDestination():
+          dir = destination.directory;
+      }
+      filePath = '${dir.path}/${task.fileName}';
 
       // Get download URL (throws typed ApiExceptions since Wave 1).
       final platform = PlatformRegistry.get(task.song.platform);
@@ -185,19 +243,17 @@ class DownloadManager {
         quality: task.quality,
       );
 
-      // Get download directory
-      final dir = await _directoryService.targetDirectory(
-        task.song.platform,
-        task.quality,
-      );
-      filePath = '${dir.path}/${task.fileName}';
-
       // Android storage permission: only when the target really is outside the
       // app sandbox. The old code asked unconditionally, and `Permission.storage`
       // has been a no-op (immediately denied) on API 33+ — so on a modern phone
       // every single download failed with "存储权限被拒绝" even though the default
       // target directory needs no permission at all.
-      if (Platform.isAndroid &&
+      //
+      // Skipped entirely for a SAF target: staging lives in the app's own cache,
+      // which needs no permission — the user's folder is reached through the
+      // persisted tree grant instead.
+      if (safTarget == null &&
+          Platform.isAndroid &&
           await _directoryService.needsLegacyStoragePermission(dir)) {
         final status = await Permission.storage.request();
         if (!status.isGranted) {
@@ -257,6 +313,13 @@ class DownloadManager {
 
       // Pre-flight disk check. `null` from the probe means "unknown" — never
       // treated as "plenty of room", it just skips the gate.
+      //
+      // Deliberate limitation (approved for v1.4.1): the probe measures the
+      // volume holding `dir.path`, which for a SAF target is the app's staging
+      // area — not the user's folder, which may be another volume. Filling the
+      // target volume is therefore reported later, by the copy itself:
+      // `SafDownloadWriter` classifies it as `disk` (retryable) and keeps the
+      // staging file, so the retry does not have to download again.
       final expectedBytes = expectedTotal ?? task.totalBytes;
       if (expectedBytes != null && expectedBytes > 0) {
         final free = await _freeSpaceProbe(dir.path);
@@ -332,14 +395,44 @@ class DownloadManager {
         return;
       }
 
+      // The bytes are complete and verified, so now — and only now — move them
+      // into the user's folder. Until this point the download is a normal
+      // resumable file in staging; if the copy fails, the staging file is kept
+      // (see SafDownloadWriter.commit) so a retry does not re-download.
+      var completedPath = filePath;
+      var completedBytes = onDisk;
+      if (safTarget != null) {
+        try {
+          final outcome = await _safWriter.commit(
+            stagingFile: file,
+            relativePath: safTarget.relativePath,
+            fileName: task.fileName,
+          );
+          // The provider may have renamed the document; the URI it returned is
+          // the only identity that is correct for "delete"/"open folder" later,
+          // so that is what the task must record.
+          completedPath = outcome.documentUri;
+          completedBytes = outcome.bytes;
+        } on SafDownloadException catch (error) {
+          _emitFailure(
+            controller,
+            task,
+            error.failure,
+            filePath: filePath,
+            downloadedBytes: onDisk,
+          );
+          return;
+        }
+      }
+
       controller.add(
         DownloadProgress(
           taskId: task.id,
-          downloadedBytes: onDisk,
-          totalBytes: onDisk,
+          downloadedBytes: completedBytes,
+          totalBytes: completedBytes,
           progress: 1.0,
           completed: true,
-          filePath: filePath,
+          filePath: completedPath,
         ),
       );
     } on DioException catch (e) {
