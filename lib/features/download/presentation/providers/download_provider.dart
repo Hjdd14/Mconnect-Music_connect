@@ -8,6 +8,7 @@ import '../../../../models/audio_quality.dart';
 import '../../../../models/song.dart';
 import '../../../../models/user.dart';
 import '../../../../platform/base/platform_registry.dart';
+import '../../data/download_directory_service.dart';
 import '../../data/download_scheduler.dart';
 import '../../data/download_task_store.dart';
 import '../../data/repositories/download_manager.dart';
@@ -821,9 +822,22 @@ class DownloadNotifier extends StateNotifier<DownloadState> {
     return directory.path;
   }
 
-  Future<bool> setCustomDownloadRoot(String path) {
-    return _manager.setCustomRootDirectory(path);
-  }
+  /// The stable, app-writable roots the settings sheet offers.
+  ///
+  /// Both options are inside the app's own sandbox (documents + app-specific
+  /// external), so neither needs a runtime permission and neither can be
+  /// unwritable.
+  Future<List<DownloadRootOption>> availableDownloadRoots() =>
+      _manager.directoryService.availableRootOptions();
+
+  /// Applies a new download root.
+  ///
+  /// **Never throws** and reports *why* it failed (see [DownloadRootResult]):
+  /// the old `bool` path let a `PathAccessException` escape as an uncaught
+  /// async error, which left the settings sheet spinning on "保存中" forever
+  /// with no message at all.
+  Future<DownloadRootResult> setCustomDownloadRoot(String path) =>
+      _manager.directoryService.applyCustomRootDirectory(path);
 
   Future<void> resetDownloadRoot() {
     return _manager.resetCustomRootDirectory();

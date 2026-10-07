@@ -7,12 +7,25 @@ import 'package:path/path.dart' as p;
 import '../../../../core/utils/snackbar_helper.dart';
 import '../../../../core/widgets/app_scrollbar.dart';
 import '../../../../utils/file_opener.dart';
+import '../../data/download_directory_service.dart';
 import '../../data/download_scheduler.dart';
 import '../providers/download_provider.dart';
 import '../../domain/entities/download_task.dart';
 
+/// Opens the system folder picker and returns the chosen path, or null.
+///
+/// A seam for tests: `file_picker`'s desktop implementation is FFI-backed and
+/// would open a real dialog (and hang) inside `flutter test`.
+typedef DirectoryPicker = Future<String?> Function(String? dialogTitle);
+
+Future<String?> _pickDirectoryWithPlugin(String? dialogTitle) =>
+    FilePicker.getDirectoryPath(dialogTitle: dialogTitle);
+
 class DownloadPage extends ConsumerWidget {
-  const DownloadPage({super.key});
+  const DownloadPage({super.key, this.pickDirectory = _pickDirectoryWithPlugin});
+
+  /// Overridable so the directory flow can be tested without the plugin.
+  final DirectoryPicker pickDirectory;
 
   String _formatBytes(int bytes) {
     if (bytes < 1024) return '$bytes B';
@@ -29,6 +42,7 @@ class DownloadPage extends ConsumerWidget {
   ) async {
     final notifier = ref.read(downloadProvider.notifier);
     final currentPath = await notifier.currentDownloadRootPath();
+    final options = await notifier.availableDownloadRoots();
     if (!context.mounted) return;
 
     await showModalBottomSheet<void>(
@@ -39,98 +53,246 @@ class DownloadPage extends ConsumerWidget {
       showDragHandle: true,
       builder: (sheetContext) {
         var displayedPath = currentPath;
+        var currentOptions = options;
         var isSaving = false;
 
+        /// Shown inside the sheet as well as in a snack bar: the sheet covers the
+        /// bottom of the screen, so a snack bar alone can be hidden behind it —
+        /// and the whole complaint about this flow was that failures were silent.
+        String? errorMessage;
         return StatefulBuilder(
           builder: (sheetContext, setSheetState) {
             Future<void> refreshPath() async {
               final path = await notifier.currentDownloadRootPath();
+              final refreshed = await notifier.availableDownloadRoots();
               if (!sheetContext.mounted) return;
               setSheetState(() {
                 displayedPath = path;
+                currentOptions = refreshed;
               });
             }
 
-            Future<void> chooseDirectory() async {
-              final path = await FilePicker.getDirectoryPath(
-                dialogTitle: '选择下载目录',
-              );
-              if (path == null || path.trim().isEmpty) return;
-              if (!sheetContext.mounted) return;
+            /// Applies [path] as the root, always resetting `isSaving` and always
+            /// reporting the outcome.
+            ///
+            /// The old flow had no `try/finally`: when `Directory.create` threw,
+            /// `isSaving` stayed true forever — spinner on, every control greyed
+            /// out — and the exception vanished into `runZonedGuarded`.
+            Future<void> applyRoot(
+              Future<DownloadRootResult> Function() apply, {
+              required String successMessage,
+            }) async {
               setSheetState(() {
                 isSaving = true;
+                errorMessage = null;
               });
 
-              final saved = await notifier.setCustomDownloadRoot(path);
+              DownloadRootResult result;
+              try {
+                result = await apply();
+              } on Object catch (error) {
+                // The service never throws; this is the belt to its braces, so a
+                // future change cannot freeze the sheet again.
+                result = DownloadRootResult.failure(
+                  DownloadRootRejection.notWritable,
+                  detail: error.toString(),
+                );
+              } finally {
+                if (sheetContext.mounted) {
+                  setSheetState(() {
+                    isSaving = false;
+                  });
+                }
+              }
+
               await refreshPath();
               if (!sheetContext.mounted) return;
               setSheetState(() {
-                isSaving = false;
+                errorMessage = result.isOk ? null : result.message;
               });
 
               if (!context.mounted) return;
-              if (saved) {
-                showSuccessSnackBar(context, '下载目录已更新');
+              if (result.isOk) {
+                showSuccessSnackBar(context, successMessage);
               } else {
-                showErrorSnackBar(context, '该目录不可用，请选择其他文件夹');
+                showErrorSnackBar(context, result.message);
               }
+            }
+
+            Future<void> chooseCustomDirectory() async {
+              String? path;
+              try {
+                path = await pickDirectory('选择下载目录');
+              } on Object catch (error) {
+                // A thrown platform error is a real failure, and is reported.
+                debugPrint('directory picker failed: $error');
+                if (!sheetContext.mounted) return;
+                setSheetState(() {
+                  errorMessage = '该位置无法作为下载目录，请换一个文件夹';
+                });
+                if (context.mounted) {
+                  showErrorSnackBar(context, '该位置无法作为下载目录，请换一个文件夹');
+                }
+                return;
+              }
+              if (path == null || path.trim().isEmpty) {
+                // `null` overwhelmingly means "the user cancelled the dialog",
+                // and cancelling is a normal action — so this branch stays
+                // silent (it only clears a message left over from before).
+                //
+                // KNOWN LIMITATION: `file_picker` also swallows
+                // `PlatformException("unknown_path")` — a cloud-provider folder
+                // it cannot map to a filesystem path — and returns null, so the
+                // two cases are indistinguishable. When we cannot tell them
+                // apart the cheaper default is silence: the occasional
+                // unselectable cloud folder going quiet beats an error toast on
+                // every cancel. The failure that actually matters (an
+                // unwritable directory) is caught later by the write probe,
+                // with an accurate message.
+                if (!sheetContext.mounted) return;
+                setSheetState(() {
+                  errorMessage = null;
+                });
+                return;
+              }
+              await applyRoot(
+                () => notifier.setCustomDownloadRoot(path!),
+                successMessage: '下载目录已更新',
+              );
             }
 
             Future<void> resetDirectory() async {
               setSheetState(() {
                 isSaving = true;
+                errorMessage = null;
               });
-              await notifier.resetDownloadRoot();
+              try {
+                await notifier.resetDownloadRoot();
+              } on Object catch (error) {
+                debugPrint('resetDownloadRoot failed: $error');
+              } finally {
+                if (sheetContext.mounted) {
+                  setSheetState(() {
+                    isSaving = false;
+                  });
+                }
+              }
               await refreshPath();
               if (!sheetContext.mounted) return;
               setSheetState(() {
-                isSaving = false;
+                errorMessage = null;
               });
               if (context.mounted) {
                 showSuccessSnackBar(context, '已恢复默认下载目录');
               }
             }
 
+            Future<void> openDownloadFolder() async {
+              try {
+                await FileOpener.openFolder(displayedPath);
+              } catch (e) {
+                if (!context.mounted) return;
+                showErrorSnackBar(context, e.toString());
+              }
+            }
+
             return SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      '下载目录',
-                      style: Theme.of(sheetContext).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 12),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.folder_open),
-                      title: const Text('当前目录'),
-                      subtitle: Text(
-                        displayedPath,
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    FilledButton.icon(
-                      icon: isSaving
-                          ? const SizedBox(
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '下载目录',
+                              style: Theme.of(
+                                sheetContext,
+                              ).textTheme.titleLarge,
+                            ),
+                          ),
+                          if (isSaving)
+                            const SizedBox(
                               width: 18,
                               height: 18,
                               child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.drive_folder_upload),
-                      label: const Text('选择目录'),
-                      onPressed: isSaving ? null : chooseDirectory,
-                    ),
-                    TextButton.icon(
-                      icon: const Icon(Icons.restore),
-                      label: const Text('恢复默认目录'),
-                      onPressed: isSaving ? null : resetDirectory,
-                    ),
-                  ],
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '只能写入应用可访问的位置；下面两项都无需额外权限。',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(sheetContext).colorScheme.outline,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      for (final option in currentOptions)
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(
+                            option.isCurrent
+                                ? Icons.radio_button_checked
+                                : Icons.radio_button_unchecked,
+                            color: option.isCurrent
+                                ? Theme.of(sheetContext).colorScheme.primary
+                                : null,
+                          ),
+                          title: Text(option.kind.label),
+                          subtitle: Text(
+                            '${option.path}\n${option.kind.description}',
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          enabled: !isSaving && !option.isCurrent,
+                          onTap: () => applyRoot(
+                            () => notifier.setCustomDownloadRoot(option.path),
+                            successMessage: '下载目录已更新',
+                          ),
+                        ),
+                      if (errorMessage != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4, bottom: 4),
+                          child: Text(
+                            errorMessage!,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(sheetContext).colorScheme.error,
+                            ),
+                          ),
+                        ),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.drive_folder_upload),
+                        title: const Text('选择其他位置…'),
+                        subtitle: const Text(
+                          '系统文件夹选择器；不可写时会提示，不会改动设置',
+                        ),
+                        enabled: !isSaving,
+                        onTap: chooseCustomDirectory,
+                      ),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.folder_open),
+                        title: const Text('打开下载文件夹'),
+                        subtitle: Text(
+                          displayedPath,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        onTap: openDownloadFolder,
+                      ),
+                      TextButton.icon(
+                        icon: const Icon(Icons.restore),
+                        label: const Text('恢复默认目录'),
+                        onPressed: isSaving ? null : resetDirectory,
+                      ),
+                    ],
+                  ),
                 ),
               ),
             );

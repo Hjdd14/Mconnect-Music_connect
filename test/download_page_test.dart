@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -225,6 +226,246 @@ void main() {
     expect(find.text('暂无内容'), findsOneWidget);
   });
 
+  // ---- v1.4.1 directory guard: the sheet must never freeze or stay silent ----
+
+  testWidgets('a rejected directory clears 保存中 and explains why', (
+    tester,
+  ) async {
+    // The regression: `Directory.create` threw, nothing caught it, `isSaving`
+    // stayed true forever — spinner spinning, every control greyed out, no
+    // message — and the user had to kill the sheet.
+    final store = _MemoryDownloadDirectoryStore();
+    final manager = DownloadManager(
+      directoryService: _directoryService(
+        store: store,
+        guard: const _UnwritableDirectoryGuard(),
+      ),
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          downloadProvider.overrideWith(
+            (ref) => _StubPathDownloadNotifier(
+              manager: manager,
+              initialState: const DownloadState(tasks: []),
+              taskStore: _MemoryDownloadTaskStore(const []),
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: DownloadPage()),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.folder_copy_outlined));
+    await tester.pumpAndSettle();
+    expect(find.text('外部存储（应用专属）'), findsOneWidget);
+
+    await tester.tap(find.text('外部存储（应用专属）'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('该目录不可写，请选择应用可写的位置'),
+      findsWidgets,
+      reason: 'the user must be told why nothing happened',
+    );
+    expect(
+      find.byType(CircularProgressIndicator),
+      findsNothing,
+      reason: 'isSaving must be reset even on failure',
+    );
+    final tile = tester.widget<ListTile>(
+      find.ancestor(
+        of: find.text('外部存储（应用专属）'),
+        matching: find.byType(ListTile),
+      ),
+    );
+    expect(tile.enabled, isTrue, reason: 'the sheet must stay usable');
+    expect(
+      store.customRootPath,
+      isNull,
+      reason: 'a directory that failed the write probe must not be persisted',
+    );
+  });
+
+  testWidgets('the 保存中 spinner is visible while applying and then cleared', (
+    tester,
+  ) async {
+    final notifier = _ControllableRootNotifier(
+      manager: DownloadManager(
+        directoryService: _directoryService(
+          store: _MemoryDownloadDirectoryStore(),
+        ),
+      ),
+      taskStore: _MemoryDownloadTaskStore(const []),
+      initialState: const DownloadState(tasks: []),
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [downloadProvider.overrideWith((ref) => notifier)],
+        child: const MaterialApp(home: DownloadPage()),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.folder_copy_outlined));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('外部存储（应用专属）'));
+    await tester.pump();
+
+    expect(
+      find.byType(CircularProgressIndicator),
+      findsOneWidget,
+      reason: 'a slow apply shows progress',
+    );
+    expect(notifier.appliedPaths, [p.join('D:', 'ext_downloads')]);
+
+    notifier.completeApply(
+      const DownloadRootResult.failure(DownloadRootRejection.notWritable),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.text('该目录不可写，请选择应用可写的位置'), findsWidgets);
+  });
+
+  testWidgets('a cancelled picker stays silent and changes nothing', (
+    tester,
+  ) async {
+    // Lead's ruling (v1.4.1): `null` means "the user cancelled" — its dominant
+    // meaning — so it must not raise an error. `file_picker` also folds
+    // `PlatformException("unknown_path")` into the same null and the two cases
+    // cannot be told apart; the cheaper default is silence. The failure that
+    // actually matters (an unwritable directory) is caught by the write probe.
+    final store = _MemoryDownloadDirectoryStore();
+    final manager = DownloadManager(
+      directoryService: _directoryService(store: store),
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          downloadProvider.overrideWith(
+            (ref) => _StubPathDownloadNotifier(
+              manager: manager,
+              initialState: const DownloadState(tasks: []),
+              taskStore: _MemoryDownloadTaskStore(const []),
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          home: DownloadPage(pickDirectory: (_) async => null),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.folder_copy_outlined));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('选择其他位置…'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('该位置无法作为下载目录，请换一个文件夹'),
+      findsNothing,
+      reason: 'cancelling is a normal action, not an error',
+    );
+    expect(find.text('该目录不可写，请选择应用可写的位置'), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(store.customRootPath, isNull);
+
+    // Still interactive: a cancel must not freeze the sheet either.
+    final tile = tester.widget<ListTile>(
+      find.ancestor(
+        of: find.text('外部存储（应用专属）'),
+        matching: find.byType(ListTile),
+      ),
+    );
+    expect(tile.enabled, isTrue);
+  });
+
+  testWidgets('a picker that throws is reported, not swallowed', (tester) async {
+    final store = _MemoryDownloadDirectoryStore();
+    final manager = DownloadManager(
+      directoryService: _directoryService(store: store),
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          downloadProvider.overrideWith(
+            (ref) => _StubPathDownloadNotifier(
+              manager: manager,
+              initialState: const DownloadState(tasks: []),
+              taskStore: _MemoryDownloadTaskStore(const []),
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          home: DownloadPage(
+            pickDirectory: (_) async =>
+                throw PlatformException(code: 'unknown_path'),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.folder_copy_outlined));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('选择其他位置…'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('该位置无法作为下载目录，请换一个文件夹'), findsWidgets);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(store.customRootPath, isNull);
+  });
+
+  testWidgets('the directory sheet offers only app-writable roots', (
+    tester,
+  ) async {
+    final manager = DownloadManager(
+      directoryService: _directoryService(
+        store: _MemoryDownloadDirectoryStore(),
+      ),
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          downloadProvider.overrideWith(
+            (ref) => _StubPathDownloadNotifier(
+              manager: manager,
+              initialState: const DownloadState(tasks: []),
+              taskStore: _MemoryDownloadTaskStore(const []),
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: DownloadPage()),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.folder_copy_outlined));
+    await tester.pumpAndSettle();
+
+    expect(find.text('默认位置'), findsOneWidget);
+    expect(find.text('外部存储（应用专属）'), findsOneWidget);
+    expect(find.text('选择其他位置…'), findsOneWidget);
+    expect(find.text('恢复默认目录'), findsOneWidget);
+
+    // The existing "open the download folder" entry is kept.
+    await tester.ensureVisible(find.text('打开下载文件夹'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('打开下载文件夹'));
+    await tester.pump();
+    expect(calls, hasLength(1));
+    expect(calls.single.method, 'openFolder');
+    expect(calls.single.arguments, p.join('D:', 'MconnectTestDownloads'));
+  });
+
   testWidgets('a shell-nested sheet is pushed above the floating chrome', (
     tester,
   ) async {
@@ -367,6 +608,81 @@ class _StubPathDownloadNotifier extends DownloadNotifier {
   @override
   Future<String> currentDownloadRootPath() async =>
       p.join('D:', 'MconnectTestDownloads');
+}
+
+/// The notifier used by the directory-sheet tests: it stubs only the I/O-bound
+/// path lookup, so `availableDownloadRoots()` / `setCustomDownloadRoot()` still
+/// run the real code.
+class _ControllableRootNotifier extends _StubPathDownloadNotifier {
+  _ControllableRootNotifier({
+    required super.manager,
+    required super.taskStore,
+    required super.initialState,
+  });
+
+  final List<String> appliedPaths = <String>[];
+  final Completer<DownloadRootResult> _apply = Completer<DownloadRootResult>();
+
+  @override
+  Future<DownloadRootResult> setCustomDownloadRoot(String path) {
+    appliedPaths.add(path);
+    return _apply.future;
+  }
+
+  void completeApply(DownloadRootResult result) => _apply.complete(result);
+}
+
+DownloadDirectoryService _directoryService({
+  required DownloadDirectoryStore store,
+  DownloadDirectoryGuard? guard,
+}) => DownloadDirectoryService(
+  store: store,
+  // A path, not a real lookup: no I/O may happen in a widget test.
+  defaultRootProvider: () async => Directory(p.join('D:', 'app_docs')),
+  externalRootProvider: () async => Directory(p.join('D:', 'ext_downloads')),
+  guard: guard ?? const _WritableDirectoryGuard(),
+);
+
+/// Accepts everything; the guard tests themselves live in
+/// `download_directory_service_test.dart`.
+class _WritableDirectoryGuard implements DownloadDirectoryGuard {
+  const _WritableDirectoryGuard();
+
+  @override
+  Future<bool> exists(Directory directory) async => true;
+
+  @override
+  Future<bool> isDirectory(Directory directory) async => true;
+
+  @override
+  Future<void> create(Directory directory) async {}
+
+  @override
+  Future<void> verifyWritable(Directory directory) async {}
+}
+
+/// A guard for a directory the app may open but not write to (Android 11+
+/// returns such a directory for several protected locations).
+class _UnwritableDirectoryGuard implements DownloadDirectoryGuard {
+  const _UnwritableDirectoryGuard();
+
+  @override
+  Future<bool> exists(Directory directory) async => true;
+
+  @override
+  Future<bool> isDirectory(Directory directory) async => true;
+
+  @override
+  Future<void> create(Directory directory) async {}
+
+  @override
+  Future<void> verifyWritable(Directory directory) async {
+    throw const FileSystemException(
+      'Cannot write to the directory',
+      '',
+      OSError('Permission denied', 13),
+    );
+  }
 }
 
 /// Records `download()` calls and keeps the stream open, so a started task stays
