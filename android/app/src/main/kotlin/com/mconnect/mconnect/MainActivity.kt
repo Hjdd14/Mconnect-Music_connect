@@ -14,6 +14,9 @@ import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 
 class MainActivity : AudioServiceActivity() {
     private val fileOpenerChannel = "com.mconnect.mconnect/file_opener"
@@ -25,6 +28,16 @@ class MainActivity : AudioServiceActivity() {
     private var playbackKeepAliveController: PlaybackKeepAliveController? = null
     private var pendingLocalMusicResult: MethodChannel.Result? = null
     private var pendingKnownIndex: Map<String, LongArray> = emptyMap()
+
+    /**
+     * File/folder-open work (directory listing, `File.exists()`, three
+     * `resolveActivity` IPCs) must not run on the platform main thread: on
+     * Android that thread *is* the Flutter Dart isolate, so blocking it freezes
+     * the UI and every pending Dart `await`.
+     */
+    private val fileIoExecutor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "mconnect-file-opener").apply { isDaemon = true }
+    }
 
     // Custom download folder (SAF). Kept in its own controller/file so this
     // shared activity only carries the wiring: see SafDocumentTreeController.
@@ -93,12 +106,22 @@ class MainActivity : AudioServiceActivity() {
     }
 
     override fun onDestroy() {
+        // A pending picker/scan must be answered: Dart is awaiting it, and after
+        // onDestroy nothing else ever will — the caller would spin forever.
+        pendingLocalMusicResult?.let { pending ->
+            pendingLocalMusicResult = null
+            pending.error("ACTIVITY_DESTROYED", "目录选择已中断，请重试", null)
+        }
+        pendingKnownIndex = emptyMap()
         floatingLyricsController?.dispose()
         floatingLyricsController = null
         playbackKeepAliveController?.release()
         playbackKeepAliveController = null
         safDocumentTreeController?.dispose()
         safDocumentTreeController = null
+        // Let already-queued file/folder work finish; no new work can arrive
+        // because the channel handlers are detached above.
+        fileIoExecutor.shutdown()
         super.onDestroy()
     }
 
@@ -117,6 +140,9 @@ class MainActivity : AudioServiceActivity() {
             return
         }
         if (requestCode == localMusicRequestCode) {
+            // No pending result means nothing is awaiting this callback (e.g. the
+            // activity was recreated and `onDestroy` already failed the caller),
+            // so there is no one to answer.
             val result = pendingLocalMusicResult ?: return
             pendingLocalMusicResult = null
             if (resultCode != Activity.RESULT_OK) {
@@ -131,13 +157,16 @@ class MainActivity : AudioServiceActivity() {
             val flags = (data?.flags ?: 0) and
                 (Intent.FLAG_GRANT_READ_URI_PERMISSION or
                     Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-            try {
-                contentResolver.takePersistableUriPermission(uri, flags)
-            } catch (_: Exception) {
-                // Some providers grant only transient access. Scanning can still proceed.
-            }
             Thread {
                 try {
+                    // A ContentResolver binder call: kept off the main thread so
+                    // it cannot delay the frames the picker is returning to.
+                    try {
+                        contentResolver.takePersistableUriPermission(uri, flags)
+                    } catch (_: Exception) {
+                        // Some providers grant only transient access. Scanning
+                        // can still proceed.
+                    }
                     val scanResult = scanDocumentTree(uri, pendingKnownIndex)
                     pendingKnownIndex = emptyMap()
                     runOnUiThread { result.success(scanResult) }
@@ -217,81 +246,139 @@ class MainActivity : AudioServiceActivity() {
     }
 
     private fun openFile(path: String?, result: MethodChannel.Result) {
-        val file = resolveExistingPath(path, result) ?: return
-        try {
-            val uri = contentUriFor(file)
-            val mimeType = MimeTypeMap.getSingleton()
-                .getMimeTypeFromExtension(file.extension.lowercase())
-                ?: "*/*"
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, mimeType)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        // Path checks, `File.exists()` and the chooser are prepared off the main
+        // thread; only `startActivity` and the channel result come back to it.
+        runFileWork(result) {
+            var intent: Intent? = null
+            var failure: FileOpenFailure? = null
+            try {
+                val file = requireExistingPath(path)
+                val uri = contentUriFor(file)
+                val mimeType = MimeTypeMap.getSingleton()
+                    .getMimeTypeFromExtension(file.extension.lowercase())
+                    ?: "*/*"
+                intent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, mimeType)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+            } catch (openFailure: FileOpenFailure) {
+                failure = openFailure
+            } catch (e: Exception) {
+                failure = FileOpenFailure("OPEN_FAILED", e.message ?: "No app can open this file")
             }
-            startActivity(Intent.createChooser(intent, "Open file"))
-            result.success(true)
-        } catch (e: ActivityNotFoundException) {
-            result.error("OPEN_FAILED", "No app can open this file", null)
-        } catch (e: Exception) {
-            result.error("OPEN_FAILED", e.message, null)
+
+            runOnUiThread {
+                val pendingFailure = failure
+                if (pendingFailure != null) {
+                    result.error(pendingFailure.code, pendingFailure.message, null)
+                    return@runOnUiThread
+                }
+                val pendingIntent = intent ?: return@runOnUiThread
+                try {
+                    startActivity(Intent.createChooser(pendingIntent, "Open file"))
+                    result.success(true)
+                } catch (e: ActivityNotFoundException) {
+                    result.error("OPEN_FAILED", "No app can open this file", null)
+                } catch (e: Exception) {
+                    result.error("OPEN_FAILED", e.message, null)
+                }
+            }
         }
     }
 
     private fun openFolder(path: String?, result: MethodChannel.Result) {
-        val folder = resolveExistingPath(path, result) ?: return
-        if (!folder.isDirectory) {
-            result.error("INVALID_PATH", "Path is not a folder", null)
-            return
-        }
-
-        try {
-            val uri = contentUriFor(folder)
-            val intents = listOf(
-                Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(uri, "resource/folder")
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                },
-                Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(uri, "vnd.android.document/directory")
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                },
-                Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                },
-            )
-
-            val intent = intents.firstOrNull {
-                it.resolveActivity(packageManager) != null
-            } ?: intents.last()
-
-            startActivity(Intent.createChooser(intent, "Open folder"))
-            result.success(true)
-        } catch (e: ActivityNotFoundException) {
+        runFileWork(result) {
+            var intent: Intent? = null
+            var folder: File? = null
+            var failure: FileOpenFailure? = null
             try {
-                val previousPolicy = StrictMode.getVmPolicy()
-                StrictMode.setVmPolicy(StrictMode.VmPolicy.Builder().build())
-                val fallback = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(Uri.fromFile(folder), "resource/folder")
+                val resolved = requireExistingPath(path)
+                if (!resolved.isDirectory) {
+                    throw FileOpenFailure("INVALID_PATH", "Path is not a folder")
                 }
-                startActivity(Intent.createChooser(fallback, "Open folder"))
-                StrictMode.setVmPolicy(previousPolicy)
-                result.success(true)
-            } catch (fallbackError: Exception) {
-                result.error("OPEN_FAILED", "No app can open this folder", null)
+                folder = resolved
+                val uri = contentUriFor(resolved)
+                val intents = listOf(
+                    Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(uri, "resource/folder")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    },
+                    Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(uri, "vnd.android.document/directory")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    },
+                    Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    },
+                )
+                // Three PackageManager IPCs, none of which need the main thread.
+                intent = intents.firstOrNull {
+                    it.resolveActivity(packageManager) != null
+                } ?: intents.last()
+            } catch (openFailure: FileOpenFailure) {
+                failure = openFailure
+            } catch (e: Exception) {
+                failure = FileOpenFailure("OPEN_FAILED", e.message ?: "No app can open this folder")
             }
-        } catch (e: Exception) {
-            result.error("OPEN_FAILED", e.message, null)
+
+            runOnUiThread {
+                val pendingFailure = failure
+                if (pendingFailure != null) {
+                    result.error(pendingFailure.code, pendingFailure.message, null)
+                    return@runOnUiThread
+                }
+                val pendingIntent = intent ?: return@runOnUiThread
+                try {
+                    startActivity(Intent.createChooser(pendingIntent, "Open folder"))
+                    result.success(true)
+                } catch (e: ActivityNotFoundException) {
+                    val fallbackFolder = folder
+                    if (fallbackFolder == null) {
+                        result.error("OPEN_FAILED", "No app can open this folder", null)
+                        return@runOnUiThread
+                    }
+                    try {
+                        val previousPolicy = StrictMode.getVmPolicy()
+                        StrictMode.setVmPolicy(StrictMode.VmPolicy.Builder().build())
+                        val fallback = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(Uri.fromFile(fallbackFolder), "resource/folder")
+                        }
+                        startActivity(Intent.createChooser(fallback, "Open folder"))
+                        StrictMode.setVmPolicy(previousPolicy)
+                        result.success(true)
+                    } catch (fallbackError: Exception) {
+                        result.error("OPEN_FAILED", "No app can open this folder", null)
+                    }
+                } catch (e: Exception) {
+                    result.error("OPEN_FAILED", e.message, null)
+                }
+            }
         }
     }
 
-    private fun resolveExistingPath(path: String?, result: MethodChannel.Result): File? {
+    /** Thrown by [requireExistingPath]; carries the channel error code. */
+    private class FileOpenFailure(val code: String, message: String) : Exception(message)
+
+    /**
+     * Queues file/folder work, answering with an error when the executor is
+     * already shut down (the activity is being destroyed) instead of leaving the
+     * Dart caller awaiting a reply that can never come.
+     */
+    private fun runFileWork(result: MethodChannel.Result, work: () -> Unit) {
+        try {
+            fileIoExecutor.execute(work)
+        } catch (_: RejectedExecutionException) {
+            result.error("ACTIVITY_DESTROYED", "页面已关闭，请重试", null)
+        }
+    }
+
+    private fun requireExistingPath(path: String?): File {
         if (path.isNullOrBlank()) {
-            result.error("INVALID_PATH", "Path is empty", null)
-            return null
+            throw FileOpenFailure("INVALID_PATH", "Path is empty")
         }
         val file = File(path)
         if (!file.exists()) {
-            result.error("INVALID_PATH", "Path does not exist", null)
-            return null
+            throw FileOpenFailure("INVALID_PATH", "Path does not exist")
         }
         return file
     }

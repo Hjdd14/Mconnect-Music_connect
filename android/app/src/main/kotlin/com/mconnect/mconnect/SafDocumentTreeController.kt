@@ -11,6 +11,9 @@ import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 
 /**
  * Storage Access Framework access to a user-chosen download folder.
@@ -47,6 +50,18 @@ class SafDocumentTreeController(private val activity: Activity) {
     private var channel: MethodChannel? = null
     private var pendingPick: MethodChannel.Result? = null
 
+    /**
+     * Every binder / ContentResolver / PackageManager call runs here.
+     *
+     * On Android the Flutter Dart isolate **is** the platform main thread, so a
+     * binder round trip on the main thread freezes the UI *and* every pending
+     * Dart `await` with it. A single worker also keeps a grant check from racing
+     * a copy.
+     */
+    private val io: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "mconnect-saf-io").apply { isDaemon = true }
+    }
+
     fun attach(messenger: BinaryMessenger) {
         val methodChannel = MethodChannel(messenger, CHANNEL)
         methodChannel.setMethodCallHandler { call, result -> handle(call, result) }
@@ -56,19 +71,56 @@ class SafDocumentTreeController(private val activity: Activity) {
     fun dispose() {
         channel?.setMethodCallHandler(null)
         channel = null
-        pendingPick = null
+        // A pending picker would otherwise never answer: Dart would await
+        // forever and the download-directory sheet would spin with no way out.
+        pendingPick?.let { pending ->
+            pendingPick = null
+            pending.error("PICKER_CANCELLED", "目录选择器已关闭，请重试", null)
+        }
+        // Lets queued work finish; no new call can arrive because the handler is
+        // already detached.
+        io.shutdown()
+    }
+
+    /** Runs [block] on the worker, answering with an error when it is closed. */
+    private fun submit(result: MethodChannel.Result, block: () -> Unit) {
+        try {
+            io.execute(block)
+        } catch (_: RejectedExecutionException) {
+            // The controller was disposed (activity gone). Answer anyway: a
+            // silent drop would leave Dart awaiting a reply that never comes.
+            result.error("ACTIVITY_DESTROYED", "页面已关闭，请重试", null)
+        }
     }
 
     private fun handle(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "pickDirectory" -> pickDirectory(result)
-            "isGranted" -> result.success(isGranted(call.argument<String>("uri")))
-            "release" -> result.success(release(call.argument<String>("uri")))
+            // `persistedUriPermissions` is a ContentResolver binder call.
+            "isGranted" -> {
+                val uri = call.argument<String>("uri")
+                submit(result) {
+                    val granted = isGranted(uri)
+                    deliver { result.success(granted) }
+                }
+            }
+            "release" -> {
+                val uri = call.argument<String>("uri")
+                submit(result) {
+                    val released = release(uri)
+                    deliver { result.success(released) }
+                }
+            }
             "copyToTree" -> copyToTree(call, result)
             "deleteDocument" -> deleteDocument(call, result)
             "openTree" -> openTree(call, result)
             else -> result.notImplemented()
         }
+    }
+
+    /** Posts [block] back to the main thread, where `result.*` must be called. */
+    private fun deliver(block: () -> Unit) {
+        activity.runOnUiThread(block)
     }
 
     // --- picker -----------------------------------------------------------------
@@ -114,29 +166,47 @@ class SafDocumentTreeController(private val activity: Activity) {
         val takeFlags = (data.flags and
             (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)) or
             Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-        try {
-            activity.contentResolver.takePersistableUriPermission(uri, takeFlags)
-        } catch (e: Exception) {
-            // Some providers (and some OEM file managers) grant only a transient
-            // permission; the folder is still usable for this session, but it
-            // must not be presented as permanently writable.
-            result.error(
-                "PERSIST_FAILED",
-                "无法长期保留该目录的访问权限：${e.message ?: "未知原因"}",
-                null,
-            )
-            return true
-        }
 
-        val document = DocumentFile.fromTreeUri(activity, uri)
-        result.success(
-            mapOf(
-                "uri" to uri.toString(),
-                "name" to (document?.name ?: uri.lastPathSegment ?: uri.toString()),
-                "canRead" to (document?.canRead() ?: false),
-                "canWrite" to (document?.canWrite() ?: false),
-            ),
-        )
+        // `takePersistableUriPermission` and `DocumentFile`'s canRead/canWrite are
+        // binder calls; this method runs on the main thread right after the
+        // picker returns (i.e. while the user is tapping again).
+        submit(result) {
+            try {
+                activity.contentResolver.takePersistableUriPermission(uri, takeFlags)
+            } catch (e: Exception) {
+                // Some providers (and some OEM file managers) grant only a
+                // transient permission; the folder is still usable for this
+                // session, but it must not be presented as permanently writable.
+                deliver {
+                    result.error(
+                        "PERSIST_FAILED",
+                        "无法长期保留该目录的访问权限：${e.message ?: "未知原因"}",
+                        null,
+                    )
+                }
+                return@submit
+            }
+
+            val payload = try {
+                val document = DocumentFile.fromTreeUri(activity, uri)
+                mapOf(
+                    "uri" to uri.toString(),
+                    "name" to (document?.name ?: uri.lastPathSegment ?: uri.toString()),
+                    "canRead" to (document?.canRead() ?: false),
+                    "canWrite" to (document?.canWrite() ?: false),
+                )
+            } catch (error: Exception) {
+                deliver {
+                    result.error(
+                        "TREE_UNAVAILABLE",
+                        error.message ?: "无法访问所选目录",
+                        null,
+                    )
+                }
+                return@submit
+            }
+            deliver { result.success(payload) }
+        }
         return true
     }
 
@@ -181,14 +251,14 @@ class SafDocumentTreeController(private val activity: Activity) {
         }
 
         // The copy is up to a few dozen MB: never on the UI thread.
-        Thread {
+        submit(result) {
             try {
                 val payload = copyIntoTree(treeUri, relativePath, fileName, sourcePath)
-                activity.runOnUiThread { result.success(payload) }
+                deliver { result.success(payload) }
             } catch (failure: SafFailure) {
-                activity.runOnUiThread { result.error(failure.code, failure.message, null) }
+                deliver { result.error(failure.code, failure.message, null) }
             } catch (error: Exception) {
-                activity.runOnUiThread {
+                deliver {
                     result.error(
                         "COPY_FAILED",
                         error.message ?: "写入自定义目录失败",
@@ -196,7 +266,7 @@ class SafDocumentTreeController(private val activity: Activity) {
                     )
                 }
             }
-        }.start()
+        }
     }
 
     private fun copyIntoTree(
@@ -310,22 +380,23 @@ class SafDocumentTreeController(private val activity: Activity) {
             result.error("INVALID_ARGS", "deleteDocument 缺少 uri", null)
             return
         }
-        Thread {
+        submit(result) {
             try {
                 val document = DocumentFile.fromSingleUri(activity, Uri.parse(documentUri))
                 if (document == null || !document.exists()) {
                     // Already gone: deleting something that is not there is a
                     // success, exactly like `File.delete()` on a missing path.
-                    activity.runOnUiThread { result.success(true) }
-                    return@Thread
+                    deliver { result.success(true) }
+                    return@submit
                 }
-                activity.runOnUiThread { result.success(document.delete()) }
+                val deleted = document.delete()
+                deliver { result.success(deleted) }
             } catch (error: Exception) {
-                activity.runOnUiThread {
+                deliver {
                     result.error("DELETE_FAILED", error.message ?: "删除文件失败", null)
                 }
             }
-        }.start()
+        }
     }
 
     // --- open in a file manager -------------------------------------------------
@@ -342,40 +413,60 @@ class SafDocumentTreeController(private val activity: Activity) {
             return
         }
         val uri = Uri.parse(treeUri)
-        try {
-            val documentUri = DocumentsContract.buildDocumentUriUsingTree(
-                uri,
-                DocumentsContract.getTreeDocumentId(uri),
-            )
-            val candidates = listOf(
-                Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(documentUri, DocumentsContract.Document.MIME_TYPE_DIR)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                },
-                Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(documentUri, "resource/folder")
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                },
-                Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(documentUri, "*/*")
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                },
-            )
-            val intent = candidates.firstOrNull {
-                it.resolveActivity(activity.packageManager) != null
+        // `resolveActivity` is a PackageManager IPC (three of them here), and the
+        // result is only used to pick an Intent — so it belongs off the main
+        // thread. Only `startActivity` goes back to it.
+        submit(result) {
+            val intent = try {
+                resolveFolderIntent(uri)
+            } catch (error: Exception) {
+                deliver {
+                    result.error("OPEN_FAILED", error.message ?: "打开目录失败", null)
+                }
+                return@submit
             }
-            if (intent == null) {
-                // Reported instead of silently doing nothing: the UI must be able
-                // to say "this device has no file manager that can open the folder".
-                result.error("OPEN_FAILED", "没有应用可以打开该目录", null)
-                return
+            deliver {
+                if (intent == null) {
+                    // Reported instead of silently doing nothing: the UI must be
+                    // able to say "this device has no file manager that can open
+                    // the folder".
+                    result.error("OPEN_FAILED", "没有应用可以打开该目录", null)
+                    return@deliver
+                }
+                try {
+                    activity.startActivity(intent)
+                    result.success(true)
+                } catch (_: ActivityNotFoundException) {
+                    result.error("OPEN_FAILED", "没有应用可以打开该目录", null)
+                } catch (e: Exception) {
+                    result.error("OPEN_FAILED", e.message ?: "打开目录失败", null)
+                }
             }
-            activity.startActivity(intent)
-            result.success(true)
-        } catch (_: ActivityNotFoundException) {
-            result.error("OPEN_FAILED", "没有应用可以打开该目录", null)
-        } catch (e: Exception) {
-            result.error("OPEN_FAILED", e.message ?: "打开目录失败", null)
+        }
+    }
+
+    /** Builds the first folder-viewing Intent this device can actually handle. */
+    private fun resolveFolderIntent(uri: Uri): Intent? {
+        val documentUri = DocumentsContract.buildDocumentUriUsingTree(
+            uri,
+            DocumentsContract.getTreeDocumentId(uri),
+        )
+        val candidates = listOf(
+            Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(documentUri, DocumentsContract.Document.MIME_TYPE_DIR)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            },
+            Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(documentUri, "resource/folder")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            },
+            Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(documentUri, "*/*")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            },
+        )
+        return candidates.firstOrNull {
+            it.resolveActivity(activity.packageManager) != null
         }
     }
 

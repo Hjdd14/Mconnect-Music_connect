@@ -328,7 +328,41 @@ class FloatingLyricsSyncController {
     }
   }
 
+  /// Guards against overlapping native round trips.
+  ///
+  /// Four listeners (settings / position / isPlaying / lyrics) plus the 200 ms
+  /// sweep timer can all call this within the same frame. Each call used to run
+  /// `canDrawOverlays()` **and** `update()` over the platform channel — on
+  /// Android that channel runs on the same thread as the UI — so a burst queued
+  /// up more round trips than the overlay could drain, and the queue itself kept
+  /// the main thread busy.
+  ///
+  /// Now at most one call is in flight, and a burst collapses into a single
+  /// follow-up. Nothing is lost by collapsing: the follow-up reads the *current*
+  /// state rather than a queued snapshot.
+  bool _syncInFlight = false;
+  bool _syncQueued = false;
+
   Future<void> sync() async {
+    if (_syncInFlight) {
+      _syncQueued = true;
+      return;
+    }
+    _syncInFlight = true;
+    try {
+      // The loop body has no await between the condition check and the flag
+      // flip, so a caller arriving in the middle always lands in `_syncQueued`
+      // and is serviced here.
+      do {
+        _syncQueued = false;
+        await _syncOnce();
+      } while (_syncQueued);
+    } finally {
+      _syncInFlight = false;
+    }
+  }
+
+  Future<void> _syncOnce() async {
     final syncGeneration = ++_syncGeneration;
     final settings = _ref.read(floatingLyricsProvider);
     if (!settings.enabled) {

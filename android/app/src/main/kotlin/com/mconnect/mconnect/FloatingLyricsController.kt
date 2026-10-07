@@ -87,6 +87,12 @@ class FloatingLyricsController(
     private var settingsVisible = false
     private var isPlaying = false
     private var hasSong = false
+
+    /// True between an explicit `hide` and the next `show`.
+    private var hiddenByUser = false
+
+    /// Cached `Settings.canDrawOverlays` answer (an AppOps binder call).
+    private var overlayPermissionCached: Boolean? = null
     private var textColor = Color.WHITE
     private var highlightColor = Color.rgb(255, 212, 74)
     private var fontSize = 23f
@@ -132,9 +138,28 @@ class FloatingLyricsController(
     private var pendingHighlightColorUntil = 0L
 
     fun canDrawOverlays(): Boolean {
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
-            Settings.canDrawOverlays(activity)
+        // Fresh check: this is the channel query path, which runs rarely (when a
+        // page opens, or right after the user returns from the system settings
+        // screen) — and it doubles as the cache refresh.
+        val granted = queryOverlayPermission()
+        overlayPermissionCached = granted
+        return granted
     }
+
+    /**
+     * `Settings.canDrawOverlays` is an AppOps binder call. The update path runs
+     * every ~200 ms while lyrics are playing, so it must not pay for one each
+     * time; [canDrawOverlays] and [show] keep the cached answer honest.
+     */
+    private fun hasOverlayPermission(): Boolean {
+        val cached = overlayPermissionCached
+        if (cached != null) return cached
+        return queryOverlayPermission().also { overlayPermissionCached = it }
+    }
+
+    private fun queryOverlayPermission(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
+            Settings.canDrawOverlays(activity)
 
     fun openOverlaySettings(result: MethodChannel.Result) {
         try {
@@ -143,6 +168,9 @@ class FloatingLyricsController(
                     Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                     Uri.parse("package:${activity.packageName}"),
                 )
+                // The user is about to (possibly) change the permission, so the
+                // cached answer is no longer trustworthy.
+                overlayPermissionCached = null
                 activity.startActivity(intent)
             }
             result.success(true)
@@ -152,6 +180,10 @@ class FloatingLyricsController(
     }
 
     fun show(arguments: Any?, result: MethodChannel.Result) {
+        // An explicit show is a user intent, so it clears a previous hide and
+        // re-checks the permission rather than trusting the cache.
+        hiddenByUser = false
+        overlayPermissionCached = null
         update(arguments, result, createIfMissing = true)
     }
 
@@ -164,7 +196,15 @@ class FloatingLyricsController(
         result: MethodChannel.Result,
         createIfMissing: Boolean,
     ) {
-        if (!canDrawOverlays()) {
+        // A hidden overlay must stay hidden: Dart pushes a progress update every
+        // ~200 ms, and recreating the window here would make `hide` look like it
+        // did nothing (and keep the whole overlay/window/frame machinery alive
+        // behind the user's back).
+        if (hiddenByUser) {
+            result.success(true)
+            return
+        }
+        if (!hasOverlayPermission()) {
             result.error("OVERLAY_PERMISSION_DENIED", "Overlay permission is not granted", null)
             return
         }
@@ -182,6 +222,7 @@ class FloatingLyricsController(
 
     fun hide(result: MethodChannel.Result) {
         try {
+            hiddenByUser = true
             removeOverlay()
             result.success(true)
         } catch (e: Exception) {
@@ -190,6 +231,7 @@ class FloatingLyricsController(
     }
 
     fun dispose() {
+        hiddenByUser = true
         removeOverlay()
     }
 
@@ -814,7 +856,9 @@ class FloatingLyricsController(
         if (frameRunnable == null) {
             frameRunnable = Runnable { runFrame() }
         }
-        val visible = overlayView?.isShown == true
+        // `isShown` is false while the window is detached or hidden, and
+        // `hiddenByUser` covers the moment between `hide()` and the removal.
+        val visible = !hiddenByUser && overlayView?.isShown == true
         val progressAnimating = anchorRatePerMs > 0.0 && anchorProgress < 1.0
         if (progressAnimating && isPlaying && visible && !frameScheduled) {
             frameScheduled = true
@@ -834,7 +878,7 @@ class FloatingLyricsController(
 
     private fun runFrame() {
         frameScheduled = false
-        if (!isPlaying || overlayView?.isShown != true) return
+        if (!isPlaying || hiddenByUser || overlayView?.isShown != true) return
         val elapsed = SystemClock.uptimeMillis() - anchorUptime
         val progress = (anchorProgress + anchorRatePerMs * elapsed).coerceIn(0.0, 1.0)
         applyProgressSpans(progress)
@@ -943,8 +987,27 @@ class FloatingLyricsController(
             if (playing) R.drawable.fl_ic_pause else R.drawable.fl_ic_play,
         )
         applyControlsVisibility()
-        // Pausing must freeze the sweep immediately.
+        // Pausing must freeze the sweep immediately, and stop the marquees: an
+        // infinite marquee keeps the main thread producing frames forever even
+        // when nothing is playing.
         updateFrameLoop()
+        applyMarqueeState()
+    }
+
+    /**
+     * Starts the marquee only while the window is visible **and** playing.
+     *
+     * `marqueeRepeatLimit = -1` plus `isSelected = true` is a permanently
+     * self-rescheduling scroll animation living in the overlay window: it keeps
+     * the platform main thread (which is also the Dart isolate) busy with frames
+     * forever, whether or not anything is playing. Selecting the view starts it,
+     * deselecting stops it.
+     */
+    private fun applyMarqueeState() {
+        val active = !hiddenByUser && isPlaying && overlayView?.isShown == true
+        for (view in listOfNotNull(lyricText, nextText, translationText)) {
+            if (view.isSelected != active) view.isSelected = active
+        }
     }
 
     private fun applyLockUi(locked: Boolean) {
@@ -1105,7 +1168,10 @@ class FloatingLyricsController(
         marqueeRepeatLimit = -1
         isFocusable = true
         isFocusableInTouchMode = true
-        isSelected = true
+        // Selection is deliberately NOT set here: `applyMarqueeState()` starts
+        // and stops the scroll from the playing/visible state, so a paused or
+        // hidden overlay does not animate anything.
+        isSelected = false
     }
 
     private fun TextView.setTextIfChanged(value: String) {
