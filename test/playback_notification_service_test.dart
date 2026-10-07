@@ -361,6 +361,421 @@ void main() {
     },
   );
 
+  group('notification update de-duplication (ANR fix)', () {
+    // `updatePlayback` runs on every `_setState`: several times per `playSong`
+    // and about once a second per position tick. Republishing the whole queue and
+    // media item on each of those made Android rebuild the notification on the
+    // main thread. These tests pin the two tiers: structural work only when
+    // something really changed, and a throttled lightweight broadcast otherwise.
+
+    test('ten position-only updates publish the structure exactly once', () async {
+      final handler = MconnectAudioHandler();
+      final queueAdds = _EmissionCounter(handler.queue);
+      final itemAdds = _EmissionCounter(handler.mediaItem);
+      await _armCounters([queueAdds, itemAdds]);
+      final songs = [_song('1'), _song('2')];
+
+      // The playlist instance is reused on purpose: that is what
+      // `player_provider` passes for position ticks.
+      handler.updatePlayback(
+        currentSong: songs[1],
+        playlist: songs,
+        currentIndex: 1,
+        isCurrentSongLiked: false,
+        isFloatingLyricsEnabled: false,
+        isPlaying: true,
+        position: const Duration(seconds: 8),
+        duration: const Duration(minutes: 4),
+      );
+
+      for (var tick = 1; tick <= 10; tick++) {
+        handler.updatePlayback(
+          currentSong: songs[1],
+          playlist: songs,
+          currentIndex: 1,
+          isCurrentSongLiked: false,
+          isFloatingLyricsEnabled: false,
+          isPlaying: true,
+          position: Duration(milliseconds: 8000 + tick * 100),
+          duration: const Duration(minutes: 4),
+        );
+      }
+      await pumpEventQueue();
+
+      expect(
+        queueAdds.count,
+        1,
+        reason: 'a position tick must not rebuild the MediaItem queue',
+      );
+      expect(itemAdds.count, 1);
+      expect(handler.playbackState.value.updatePosition, isNot(Duration.zero));
+
+      await queueAdds.dispose();
+      await itemAdds.dispose();
+    });
+
+    test('switching song publishes one new structure with the new item', () async {
+      final handler = MconnectAudioHandler();
+      final queueAdds = _EmissionCounter(handler.queue);
+      final itemAdds = _EmissionCounter(handler.mediaItem);
+      await _armCounters([queueAdds, itemAdds]);
+      final songs = [_song('1', name: 'first'), _song('2', name: 'second')];
+
+      handler.updatePlayback(
+        currentSong: songs[0],
+        playlist: songs,
+        currentIndex: 0,
+        isCurrentSongLiked: false,
+        isFloatingLyricsEnabled: false,
+        isPlaying: true,
+        position: Duration.zero,
+        duration: const Duration(minutes: 4),
+      );
+      await pumpEventQueue();
+      final queueAfterFirst = queueAdds.count;
+      final itemAfterFirst = itemAdds.count;
+
+      handler.updatePlayback(
+        currentSong: songs[1],
+        playlist: songs,
+        currentIndex: 1,
+        isCurrentSongLiked: false,
+        isFloatingLyricsEnabled: false,
+        isPlaying: true,
+        position: Duration.zero,
+        duration: const Duration(minutes: 4),
+      );
+      await pumpEventQueue();
+
+      expect(queueAdds.count - queueAfterFirst, 1);
+      expect(itemAdds.count - itemAfterFirst, 1);
+      expect(handler.mediaItem.value?.id, 'netease:2');
+      expect(handler.mediaItem.value?.title, 'second');
+      expect(handler.playbackState.value.queueIndex, 1);
+
+      await queueAdds.dispose();
+      await itemAdds.dispose();
+    });
+
+    test('play/pause does not rebuild the structure but updates playback state', () async {
+      final handler = MconnectAudioHandler();
+      final queueAdds = _EmissionCounter(handler.queue);
+      final itemAdds = _EmissionCounter(handler.mediaItem);
+      final stateAdds = _EmissionCounter(handler.playbackState);
+      await _armCounters([queueAdds, itemAdds, stateAdds]);
+      final song = _song('1');
+
+      handler.updatePlayback(
+        currentSong: song,
+        playlist: [song],
+        currentIndex: 0,
+        isCurrentSongLiked: false,
+        isFloatingLyricsEnabled: false,
+        isPlaying: true,
+        position: const Duration(seconds: 5),
+        duration: const Duration(minutes: 4),
+      );
+      await pumpEventQueue();
+      final queueBaseline = queueAdds.count;
+      final itemBaseline = itemAdds.count;
+
+      handler.updatePlayback(
+        currentSong: song,
+        playlist: [song],
+        currentIndex: 0,
+        isCurrentSongLiked: false,
+        isFloatingLyricsEnabled: false,
+        isPlaying: false,
+        position: const Duration(seconds: 5),
+        duration: const Duration(minutes: 4),
+      );
+      await pumpEventQueue();
+
+      expect(
+        queueAdds.count,
+        queueBaseline,
+        reason: 'the play/pause button lives in playbackState, not in the queue',
+      );
+      expect(itemAdds.count, itemBaseline);
+      expect(handler.playbackState.value.playing, isFalse);
+
+      await queueAdds.dispose();
+      await itemAdds.dispose();
+      await stateAdds.dispose();
+    });
+
+    test('liked and floating lyrics changes each publish once', () async {
+      final handler = MconnectAudioHandler();
+      final queueAdds = _EmissionCounter(handler.queue);
+      await _armCounters([queueAdds]);
+      final song = _song('1');
+
+      handler.updatePlayback(
+        currentSong: song,
+        playlist: [song],
+        currentIndex: 0,
+        isCurrentSongLiked: false,
+        isFloatingLyricsEnabled: false,
+        isPlaying: true,
+        position: Duration.zero,
+        duration: const Duration(minutes: 4),
+      );
+      await pumpEventQueue();
+      final baseline = queueAdds.count;
+
+      handler.updatePlayback(
+        currentSong: song,
+        playlist: [song],
+        currentIndex: 0,
+        isCurrentSongLiked: true,
+        isFloatingLyricsEnabled: false,
+        isPlaying: true,
+        position: Duration.zero,
+        duration: const Duration(minutes: 4),
+      );
+      await pumpEventQueue();
+      expect(queueAdds.count - baseline, 1);
+      final favorite = handler.playbackState.value.controls.firstWhere(
+        (control) => control.customAction?.name == playbackNotificationLikeAction,
+      );
+      expect(favorite.androidIcon, 'drawable/audio_service_favorite_filled');
+
+      handler.updatePlayback(
+        currentSong: song,
+        playlist: [song],
+        currentIndex: 0,
+        isCurrentSongLiked: true,
+        isFloatingLyricsEnabled: true,
+        isPlaying: true,
+        position: Duration.zero,
+        duration: const Duration(minutes: 4),
+      );
+      await pumpEventQueue();
+      expect(queueAdds.count - baseline, 2);
+      final lyrics = handler.playbackState.value.controls.firstWhere(
+        (control) => control.customAction?.name == playbackNotificationLyricsAction,
+      );
+      expect(lyrics.androidIcon, 'drawable/audio_service_lyrics_on');
+
+      // Repeating the same flags is not a change.
+      handler.updatePlayback(
+        currentSong: song,
+        playlist: [song],
+        currentIndex: 0,
+        isCurrentSongLiked: true,
+        isFloatingLyricsEnabled: true,
+        isPlaying: true,
+        position: Duration.zero,
+        duration: const Duration(minutes: 4),
+      );
+      await pumpEventQueue();
+      expect(queueAdds.count - baseline, 2);
+
+      await queueAdds.dispose();
+    });
+
+    test('a same-length playlist with different content rebuilds the queue', () async {
+      final handler = MconnectAudioHandler();
+      final queueAdds = _EmissionCounter(handler.queue);
+      await _armCounters([queueAdds]);
+      final first = [_song('1'), _song('2')];
+
+      handler.updatePlayback(
+        currentSong: first[0],
+        playlist: first,
+        currentIndex: 0,
+        isCurrentSongLiked: false,
+        isFloatingLyricsEnabled: false,
+        isPlaying: true,
+        position: Duration.zero,
+        duration: Duration.zero,
+      );
+      await pumpEventQueue();
+      final baseline = queueAdds.count;
+
+      // Same length, different songs: comparing only the length would miss this.
+      final second = [_song('3'), _song('4')];
+      handler.updatePlayback(
+        currentSong: second[0],
+        playlist: second,
+        currentIndex: 0,
+        isCurrentSongLiked: false,
+        isFloatingLyricsEnabled: false,
+        isPlaying: true,
+        position: Duration.zero,
+        duration: Duration.zero,
+      );
+      await pumpEventQueue();
+
+      expect(queueAdds.count - baseline, 1);
+      expect(handler.queue.value.map((item) => item.id), [
+        'netease:3',
+        'netease:4',
+      ]);
+
+      await queueAdds.dispose();
+    });
+
+    test('a rebuilt-but-equal playlist does not rebuild the queue', () async {
+      final handler = MconnectAudioHandler();
+      final queueAdds = _EmissionCounter(handler.queue);
+      await _armCounters([queueAdds]);
+
+      // Fresh list instances with the same content — the discriminators
+      // (identity, length, ends) say "unchanged", which is what keeps the
+      // once-a-second update path free.
+      for (var i = 0; i < 3; i++) {
+        final playlist = [_song('1'), _song('2')];
+        handler.updatePlayback(
+          currentSong: playlist[0],
+          playlist: playlist,
+          currentIndex: 0,
+          isCurrentSongLiked: false,
+          isFloatingLyricsEnabled: false,
+          isPlaying: true,
+          position: Duration.zero,
+          duration: Duration.zero,
+        );
+      }
+      await pumpEventQueue();
+
+      expect(queueAdds.count, 1);
+
+      await queueAdds.dispose();
+    });
+
+    test('clearing the current song publishes an empty queue once', () async {
+      final handler = MconnectAudioHandler();
+      final queueAdds = _EmissionCounter(handler.queue);
+      final itemAdds = _EmissionCounter(handler.mediaItem);
+      await _armCounters([queueAdds, itemAdds]);
+      final song = _song('1');
+
+      handler.updatePlayback(
+        currentSong: song,
+        playlist: [song],
+        currentIndex: 0,
+        isCurrentSongLiked: false,
+        isFloatingLyricsEnabled: false,
+        isPlaying: true,
+        position: Duration.zero,
+        duration: Duration.zero,
+      );
+      await pumpEventQueue();
+      final baseline = queueAdds.count;
+
+      for (var i = 0; i < 3; i++) {
+        handler.updatePlayback(
+          currentSong: null,
+          playlist: const [],
+          currentIndex: -1,
+          isCurrentSongLiked: false,
+          isFloatingLyricsEnabled: false,
+          isPlaying: false,
+          position: Duration.zero,
+          duration: Duration.zero,
+        );
+      }
+      await pumpEventQueue();
+
+      expect(queueAdds.count - baseline, 1);
+      expect(handler.queue.value, isEmpty);
+      expect(handler.mediaItem.value, isNull);
+      expect(itemAdds.count, 2);
+      expect(handler.playbackState.value.processingState, AudioProcessingState.idle);
+
+      await queueAdds.dispose();
+      await itemAdds.dispose();
+    });
+
+    test('small forward ticks are coalesced, a backwards seek is immediate', () async {
+      final handler = MconnectAudioHandler();
+      final stateAdds = _EmissionCounter(handler.playbackState);
+      await _armCounters([stateAdds]);
+      final song = _song('1');
+
+      void update(Duration position) {
+        handler.updatePlayback(
+          currentSong: song,
+          playlist: [song],
+          currentIndex: 0,
+          isCurrentSongLiked: false,
+          isFloatingLyricsEnabled: false,
+          isPlaying: true,
+          position: position,
+          duration: const Duration(minutes: 4),
+        );
+      }
+
+      update(const Duration(seconds: 30));
+      await pumpEventQueue();
+      stateAdds.mark();
+
+      // Sub-threshold forward movement: no republication.
+      update(const Duration(milliseconds: 30200));
+      await pumpEventQueue();
+      expect(stateAdds.sinceMark, 0);
+
+      // Past the threshold: the progress bar refreshes.
+      update(const Duration(milliseconds: 31500));
+      await pumpEventQueue();
+      expect(stateAdds.sinceMark, 1);
+
+      // A seek backwards is published at once, or the notification would keep
+      // showing the old, further-ahead position.
+      update(const Duration(seconds: 5));
+      await pumpEventQueue();
+      expect(stateAdds.sinceMark, 2);
+      expect(
+        handler.playbackState.value.updatePosition,
+        const Duration(seconds: 5),
+      );
+
+      await stateAdds.dispose();
+    });
+
+    test('a duration that arrives late refreshes the item but not the queue', () async {
+      final handler = MconnectAudioHandler();
+      final queueAdds = _EmissionCounter(handler.queue);
+      final itemAdds = _EmissionCounter(handler.mediaItem);
+      await _armCounters([queueAdds, itemAdds]);
+      final song = _song('1');
+
+      handler.updatePlayback(
+        currentSong: song,
+        playlist: [song],
+        currentIndex: 0,
+        isCurrentSongLiked: false,
+        isFloatingLyricsEnabled: false,
+        isPlaying: true,
+        position: Duration.zero,
+        duration: Duration.zero,
+      );
+      await pumpEventQueue();
+      final queueBaseline = queueAdds.count;
+
+      // just_audio reports the real duration a moment after playback starts.
+      handler.updatePlayback(
+        currentSong: song,
+        playlist: [song],
+        currentIndex: 0,
+        isCurrentSongLiked: false,
+        isFloatingLyricsEnabled: false,
+        isPlaying: true,
+        position: const Duration(seconds: 1),
+        duration: const Duration(minutes: 3),
+      );
+      await pumpEventQueue();
+
+      expect(queueAdds.count, queueBaseline, reason: 'duration must not rebuild the queue');
+      expect(handler.mediaItem.value?.duration, const Duration(minutes: 3));
+      expect(itemAdds.count, 2);
+
+      await queueAdds.dispose();
+      await itemAdds.dispose();
+    });
+  });
+
   group('audio focus diagnostics', () {
     late Directory tempDir;
 
@@ -452,6 +867,42 @@ void main() {
       );
     });
   });
+}
+
+/// Counts how often a handler stream actually published.
+///
+/// The handler's subjects are **seeded** `BehaviorSubject`s, so subscribing
+/// replays the current value immediately; counting starts only after
+/// [_armCounters], which lets that replay arrive first. Otherwise every test
+/// would be off by one.
+class _EmissionCounter {
+  _EmissionCounter(Stream<Object?> stream) {
+    _subscription = stream.listen((_) {
+      if (_armed) count++;
+    });
+  }
+
+  late final StreamSubscription<Object?> _subscription;
+  bool _armed = false;
+  int count = 0;
+
+  /// Start counting from here.
+  void mark() {
+    _armed = true;
+    count = 0;
+  }
+
+  int get sinceMark => count;
+
+  Future<void> dispose() => _subscription.cancel();
+}
+
+/// Lets the seeded replay arrive, then arms [counters].
+Future<void> _armCounters(List<_EmissionCounter> counters) async {
+  await pumpEventQueue();
+  for (final counter in counters) {
+    counter.mark();
+  }
 }
 
 Song _song(String id, {String? name, Duration duration = Duration.zero}) =>

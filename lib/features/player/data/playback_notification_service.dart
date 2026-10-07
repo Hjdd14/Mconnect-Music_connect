@@ -275,6 +275,52 @@ class MconnectAudioHandler extends BaseAudioHandler with SeekHandler {
   Duration _duration = Duration.zero;
   int _queueIndex = -1;
 
+  // ── De-duplication state ─────────────────────────────────────────────────
+  //
+  // `updatePlayback` is called on **every** `_setState` — a `playSong` fires it
+  // three or four times back to back, and position ticks keep firing it about
+  // once a second forever. Every call used to rebuild and re-publish the whole
+  // `MediaItem` queue and push a `mediaItem`, which made Android rebuild the
+  // notification/MediaSession on the main thread; with a large playlist that is
+  // an O(n) rebuild plus one audio_service channel message per tick, which is
+  // what turned "tap next a few times" into an ANR.
+  //
+  // So the handler now publishes in two tiers:
+  //
+  // * **structural** (`queue.add` + `mediaItem.add`): only when the queue or the
+  //   item actually changed — current song, queue contents/index, liked flag,
+  //   floating-lyrics flag, or the media item's duration.
+  // * **lightweight** (`playbackState.add`): position/duration progress. This is
+  //   an in-process stream, and it is throttled below so a burst of updates in
+  //   one frame produces one notification refresh instead of five.
+  //
+  // Deliberately *not* structural: play/pause. The play/pause button lives in
+  // `playbackState.controls`, so that toggle is already covered by the broadcast
+  // and must not rebuild the queue (it stays instant).
+
+  /// Position deltas below this do not re-publish the playback state.
+  ///
+  /// `just_audio` reports a position roughly once a second, so in normal
+  /// playback every tick still goes out (the progress bar stays smooth); the
+  /// threshold only coalesces the bursts the provider produces within a frame.
+  @visibleForTesting
+  static const Duration positionBroadcastThreshold = Duration(seconds: 1);
+
+  /// `null` until the first structural publish ever happened.
+  List<Song>? _publishedPlaylist;
+  Song? _publishedSong;
+  int _publishedQueueIndex = -1;
+  bool _publishedHasCurrentSong = false;
+  bool _publishedLiked = false;
+  bool _publishedLyrics = false;
+  Duration _publishedItemDuration = Duration.zero;
+  bool _hasPublishedStructure = false;
+
+  bool _hasPublishedBroadcast = false;
+  bool _publishedPlaying = false;
+  Duration _publishedPosition = Duration.zero;
+  Duration _publishedDuration = Duration.zero;
+
   void attach(PlaybackNotificationActions actions) {
     _actions = actions;
   }
@@ -360,14 +406,113 @@ class MconnectAudioHandler extends BaseAudioHandler with SeekHandler {
           : just_audio.ProcessingState.idle;
     }
 
-    queue.add(buildPlaybackNotificationQueue(effectivePlaylist));
-    mediaItem.add(
-      song == null ? null : createPlaybackMediaItem(song, duration: _duration),
+    final firstPublish = !_hasPublishedStructure;
+    final songChanged = !_sameSongOrNull(song, _publishedSong);
+    final hasSongChanged = _hasCurrentSong != _publishedHasCurrentSong;
+    final playlistChanged = !_playlistMatches(
+      effectivePlaylist,
+      _publishedPlaylist,
     );
-    _broadcastPlaybackState();
+    final queueIndexChanged = effectiveIndex != _publishedQueueIndex;
+    final controlsChanged =
+        _isCurrentSongLiked != _publishedLiked ||
+        _isFloatingLyricsEnabled != _publishedLyrics;
+    final itemDuration = _effectiveItemDuration(song);
+    final itemDurationChanged = itemDuration != _publishedItemDuration;
+
+    // Anything that changes the queue, the item or the notification controls.
+    // Play/pause is intentionally absent: it only lives in `playbackState`
+    // (see [_shouldBroadcast]), so toggling it must never rebuild the queue.
+    final structural =
+        firstPublish ||
+        songChanged ||
+        hasSongChanged ||
+        playlistChanged ||
+        queueIndexChanged ||
+        controlsChanged;
+
+    if (structural) {
+      queue.add(buildPlaybackNotificationQueue(effectivePlaylist));
+      mediaItem.add(
+        song == null ? null : createPlaybackMediaItem(song, duration: _duration),
+      );
+      _publishedPlaylist = effectivePlaylist;
+      _publishedSong = song;
+      _publishedQueueIndex = effectiveIndex;
+      _publishedHasCurrentSong = _hasCurrentSong;
+      _publishedLiked = _isCurrentSongLiked;
+      _publishedLyrics = _isFloatingLyricsEnabled;
+      _publishedItemDuration = itemDuration;
+      _hasPublishedStructure = true;
+    } else if (itemDurationChanged) {
+      // The duration the notification shows only arrived after the item was
+      // published (just_audio reports it asynchronously). Refresh the item and
+      // nothing else — a duration tick must not rebuild the queue.
+      mediaItem.add(
+        song == null ? null : createPlaybackMediaItem(song, duration: _duration),
+      );
+      _publishedItemDuration = itemDuration;
+    }
+
+    if (_shouldBroadcast(structural: structural)) {
+      _broadcastPlaybackState();
+    }
+  }
+
+  /// The duration the published [MediaItem] carries (see
+  /// [createPlaybackMediaItem]: the controller's duration wins when known).
+  Duration _effectiveItemDuration(Song? song) {
+    if (song == null) return Duration.zero;
+    return _duration > Duration.zero ? _duration : song.duration;
+  }
+
+  /// Cheap-enough queue comparison.
+  ///
+  /// Discriminators, and why they are enough:
+  /// * **list identity** — `player_provider` passes the *same* immutable
+  ///   `state.playlist` instance for position-only updates, so the common case
+  ///   short-circuits on `identical`;
+  /// * **length** — covers append/remove/clear;
+  /// * **first** and **last** song — covers reordering and "another queue was
+  ///   loaded", which never keep both ends while changing the middle.
+  ///
+  /// A full element-wise comparison is avoided on purpose: it would run on every
+  /// update (once a second, forever), i.e. exactly the O(n)-per-tick cost this
+  /// change exists to delete. The trade-off is that replacing a middle element
+  /// while keeping length/first/last is not detected — the app's own queue
+  /// mutations (add/remove/clear/reorder/play-a-song) all move one of the
+  /// discriminators, so that case does not occur in practice.
+  static bool _playlistMatches(List<Song> next, List<Song>? previous) {
+    if (previous == null) return false;
+    if (identical(next, previous)) return true;
+    if (next.length != previous.length) return false;
+    if (next.isEmpty) return true;
+    return _sameSong(next.first, previous.first) &&
+        _sameSong(next.last, previous.last);
+  }
+
+  /// Whether the published playback state has to be emitted again.
+  ///
+  /// A structural change, a first-ever publish and a play/pause change always
+  /// go out (test ③: the toggle must be instant). Otherwise only a real
+  /// position/duration move does, and a position move smaller than
+  /// [positionBroadcastThreshold] is coalesced. A backwards move is a seek and
+  /// is published immediately, or the notification progress would run backwards
+  /// after the user drags.
+  bool _shouldBroadcast({required bool structural}) {
+    if (structural || !_hasPublishedBroadcast) return true;
+    if (_playing != _publishedPlaying) return true;
+    if (_duration != _publishedDuration) return true;
+    if (_position == _publishedPosition) return false;
+    if (_position < _publishedPosition) return true;
+    return _position - _publishedPosition >= positionBroadcastThreshold;
   }
 
   void _broadcastPlaybackState() {
+    _hasPublishedBroadcast = true;
+    _publishedPlaying = _playing;
+    _publishedPosition = _position;
+    _publishedDuration = _duration;
     playbackState.add(
       buildPlaybackNotificationState(
         hasCurrentSong: _hasCurrentSong,
@@ -574,6 +719,12 @@ int _normalizeCurrentIndex(
 
 bool _sameSong(Song a, Song b) {
   return a.id == b.id && a.platform == b.platform;
+}
+
+/// [Song] identity comparison that also handles "no current song".
+bool _sameSongOrNull(Song? a, Song? b) {
+  if (a == null || b == null) return a == null && b == null;
+  return _sameSong(a, b);
 }
 
 Uri? _parseOptionalUri(String? value) {
