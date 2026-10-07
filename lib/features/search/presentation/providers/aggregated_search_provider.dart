@@ -161,9 +161,18 @@ class AggregatedSearchNotifier extends StateNotifier<AggregatedSearchState> {
        _platformResolver = platformResolver ?? PlatformRegistry.get,
        super(const AggregatedSearchState());
 
+  /// Generation counter for [search].
+  ///
+  /// Page 1 has no `isLoading` guard (unlike [loadMore]), so typing "晴" and then
+  /// "晴天" quickly let the slower first response overwrite the newer query's
+  /// results — the classic stale-response race. Every [search] bumps the
+  /// generation and only the newest one is allowed to publish its page.
+  int _searchGeneration = 0;
+
   /// Page 1 of [query] across every supported platform.
   Future<void> search(String query) async {
     final trimmed = query.trim();
+    final generation = ++_searchGeneration;
     if (trimmed.isEmpty) {
       state = const AggregatedSearchState();
       return;
@@ -174,7 +183,9 @@ class AggregatedSearchNotifier extends StateNotifier<AggregatedSearchState> {
     final results = await Future.wait(
       _implementations.map((impl) => _searchPage(impl, trimmed, 1)),
     );
-    if (!mounted) return;
+    // A newer query (or `clear()`) owns the state now: dropping this response is
+    // the point of the guard.
+    if (!mounted || generation != _searchGeneration) return;
 
     final songs = <PlatformType, List<Song>>{};
     final errors = <PlatformType, String>{};
@@ -211,6 +222,9 @@ class AggregatedSearchNotifier extends StateNotifier<AggregatedSearchState> {
   Future<void> loadMore() async {
     final query = state.query;
     if (query.isEmpty || state.isLoading || state.isLoadingMore) return;
+    // Captured so a page-1 search that starts while this page is in flight wins:
+    // appending a stale page onto the *new* query's results would mix two queries.
+    final generation = _searchGeneration;
     final nextPages = <PlatformType, int>{};
     final nextImplementations = <MusicPlatform>[];
     for (final impl in _implementations) {
@@ -227,7 +241,7 @@ class AggregatedSearchNotifier extends StateNotifier<AggregatedSearchState> {
       for (final impl in nextImplementations)
         _searchPage(impl, query, nextPages[impl.platformType]!),
     ]);
-    if (!mounted) return;
+    if (!mounted || generation != _searchGeneration) return;
 
     final perPlatform = <PlatformType, List<Song>>{};
     final errors = Map<PlatformType, String>.from(state.errorsByPlatform);
@@ -277,6 +291,9 @@ class AggregatedSearchNotifier extends StateNotifier<AggregatedSearchState> {
   }
 
   void clear() {
+    // Bump too: otherwise a search still in flight would repopulate the state
+    // the user just cleared.
+    _searchGeneration++;
     state = const AggregatedSearchState();
   }
 

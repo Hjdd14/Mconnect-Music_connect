@@ -403,6 +403,9 @@ class AppRouteShell extends ConsumerStatefulWidget {
 class _AppRouteShellState extends ConsumerState<AppRouteShell> {
   int _tabIndex = 0;
 
+  /// Throttles the capsule's taps (see [TabSwitchThrottle]).
+  final _tabSwitch = TabSwitchThrottle();
+
   /// Only the home tabs carry a nav capsule; secondary pages show the player
   /// alone.
   bool get _isHomeTabs {
@@ -427,6 +430,12 @@ class _AppRouteShellState extends ConsumerState<AppRouteShell> {
   }
 
   void _onTabSelected(int index) {
+    // This is the *production* tab path. With a `ShellRoute` above it,
+    // `HomeScreen` reports `ownsBottomLayer = false` and never runs its own
+    // debounce, so the guard has to live here — the previous protection sat on a
+    // path that is never taken while the shell exists.
+    if (!_tabSwitch.shouldAccept(index, _tabIndex)) return;
+
     setState(() => _tabIndex = index);
     // The location must follow the tab, both so the route stays the source of
     // truth and so the player's "back" target is the tab the user is actually on.
@@ -477,5 +486,55 @@ class _AppRouteShellState extends ConsumerState<AppRouteShell> {
         ),
       ),
     );
+  }
+}
+
+/// Debounce window for tab switches made through the bottom capsule.
+const Duration tabSwitchDebounce = Duration(milliseconds: 80);
+
+/// Leading-edge throttle for tab switches.
+///
+/// The capsule sits under a fast thumb, and every accepted switch rebuilds the
+/// tab host and starts a page transition, so a burst of taps used to queue one
+/// transition per tap. The *first* tap is applied immediately (leading edge), so
+/// the bar never feels laggy; only taps inside [window] of an accepted one are
+/// dropped.
+///
+/// Extracted from the shell (and given an injectable clock) so this behaviour —
+/// which only shows up as a dropped frame on a real device — can be asserted
+/// directly instead of racing wall-clock time in a widget test.
+@visibleForTesting
+class TabSwitchThrottle {
+  TabSwitchThrottle({
+    this.window = tabSwitchDebounce,
+    DateTime Function()? clock,
+  }) : _clock = clock ?? DateTime.now;
+
+  final Duration window;
+  final DateTime Function() _clock;
+
+  DateTime? _lastAcceptedAt;
+
+  /// Taps dropped by the throttle (same tab, or inside [window]).
+  int skipped = 0;
+
+  /// Whether a tap on [index] may switch away from [currentIndex].
+  bool shouldAccept(int index, int currentIndex) {
+    // Tapping the tab you are already on must not re-issue `go()` (it still
+    // rebuilds the host and re-enters the transition).
+    if (index == currentIndex) {
+      skipped++;
+      return false;
+    }
+
+    final now = _clock();
+    final last = _lastAcceptedAt;
+    if (last != null && now.difference(last) < window) {
+      skipped++;
+      return false;
+    }
+
+    _lastAcceptedAt = now;
+    return true;
   }
 }

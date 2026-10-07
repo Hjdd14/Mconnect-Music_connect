@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
@@ -14,7 +15,10 @@ import '../providers/player_provider.dart';
 /// Identifies the capsule's perimeter progress painter in tests.
 const Key capsuleProgressRingKey = Key('mini-player-capsule-progress-ring');
 
-class MiniPlayerBar extends ConsumerWidget {
+/// The full-screen player route.
+const String playerRoutePath = '/player';
+
+class MiniPlayerBar extends ConsumerStatefulWidget {
   /// Renders the player as a floating glass capsule instead of the full-width
   /// Material bar.
   ///
@@ -30,7 +34,55 @@ class MiniPlayerBar extends ConsumerWidget {
   const MiniPlayerBar({super.key, this.floating = false});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MiniPlayerBar> createState() => _MiniPlayerBarState();
+}
+
+class _MiniPlayerBarState extends ConsumerState<MiniPlayerBar> {
+  /// True from a tap until the router has applied the push.
+  ///
+  /// `context.push` only moves the router on the next frame, so without this a
+  /// burst of taps stacked N full-screen players — each one a full-screen
+  /// `ImageFiltered(blur 18)` plus its own 1 s and 250 ms timers, which is the
+  /// "phone froze and had to be restarted" report. Deliberately **not** a
+  /// time-based cooldown: closing the player and immediately tapping the capsule
+  /// again must keep working (the app's own regression tests do exactly that
+  /// twice in a row).
+  ///
+  /// Per-instance state, so nothing leaks between two capsules or two tests.
+  bool _pushInFlight = false;
+
+  void _openPlayer(BuildContext context, Song song) {
+    if (_pushInFlight) return;
+    // A tap that arrived after the first push already landed.
+    if (GoRouterState.of(context).uri.path == playerRoutePath) return;
+
+    _pushInFlight = true;
+    final from = GoRouterState.of(context).uri.toString();
+    DiagnosticsService.instance.record(
+      'navigation',
+      'open_player_from_mini',
+      data: {
+        'from': from,
+        'song_id': song.id,
+        'platform': song.platform.name,
+      },
+    );
+    unawaited(
+      context.push(
+        Uri(path: playerRoutePath, queryParameters: {'from': from}).toString(),
+      ),
+    );
+
+    // Release once the frame that applies the push is done: by then the player
+    // page covers this capsule, so a further tap cannot reach it anyway, and if
+    // the push never landed the user must not be locked out.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _pushInFlight = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final song = ref.watch(playerProvider.select((s) => s.currentSong));
     final isPlaying = ref.watch(playerProvider.select((s) => s.isPlaying));
 
@@ -40,22 +92,8 @@ class MiniPlayerBar extends ConsumerWidget {
     final duration = ref.watch(playerProvider.select((s) => s.duration));
 
     return GestureDetector(
-      onTap: () {
-        final from = GoRouterState.of(context).uri.toString();
-        DiagnosticsService.instance.record(
-          'navigation',
-          'open_player_from_mini',
-          data: {
-            'from': from,
-            'song_id': song.id,
-            'platform': song.platform.name,
-          },
-        );
-        context.push(
-          Uri(path: '/player', queryParameters: {'from': from}).toString(),
-        );
-      },
-      child: floating
+      onTap: () => _openPlayer(context, song),
+      child: widget.floating
           ? _buildFloatingCapsule(context, ref, song, isPlaying, position, duration)
           : _buildMaterialBar(context, ref, song, isPlaying, position, duration),
     );
@@ -134,31 +172,40 @@ class MiniPlayerBar extends ConsumerWidget {
         borderRadius: radius,
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 7, sigmaY: 7),
-          child: ColoredBox(
-            // Semi-transparent fill sits *inside* the filter, never wrapped
-            // around it: an outer Opacity would introduce a save layer and
-            // break `BlendMode.srcOver` (hard constraint 2).
-            color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
-            // Pinned height: the row's content is shorter than the capsule, so
-            // without this the capsule collapses to its intrinsic height
-            // instead of the spec'd 48 dp.
-            child: SizedBox(
-              height: MiuixBottomLayout.playerHeight,
-              child: _CapsuleProgressRing(
-                position: position,
-                duration: duration,
-                isPlaying: isPlaying,
-                trackColor: scheme.outlineVariant.withValues(alpha: 0.55),
-                progressColor: scheme.primary,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(8, 0, 4, 0),
-                  child: _buildRow(
-                    context,
-                    ref,
-                    song,
-                    isPlaying,
-                    coverSize: 32,
-                    compact: true,
+          // The ring below repaints every frame while playing (`_ticker.repeat`).
+          // Without this boundary that repaint re-composites the BackdropFilter
+          // itself, so the whole backdrop — an 18-sigma-class GPU cost on the
+          // player route — is re-sampled 60 times a second for the entire song,
+          // which is what turned a stutter into a permanent freeze. A repaint
+          // boundary lets the ring paint into its own layer while the filtered
+          // layer above stays untouched.
+          child: RepaintBoundary(
+            child: ColoredBox(
+              // Semi-transparent fill sits *inside* the filter, never wrapped
+              // around it: an outer Opacity would introduce a save layer and
+              // break `BlendMode.srcOver` (hard constraint 2).
+              color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
+              // Pinned height: the row's content is shorter than the capsule, so
+              // without this the capsule collapses to its intrinsic height
+              // instead of the spec'd 48 dp.
+              child: SizedBox(
+                height: MiuixBottomLayout.playerHeight,
+                child: _CapsuleProgressRing(
+                  position: position,
+                  duration: duration,
+                  isPlaying: isPlaying,
+                  trackColor: scheme.outlineVariant.withValues(alpha: 0.55),
+                  progressColor: scheme.primary,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 0, 4, 0),
+                    child: _buildRow(
+                      context,
+                      ref,
+                      song,
+                      isPlaying,
+                      coverSize: 32,
+                      compact: true,
+                    ),
                   ),
                 ),
               ),

@@ -429,7 +429,58 @@ class _SongTile extends StatelessWidget {
   }
 }
 
-class _Cover extends StatelessWidget {
+/// Cache key for a cover file: the path **and** the library version.
+///
+/// The library version is the identity of the current scan result: a scan builds
+/// a fresh [LocalMusicScanResult] (see `LocalMusicLocalMusicState.lastScan`), and
+/// a rescan can rewrite or delete a cover at the same path — so the existence
+/// answer must be recomputed then, not only when the path changes. It is an
+/// `identityHashCode` rather than a timestamp because the scan result carries no
+/// timestamp of its own (the per-row `scannedAt` would make the key O(n) to
+/// compute for every row).
+@immutable
+class CoverFileKey {
+  const CoverFileKey(this.path, this.libraryVersion);
+
+  final String path;
+  final int libraryVersion;
+
+  @override
+  bool operator ==(Object other) =>
+      other is CoverFileKey &&
+      other.path == path &&
+      other.libraryVersion == libraryVersion;
+
+  @override
+  int get hashCode => Object.hash(path, libraryVersion);
+}
+
+/// The file-existence probe used for covers; injectable so a test can count the
+/// stats (same shape as `fileExistsProbeProvider` in `app_background.dart`).
+typedef FileExistsProbe = bool Function(String path);
+
+final coverExistsProbeProvider = Provider<FileExistsProbe>(
+  (ref) => (path) => File(path).existsSync(),
+);
+
+/// Memoised cover-file existence.
+///
+/// `_Cover` used to call `File(path).existsSync()` inside `build`, i.e. one
+/// synchronous `stat` **per row per rebuild**: opening or scrolling a library of
+/// a few hundred tracks meant hundreds of blocking stats on FUSE-mounted
+/// external storage, on the frame that paints the list.
+///
+/// `autoDispose` because the key includes the scan generation: without it every
+/// scan would leave one family entry per cover behind, for the container's whole
+/// lifetime.
+final coverFileExistsProvider = Provider.autoDispose.family<bool, CoverFileKey>((
+  ref,
+  key,
+) {
+  return ref.watch(coverExistsProbeProvider)(key.path);
+});
+
+class _Cover extends ConsumerWidget {
   const _Cover({this.path});
 
   final String? path;
@@ -437,28 +488,35 @@ class _Cover extends StatelessWidget {
   static const double size = 40;
 
   @override
-  Widget build(BuildContext context) {
-    final file = path == null ? null : File(path!);
-    if (file == null || !file.existsSync()) {
-      return CircleAvatar(
-        radius: size / 2,
-        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-        child: const Icon(Icons.music_note),
-      );
-    }
+  Widget build(BuildContext context, WidgetRef ref) {
+    final imagePath = path;
+    if (imagePath == null || imagePath.isEmpty) return _placeholder(context);
+
+    final scan = ref.watch(localMusicProvider.select((s) => s.lastScan));
+    final exists = ref.watch(
+      coverFileExistsProvider(
+        CoverFileKey(imagePath, identityHashCode(scan)),
+      ),
+    );
+    if (!exists) return _placeholder(context);
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(6),
       child: Image.file(
-        file,
+        File(imagePath),
         width: size,
         height: size,
         fit: BoxFit.cover,
-        errorBuilder: (context, error, stack) => CircleAvatar(
-          radius: size / 2,
-          backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-          child: const Icon(Icons.music_note),
-        ),
+        errorBuilder: (context, error, stack) => _placeholder(context),
       ),
+    );
+  }
+
+  Widget _placeholder(BuildContext context) {
+    return CircleAvatar(
+      radius: size / 2,
+      backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+      child: const Icon(Icons.music_note),
     );
   }
 }

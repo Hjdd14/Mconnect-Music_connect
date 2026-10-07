@@ -15,6 +15,30 @@ class OfflineCachePage extends ConsumerStatefulWidget {
 }
 
 class _OfflineCachePageState extends ConsumerState<OfflineCachePage> {
+  /// Coalescing window for cache-usage rescans.
+  ///
+  /// `refreshCacheUsage()` walks the download root and `stat`s every file, so a
+  /// burst of queue events (a scan finishing, several tasks completing together)
+  /// must not trigger one full scan each.
+  static const Duration cacheRescanDebounce = Duration(milliseconds: 500);
+
+  Timer? _rescanTimer;
+
+  @override
+  void dispose() {
+    _rescanTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Schedules one rescan after the current burst of cache changes settles.
+  void _scheduleCacheRescan() {
+    _rescanTimer?.cancel();
+    _rescanTimer = Timer(cacheRescanDebounce, () {
+      if (!mounted) return;
+      unawaited(ref.read(downloadProvider.notifier).refreshCacheUsage());
+    });
+  }
+
   String _formatBytes(int bytes) {
     if (bytes < 1024) return '$bytes B';
     if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
@@ -44,10 +68,18 @@ class _OfflineCachePageState extends ConsumerState<OfflineCachePage> {
     final downloadNotifier = ref.read(downloadProvider.notifier);
     final cacheBytes = downloadState.estimatedOfflineCacheBytes;
 
-    // Keep the number live while the page is open.
-    ref.listen(downloadProvider.select((s) => s.tasks.length), (_, _) {
-      unawaited(downloadNotifier.refreshCacheUsage());
-    });
+    // Keep the number live while the page is open — but only when the *cached*
+    // set actually changes, and debounced. This used to fire on every change of
+    // `tasks.length` (a waiting task changes nothing on disk) and called
+    // `refreshCacheUsage()` immediately, i.e. a full rescan of the download root
+    // per queue event.
+    ref.listen(
+      downloadProvider.select((s) => s.completedOfflineCacheTasks.length),
+      (previous, next) {
+        if (previous == next) return;
+        _scheduleCacheRescan();
+      },
+    );
 
     return Scaffold(
       appBar: AppBar(

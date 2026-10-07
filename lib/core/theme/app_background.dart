@@ -14,6 +14,35 @@ import 'app_background_provider.dart';
 
 const int appBackgroundMaxDecodeSide = 4096;
 
+/// The file-existence probe the background layers use.
+///
+/// A provider rather than a direct `File(path).existsSync()` call so a test can
+/// *count* the stats: the whole point of [backgroundImageExistsProvider] is that
+/// a rebuild must not stat again, and that is otherwise unobservable.
+typedef FileExistsProbe = bool Function(String path);
+
+final fileExistsProbeProvider = Provider<FileExistsProbe>(
+  (ref) => (path) => File(path).existsSync(),
+);
+
+/// Whether the configured background picture exists, memoised **per path**.
+///
+/// `existsSync()` is a synchronous `stat`, and it used to run inside `build` of
+/// every glass surface: once per route (`SecondaryGlassSurface` wraps every
+/// secondary page, and the shell wraps the whole navigator, so a single
+/// navigation evaluates it twice), and on the player route on every frame of the
+/// transition. Android evaluates these against FUSE-mounted external storage,
+/// where a single stat can cost hundreds of microseconds of blocked UI thread.
+///
+/// Keyed by path, so picking a different picture recomputes while a rebuild
+/// answers from the cache.
+final backgroundImageExistsProvider = Provider.family<bool, String>((
+  ref,
+  path,
+) {
+  return ref.watch(fileExistsProbeProvider)(path);
+});
+
 @immutable
 class AppBackgroundImageGeometry {
   final Size canvasSize;
@@ -402,8 +431,13 @@ class SecondaryGlassSurface extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(appBackgroundSettingsProvider);
     final theme = Theme.of(context);
-    final file = settings.enabled ? File(settings.imagePath!) : null;
-    final paintsPicture = file != null && file.existsSync();
+    // Memoised per path: see [backgroundImageExistsProvider]. This build runs on
+    // every navigation (both the outgoing and the incoming page), so an
+    // unconditional `stat` here is on the navigation critical path.
+    final imagePath = settings.enabled ? settings.imagePath : null;
+    final paintsPicture =
+        imagePath != null &&
+        ref.watch(backgroundImageExistsProvider(imagePath));
     final viewport =
         AppBackgroundViewport.maybeOf(context) ?? MediaQuery.sizeOf(context);
 
@@ -469,7 +503,7 @@ class SecondaryGlassSurface extends ConsumerWidget {
   }
 }
 
-class AppBackgroundImageLayer extends StatelessWidget {
+class AppBackgroundImageLayer extends ConsumerWidget {
   final AppBackgroundSettings settings;
   final bool positioned;
   final Widget Function(File file)? imageBuilder;
@@ -482,11 +516,16 @@ class AppBackgroundImageLayer extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final file = settings.enabled ? File(settings.imagePath!) : null;
-    if (file == null || !file.existsSync()) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Same memoised probe as `SecondaryGlassSurface`: this widget is built by
+    // three different surfaces (including once per player-route frame), so the
+    // `stat` must not sit here unconditional.
+    final imagePath = settings.enabled ? settings.imagePath : null;
+    if (imagePath == null ||
+        !ref.watch(backgroundImageExistsProvider(imagePath))) {
       return const SizedBox.shrink();
     }
+    final file = File(imagePath);
 
     final image = IgnorePointer(
       child: LayoutBuilder(
@@ -592,7 +631,10 @@ class PlayerGlassRouteSurface extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(appBackgroundSettingsProvider);
     final theme = Theme.of(context);
-    final hasImage = settings.enabled && File(settings.imagePath!).existsSync();
+    final imagePath = settings.enabled ? settings.imagePath : null;
+    final hasImage =
+        imagePath != null &&
+        ref.watch(backgroundImageExistsProvider(imagePath));
     final scrim = theme.brightness == Brightness.dark
         ? AppColors.imageBase.withValues(alpha: 0.62)
         : theme.colorScheme.surface.withValues(alpha: 0.68);
