@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
+import '../../../../core/share/song_actions.dart';
 import '../../../../core/theme/platform_accent.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/widgets/app_scrollbar.dart';
 import '../../../../models/song.dart';
 import '../../../../models/platform_type.dart';
+import '../../../download/domain/entities/download_task.dart';
+import '../../../download/presentation/providers/download_provider.dart';
 import '../../../player/presentation/providers/player_provider.dart';
 import '../providers/history_provider.dart';
+import '../providers/likes_provider.dart';
 
 class HistoryPage extends ConsumerWidget {
   const HistoryPage({super.key});
@@ -156,6 +160,20 @@ class HistoryPage extends ConsumerWidget {
                       .read(playerProvider.notifier)
                       .playPlaylist(songs, startIndex: index);
                 },
+                // Same long-press menu as every other song list. The like state
+                // is read at press time (not watched): history has up to 200
+                // rows and nothing else on this page depends on it.
+                onLongPress: () => showSongActionsMenu(
+                  context,
+                  ref,
+                  song: entry.song,
+                  isLiked: _isLiked(ref.read(likesProvider), entry.song),
+                  isDownloaded: _hasCompletedDownload(
+                    ref.read(downloadProvider),
+                    entry.song,
+                  ),
+                  isLocal: false,
+                ),
               ),
             ],
           );
@@ -182,6 +200,7 @@ class _HistoryTile extends StatelessWidget {
   final Color platformColor;
   final String timeAgo;
   final VoidCallback onTap;
+  final VoidCallback onLongPress;
 
   const _HistoryTile({
     required this.song,
@@ -189,6 +208,7 @@ class _HistoryTile extends StatelessWidget {
     required this.platformColor,
     required this.timeAgo,
     required this.onTap,
+    required this.onLongPress,
   });
 
   @override
@@ -228,6 +248,26 @@ class _HistoryTile extends StatelessWidget {
         ),
       ),
       onTap: onTap,
+      onLongPress: onLongPress,
     );
   }
+}
+
+/// Whether [song] is currently in 我喜欢 — the menu's 喜欢/取消喜欢 label depends
+/// on it.
+bool _isLiked(LikesState state, Song song) {
+  return state.songs.any(
+    (liked) => liked.id == song.id && liked.platform == song.platform,
+  );
+}
+
+/// Whether [song] has a finished download, at any quality (see the same helper
+/// on the likes page: the menu only needs "don't offer 下载 again").
+bool _hasCompletedDownload(DownloadState state, Song song) {
+  return state.tasks.any(
+    (task) =>
+        task.song.id == song.id &&
+        task.song.platform == song.platform &&
+        task.status == DownloadStatus.completed,
+  );
 }

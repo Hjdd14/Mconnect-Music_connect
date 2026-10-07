@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import '../../../../core/share/song_actions.dart';
 import '../../../../core/theme/platform_accent.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/widgets/app_scrollbar.dart';
 import '../../../../models/song.dart';
 import '../../../../models/platform_type.dart';
+import '../../../download/domain/entities/download_task.dart';
+import '../../../download/presentation/providers/download_provider.dart';
 import '../../../player/presentation/providers/player_provider.dart';
 import '../providers/likes_provider.dart';
 
@@ -135,6 +138,22 @@ class LikesPage extends ConsumerWidget {
             onLike: () async {
               await notifier.toggleLike(song);
             },
+            // Long-press opens the shared song menu, so the gesture means the
+            // same thing here as it does on the other song lists. `isLiked` is
+            // true by definition (this page lists the liked songs); the download
+            // flag is read once per long-press instead of watched, so a
+            // downloading song does not rebuild the whole list.
+            onLongPress: () => showSongActionsMenu(
+              context,
+              ref,
+              song: song,
+              isLiked: true,
+              isDownloaded: _hasCompletedDownload(
+                ref.read(downloadProvider),
+                song,
+              ),
+              isLocal: false,
+            ),
           );
         },
       ),
@@ -148,6 +167,7 @@ class _SongTile extends StatelessWidget {
   final Color platformColor;
   final VoidCallback onTap;
   final VoidCallback onLike;
+  final VoidCallback onLongPress;
 
   const _SongTile({
     super.key,
@@ -156,6 +176,7 @@ class _SongTile extends StatelessWidget {
     required this.platformColor,
     required this.onTap,
     required this.onLike,
+    required this.onLongPress,
   });
 
   @override
@@ -218,6 +239,21 @@ class _SongTile extends StatelessWidget {
         onPressed: onLike,
       ),
       onTap: onTap,
+      onLongPress: onLongPress,
     );
   }
+}
+
+/// Whether [song] has a finished download, at any quality.
+///
+/// Scans the queue state instead of `DownloadNotifier.isDownloaded`, which
+/// needs an [AudioLevel] the row does not know: the menu only uses the flag to
+/// stop offering 下载 for a song the user already has.
+bool _hasCompletedDownload(DownloadState state, Song song) {
+  return state.tasks.any(
+    (task) =>
+        task.song.id == song.id &&
+        task.song.platform == song.platform &&
+        task.status == DownloadStatus.completed,
+  );
 }
