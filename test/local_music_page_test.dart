@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mconnect/features/local_music/data/local_lyrics_store.dart';
@@ -150,6 +151,89 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('local-music-scan-summary')), findsOneWidget);
+  });
+
+  testWidgets('long-pressing a local track opens the action menu without the '
+      'actions a local file cannot do', (tester) async {
+    final notifier = await notifierWithLibrary();
+
+    await tester.pumpWidget(app(notifier));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('摇滚一号'));
+    await tester.pumpAndSettle();
+
+    // Applicable to a local file.
+    expect(find.text('下一首播放'), findsOneWidget);
+    expect(find.text('复制链接'), findsOneWidget);
+
+    // Requires a platform song id / a network source: must not be offered.
+    expect(find.text('下载'), findsNothing);
+    expect(find.text('已下载'), findsNothing);
+    expect(find.text('分享'), findsNothing);
+    expect(find.text('添加到歌单'), findsNothing);
+    expect(find.text('喜欢'), findsNothing);
+    expect(find.text('取消喜欢'), findsNothing);
+  });
+
+  testWidgets('a long-press action really runs (clipboard gets the song link)', (
+    tester,
+  ) async {
+    final clipboardWrites = <Object?>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          clipboardWrites.add((call.arguments as Map)['text']);
+        }
+        return null;
+      },
+    );
+    addTearDown(() {
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      );
+    });
+
+    final notifier = await notifierWithLibrary();
+    await tester.pumpWidget(app(notifier));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('爵士三号'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('复制链接'));
+    await tester.pumpAndSettle();
+
+    expect(clipboardWrites, hasLength(1));
+    final link = Uri.parse(clipboardWrites.single! as String);
+    expect(link.scheme, 'mconnect');
+    expect(link.host, 'song');
+    expect(link.queryParameters['platform'], 'local');
+    expect(link.queryParameters['id'], 'D:/Music/jazz/03.flac');
+    expect(link.queryParameters['name'], '爵士三号');
+    // The sheet is gone and the result was reported.
+    expect(find.text('复制链接'), findsNothing);
+    expect(find.text('已复制歌曲链接'), findsOneWidget);
+  });
+
+  testWidgets('long-pressing a track inside a group also opens the menu', (
+    tester,
+  ) async {
+    final notifier = await notifierWithLibrary();
+    await tester.pumpWidget(app(notifier));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('歌手'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('乐队甲'));
+    await tester.pumpAndSettle();
+    await tester.longPress(find.text('摇滚二号'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('下一首播放'), findsOneWidget);
+    expect(find.text('下载'), findsNothing);
+    expect(find.text('分享'), findsNothing);
   });
 }
 

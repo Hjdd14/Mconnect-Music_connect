@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/share/song_actions.dart';
 import '../../../../core/widgets/app_scrollbar.dart';
 import '../../../../models/song.dart';
 import '../../../player/presentation/providers/player_provider.dart';
@@ -289,6 +291,13 @@ class _SongList extends ConsumerWidget {
             onTap: () => ref
                 .read(playerProvider.notifier)
                 .playPlaylist(songs, startIndex: index),
+            // The `_SongTile` itself is stateless (no `ref`), so the long-press
+            // menu is built here and passed down. `isLocal: true` makes the
+            // frozen sheet hide the actions a local file cannot do (下载/分享/
+            // 加歌单/喜欢) — there is no platform id behind the track.
+            onLongPress: () => unawaited(
+              showSongActionsMenu(context, ref, song: song, isLocal: true),
+            ),
           );
         },
       ),
@@ -348,6 +357,17 @@ class _GroupList extends ConsumerWidget {
                         [for (final track in group.tracks) track.toSong()],
                         startIndex: i,
                       ),
+                  onLongPress: () {
+                    final song = group.tracks[i].toSong();
+                    unawaited(
+                      showSongActionsMenu(
+                        context,
+                        ref,
+                        song: song,
+                        isLocal: true,
+                      ),
+                    );
+                  },
                 ),
             ],
           );
@@ -364,6 +384,7 @@ class _SongTile extends StatelessWidget {
     required this.hasLyrics,
     required this.alsoOnline,
     required this.onTap,
+    required this.onLongPress,
   });
 
   final Song song;
@@ -371,6 +392,7 @@ class _SongTile extends StatelessWidget {
   final bool hasLyrics;
   final bool alsoOnline;
   final VoidCallback onTap;
+  final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -396,6 +418,7 @@ class _SongTile extends StatelessWidget {
           ? Text(_formatDuration(track!.duration))
           : const Icon(Icons.play_arrow),
       onTap: onTap,
+      onLongPress: onLongPress,
     );
   }
 

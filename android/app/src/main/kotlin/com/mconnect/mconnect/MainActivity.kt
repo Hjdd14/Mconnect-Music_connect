@@ -26,6 +26,10 @@ class MainActivity : AudioServiceActivity() {
     private var pendingLocalMusicResult: MethodChannel.Result? = null
     private var pendingKnownIndex: Map<String, LongArray> = emptyMap()
 
+    // Custom download folder (SAF). Kept in its own controller/file so this
+    // shared activity only carries the wiring: see SafDocumentTreeController.
+    private var safDocumentTreeController: SafDocumentTreeController? = null
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
@@ -49,9 +53,15 @@ class MainActivity : AudioServiceActivity() {
                 }
             }
 
+        // SAF document tree (`com.mconnect.mconnect/saf_tree`): the custom
+        // download folder picker / writer. Additive — the local-music channel
+        // above keeps its own handler.
+        safDocumentTreeController = SafDocumentTreeController(this).also {
+            it.attach(flutterEngine.dartExecutor.binaryMessenger)
+        }
+
         playbackKeepAliveController = PlaybackKeepAliveController(applicationContext)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, playbackKeepAliveChannel)
-            .setMethodCallHandler { call, result ->
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, playbackKeepAliveChannel)            .setMethodCallHandler { call, result ->
                 val controller = playbackKeepAliveController
                     ?: PlaybackKeepAliveController(applicationContext).also {
                         playbackKeepAliveController = it
@@ -87,6 +97,8 @@ class MainActivity : AudioServiceActivity() {
         floatingLyricsController = null
         playbackKeepAliveController?.release()
         playbackKeepAliveController = null
+        safDocumentTreeController?.dispose()
+        safDocumentTreeController = null
         super.onDestroy()
     }
 
@@ -98,6 +110,12 @@ class MainActivity : AudioServiceActivity() {
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        // The SAF download-folder picker owns its own request code
+        // (SafDocumentTreeController.PICK_REQUEST_CODE), so it is asked first
+        // and simply reports whether it handled the result.
+        if (safDocumentTreeController?.onActivityResult(requestCode, resultCode, data) == true) {
+            return
+        }
         if (requestCode == localMusicRequestCode) {
             val result = pendingLocalMusicResult ?: return
             pendingLocalMusicResult = null
