@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import '../../core/network/platform_http.dart';
 import '../../models/audio_quality.dart';
+import '../../models/platform_type.dart';
 import 'qq_endpoints.dart';
 import 'qq_toplist_ids.dart';
 
@@ -22,6 +23,8 @@ class QqApi {
     : _dio =
           dio ??
           createPlatformDio(
+            // Enables central session-expiry reporting (see platform_http).
+            platform: PlatformType.qq,
             label: 'QQ音乐',
             headers: {
               'User-Agent':

@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/network/platform_http.dart';
-import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../../models/platform_type.dart';
 import '../../../../models/playlist.dart';
 import '../../../../platform/base/music_platform.dart';
@@ -55,6 +54,14 @@ class PlatformPlaylistsNotifier extends StateNotifier<PlatformPlaylistsState> {
 
   /// Reported when the platform answers that the stored cookie is dead, so the
   /// app can drop the stale session instead of showing it as a network error.
+  /// Test seam only: production leaves this null.
+  ///
+  /// v1.4.1 moved session-expiry handling to the network layer
+  /// (`SessionExpiryReporter` → `lib/app.dart`), which covers every caller
+  /// instead of only this one. Wiring it here *as well* produced two
+  /// `handleSessionExpired` calls for a single 401, i.e. two "session expired"
+  /// toasts, so the production wiring was removed and only the message below
+  /// stays local.
   final void Function(PlatformType platform)? onSessionExpired;
   final Map<PlatformType, int> _loadTokens = {};
   int _nextLoadToken = 0;
@@ -102,8 +109,8 @@ class PlatformPlaylistsNotifier extends StateNotifier<PlatformPlaylistsState> {
       error = '加载超时，请稍后重试';
     } catch (e) {
       if (apiExceptionOf(e) is LoginExpiredException) {
-        // A dead cookie is not a load failure: report it so the app drops the
-        // stale session and offers a fresh login (task-5).
+        // Session clearing is reported centrally by the network layer
+        // (SessionExpiryReporter); this branch only picks the page's wording.
         onSessionExpired?.call(platformType);
         error = '登录已过期，请重新登录';
       } else {
@@ -215,10 +222,9 @@ class PlatformPlaylistsNotifier extends StateNotifier<PlatformPlaylistsState> {
 
 final platformPlaylistsProvider =
     StateNotifierProvider<PlatformPlaylistsNotifier, PlatformPlaylistsState>((ref) {
-  return PlatformPlaylistsNotifier(
-    // Production wiring for task-5: a 401 from the platform must clear the
-    // session, not just paint "加载失败" on the page.
-    onSessionExpired: (platform) =>
-        ref.read(authProvider.notifier).handleSessionExpired(platform),
-  );
+  // NOTE: session expiry is deliberately NOT wired here any more. The network
+  // layer reports it centrally (see `SessionExpiryReporter` and `lib/app.dart`),
+  // and wiring it here as well made a single 401 expire the session twice and
+  // raise the "session expired" toast twice.
+  return PlatformPlaylistsNotifier();
 });

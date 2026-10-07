@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
+import 'core/network/platform_http.dart';
 import 'core/router/app_router.dart';
 import 'core/share/deep_link_service.dart';
 import 'core/share/deep_link_wiring.dart';
@@ -21,6 +22,7 @@ import 'l10n/app_localizations.dart';
 import 'l10n/l10n.dart';
 import 'l10n/platform_labels.dart';
 import 'models/platform_type.dart';
+import 'platform/base/platform_registry.dart';
 
 /// Marks the Material ancestor injected under [UiStyle.miuix].
 ///
@@ -39,6 +41,24 @@ const Key glassMaterialAncestorKey = Key('app-glass-material-ancestor');
 /// through a page's `ScaffoldMessenger.of(context)`.
 final GlobalKey<ScaffoldMessengerState> appScaffoldMessengerKey =
     GlobalKey<ScaffoldMessengerState>();
+
+/// Whether a network-reported session expiry for [platform] should actually
+/// clear the stored session.
+///
+/// Kept as a free function (rather than inlined into the state object) so the
+/// negative case — "an anonymous request got a 403, so do **not** treat the
+/// user as expired" — is directly testable without mounting the app.
+///
+/// Returns false when the platform is not registered (bare test mounts) or when
+/// it currently has no session: there is nothing to expire, and clearing would
+/// be a lie the user pays for with a spurious "please sign in again" toast.
+bool shouldClearSessionOnExpiry(PlatformType platform) {
+  try {
+    return PlatformRegistry.get(platform).isLoggedIn;
+  } catch (_) {
+    return false;
+  }
+}
 
 /// Locales the UI is actually translated for.
 ///
@@ -139,6 +159,10 @@ class _MconnectAppState extends ConsumerState<MconnectApp>
   /// disposed with the app so a link arriving after teardown is not handled.
   DeepLinkService? _deepLinks;
 
+  /// Installed process-wide so the network layer can report a dead session
+  /// without every caller remembering to (see [SessionExpiryReporter]).
+  SessionExpiredHandler? _sessionExpiryHandler;
+
   @override
   void initState() {
     super.initState();
@@ -168,11 +192,33 @@ class _MconnectAppState extends ConsumerState<MconnectApp>
           );
       unawaited(ref.read(playerProvider.notifier).applyEqualizerSettings(next));
     }, fireImmediately: true);
+
+    // v1.4.1: session expiry is reported by the network layer itself
+    // (`PlatformErrorInterceptor`), not by individual providers. Before this,
+    // exactly one production call site reacted to `LoginExpiredException`, so a
+    // dead cookie anywhere else left the app showing the user as logged in
+    // while every request failed.
+    _sessionExpiryHandler = _reportSessionExpiry;
+    SessionExpiryReporter.handler = _sessionExpiryHandler;
+  }
+
+  /// Forwards a network-layer session expiry to [AuthProvider].
+  ///
+  /// The guard is what keeps this from being harmful: a 403 on an *anonymous*
+  /// request must not clear anything, and because `handleSessionExpired` clears
+  /// the session, the same check makes the burst of 401s that follows a real
+  /// expiry report exactly once.
+  void _reportSessionExpiry(PlatformType platform) {
+    if (!mounted) return;
+    if (!shouldClearSessionOnExpiry(platform)) return;
+    unawaited(ref.read(authProvider.notifier).handleSessionExpired(platform));
   }
 
   @override
   void dispose() {
     _deepLinks?.dispose();
+    SessionExpiryReporter.handler = null;
+    _sessionExpiryHandler = null;
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

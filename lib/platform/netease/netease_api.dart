@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import '../../core/network/platform_http.dart';
+import '../../models/platform_type.dart';
 import 'netease_endpoints.dart';
 
 class NeteaseApi {
@@ -14,6 +15,8 @@ class NeteaseApi {
   NeteaseApi({Dio? dio})
       : _dio = dio ??
             createPlatformDio(
+              // Enables central session-expiry reporting (see platform_http).
+              platform: PlatformType.netease,
               label: '网易云音乐',
               baseUrl: NeteaseEndpoints.baseUrl,
               headers: {
