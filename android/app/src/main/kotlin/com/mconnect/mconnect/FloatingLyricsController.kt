@@ -180,8 +180,11 @@ class FloatingLyricsController(
     }
 
     fun show(arguments: Any?, result: MethodChannel.Result) {
-        // An explicit show is a user intent, so it clears a previous hide and
-        // re-checks the permission rather than trusting the cache.
+        // Dart never calls this method today (it drives everything through
+        // `update`), so it must not be the only way out of a hidden state — see
+        // the invariant in `update`. It stays because it is a legitimate part of
+        // the channel contract: an explicit show clears a previous hide and
+        // re-checks the permission instead of trusting the cache.
         hiddenByUser = false
         overlayPermissionCached = null
         update(arguments, result, createIfMissing = true)
@@ -196,14 +199,26 @@ class FloatingLyricsController(
         result: MethodChannel.Result,
         createIfMissing: Boolean,
     ) {
-        // A hidden overlay must stay hidden: Dart pushes a progress update every
-        // ~200 ms, and recreating the window here would make `hide` look like it
-        // did nothing (and keep the whole overlay/window/frame machinery alive
-        // behind the user's back).
-        if (hiddenByUser) {
-            result.success(true)
-            return
-        }
+        // INVARIANT — `update` means "the app wants the overlay visible".
+        //
+        // It must therefore clear `hiddenByUser` and (when needed) create the
+        // window, because `update` is the ONLY entry point the Dart side ever
+        // calls: `floating_lyrics_service.dart` exposes `show` but never invokes
+        // it. Only the frame loop and the marquee may treat `hiddenByUser` as a
+        // gate.
+        //
+        // Do NOT reintroduce the v1.4.2 latch: gating window creation on
+        // `hiddenByUser` and relying on `show()` to clear it made the overlay
+        // vanish permanently — Dart calls `hide()` whenever the feature is off
+        // (which is the default), the latch closed, and nothing ever opened it
+        // again. The addView/removeView churn that motivated that gate is now
+        // prevented on the Dart side instead, by stopping the sweep timer the
+        // moment the user closes the window (see `closedByUserStream`).
+        hiddenByUser = false
+        // `overlayPermissionCached` is safe here: `openOverlaySettings` and
+        // `show` both clear it, the Dart-facing `canDrawOverlays()` performs a
+        // real check and refreshes it, and Dart queries it before every update
+        // that matters.
         if (!hasOverlayPermission()) {
             result.error("OVERLAY_PERMISSION_DENIED", "Overlay permission is not granted", null)
             return

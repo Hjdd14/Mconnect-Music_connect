@@ -194,6 +194,15 @@ class FloatingLyricsSyncController {
         _syncGeneration++;
         _lastPayload = null;
         _lastNativeSignature = null;
+        // Stop the 200 ms sweep BEFORE the first await, synchronously. Between
+        // the native close and `setEnabled(false)` actually landing there is a
+        // window in which a sweep tick would run `sync()` and push another
+        // `update`, re-creating the window the user just closed (the
+        // addView/removeView churn). Stopping the clock here fixes that at its
+        // source — the native side deliberately no longer latches on `hide`,
+        // because a latch that only `show()` can clear never reopens (Dart never
+        // calls `show`).
+        _updateSweepTimer(running: false);
         await _service.hide();
         await _ref.read(floatingLyricsProvider.notifier).setEnabled(false);
       }),
