@@ -73,23 +73,18 @@ class LibraryScreen extends StatelessWidget {
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.go('/?tab=3'),
             ),
-            // Wave 3 content entries. They live here (and on the discovery tab)
-            // instead of a fifth bottom tab: the floating nav capsule has no
-            // room for another destination, and both content families are
-            // "browse" actions rather than top-level places.
-            ListTile(
-              leading: const Icon(Icons.leaderboard_outlined),
-              title: const Text('榜单中心'),
-              subtitle: const Text('各平台榜单 · QQ 热歌榜'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => context.push('/toplists'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.fiber_new_outlined),
-              title: const Text('新歌速递'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => context.push('/new-songs'),
-            ),
+            // 榜单中心 / 新歌速递 deliberately live on the 发现 tab only.
+            //
+            // They used to be duplicated here as well, which made this list long
+            // enough to push 设置 below the fold on a compact screen for no
+            // benefit — the same two destinations were one tab away. See
+            // test/library_discovery_entries_test.dart: it fails if either the
+            // library copy comes back *or* the discovery entry disappears, so
+            // the content cannot quietly become unreachable.
+            //
+            // They are on a tab rather than a fifth bottom destination because
+            // the floating nav capsule has no room for another one, and both
+            // content families are "browse" actions rather than top-level places.
             const Divider(),
             ListTile(
               leading: const Icon(Icons.settings),

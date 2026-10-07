@@ -3040,3 +3040,20 @@ i18n 需要两个 **Lead 冻结文件**里的一行，队友无法自行加：
 - 红→绿证据：还原旧顺序 → `Expected: ['lyricText','translationText','nextText'] / Actual: ['lyricText','nextText','translationText']`；恢复后文件 SHA256 与还原前一致。
 - 门禁：`flutter analyze` 0 issue、`flutter test` **1093 passed / 10 skipped**、`flutter build apk --release --split-per-abi` 成功（同时证明 Kotlin 改动编译通过）。
 - 真机验收仍未做（本机看不到原生布局）：本句→翻译→下一句；最后一句无空行；无翻译无空行；高亮仍在本句推进。
+
+### 阶段 R 补记 — 音乐库去重：榜单中心 / 新歌速递 只在发现页（用户要求，版本号不动）
+
+**改动**：`library_screen.dart` 删除「榜单中心」「新歌速递」两个 `ListTile`（并把那段"两处都放"的注释改写为"只在发现页"）。发现页本来就有这两个入口（`discovery_screen.dart` 的主卡片 + 两个紧凑磁贴）且都是真跳转，路由保持不变 ⇒ **不会失去入口**。截图里那个 "NEW" 是 `Icons.fiber_new_outlined` 图标本身，不是角标，随行消失即可。
+
+**用户约束**：**不改版本号**（保持 `1.4.4+15`），等用户明确要求再更新。因此 6 处版本文件与 `CHANGELOG.md` 的 v1.4.4 发布段落**一律不动**；本次改动只记在本文件，等下一次发版时并入 CHANGELOG。包仍按同版本重新出（同 versionCode 可覆盖安装），供真机验证。
+
+**预判到的风险与实测结果**：`test/widget_test.dart` 有一条"紧凑屏需滚动才能到设置"的用例，先断言「设置」不可点击。删两行会让内容变短，理论上可能导致它直接出现在屏内而使断言失效 ⇒ 计划里准备了"缩小视口"的兜底。**实测该用例仍全绿**（19 passed），前提继续成立，因此**没有改动它**（不降级既有守卫）。
+
+**新增护栏**（`test/library_discovery_entries_test.dart`，仓库此前没有 discovery/library 测试文件）：两侧都守 —— 音乐库**不再有**、发现页**仍然有**；任何一侧丢失都会红。
+
+**本轮踩到的两个测试陷阱（值得记）**：
+1. **`ListView` 懒构建会让"findsNothing"假绿**：被删的两行位置偏下，在默认测试视口里本来就不会被构建，于是"不存在"这条断言在**旧代码上也会通过**。改为检查 `ListView.childrenDelegate as SliverChildListDelegate` 的**声明子项**（`ListView(children:)` 的完整子列表与滚动无关），断言才真正有判别力；同时断言列表**最后一项**「设置」仍在，用来自证"整份声明清单被检查过"。
+2. **`ListTile` 需要 `Material` 祖先**：直接 pump `MaterialApp(home: LibraryScreen())` 会在构建期抛 "No Material widget found"，把红证污染成"看起来红了"。必须 `Scaffold` 包裹（真实 App 由路由外壳提供）。
+   正因为第一次红证被这个异常污染，我**重做了两次红证**并逐次用 SHA256 校验还原后文件与原文件一致：加回音乐库入口 → `Expected: not contains '榜单中心'`（红）；改掉发现页文案 → `Found 0 widgets with text "新歌速递"`（红）；最终绿。
+
+**门禁**：`flutter analyze` 0 issue、`flutter test` **1095 passed / 10 skipped / 0 failed**、`flutter build apk --release --split-per-abi` 成功；版本号保持 `1.4.4+15` 未变。
