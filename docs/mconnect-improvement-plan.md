@@ -3057,3 +3057,22 @@ i18n 需要两个 **Lead 冻结文件**里的一行，队友无法自行加：
    正因为第一次红证被这个异常污染，我**重做了两次红证**并逐次用 SHA256 校验还原后文件与原文件一致：加回音乐库入口 → `Expected: not contains '榜单中心'`（红）；改掉发现页文案 → `Found 0 widgets with text "新歌速递"`（红）；最终绿。
 
 **门禁**：`flutter analyze` 0 issue、`flutter test` **1095 passed / 10 skipped / 0 failed**、`flutter build apk --release --split-per-abi` 成功；版本号保持 `1.4.4+15` 未变。
+
+### 阶段 R 补记 — 发现页顶部改版：三个横排按钮（用户要求，版本号继续不动）
+
+**改动**（只动 `discovery_screen.dart`）：删掉两个全宽 `Card`（每日推荐、榜单中心）与「艺人 / 专辑」磁贴，顶部改为**一行三个同款**紧凑按钮：**每日推荐 / 榜单中心 / 新歌速递**（左→右），沿用各自原有图标与原有跳转（`/recommendations`、`/toplists`、`/new-songs`）。理由：榜单中心此前**重复出现两次**（大卡片 + 磁贴）；艺人/专辑只是 `context.go('/?tab=0')` 交棒给搜索，而搜索本来就是底部一个 tab。副标题（「根据你的口味生成」「各平台榜单 · QQ 热歌榜 300 首」）随大卡片消失 —— 紧凑按钮放不下，已在交付说明里告知用户并提供"改成三张带小字的横排小卡"的备选。
+
+**版本号继续不动**：用户上次明确"我让你更新时再更新"，本次没有新指令 ⇒ 6 处版本文件与 `CHANGELOG.md` 已发布的 v1.4.4 段落一律不动，改动只记在本文件；包按同版本重新出以便真机验证。
+
+**护栏更新**（`test/library_discovery_entries_test.dart`）：榜单中心由 `findsWidgets` **收紧为 `findsOneWidget`**（这条正锁"不重复"）；新增 `每日推荐 findsOneWidget`、`艺人 / 专辑 findsNothing`，并加了一条**形态断言** —— 三个标签的屏幕中心 `dy` 基本相等且 `dx` 递增，直接锁住"横着的三个按钮"。另把 `/recommendations` 补进 `app_router_routes_test.dart`（大卡片删掉后，这个按钮是它的常驻入口）。
+
+**三条红证（全部干净、逐条 SHA256 校验还原）**：
+1. 复制一份榜单中心磁贴 → `Found 2 widgets with text "榜单中心"`；
+2. 加回艺人/专辑磁贴 → `Found 1 widget with text "艺人 / 专辑"`；
+3. 交换榜单中心与新歌速递的顺序 → `Expected: a value less than <399.99> Actual: <658.66>`（顺序断言）。
+
+**本轮又踩到一次"红了但原因是错的"**：第 3 条最初想把 `Row` 改成 `Column` 来制造"竖排"，结果 `Column` 里嵌 `Expanded` 在无界高度下抛**布局异常**——测试确实红了，但**不是我的断言红**。我据此判定该红证无效并重做（改用"交换顺序"这种布局安全的变异）。**教训：红证不仅要"红"，还要确认红在目标断言上；构造变异时优先选不会改变布局约束的方式。**
+
+**门禁**：`flutter analyze` 0 issue、`flutter test` **1095 passed / 10 skipped / 0 failed**、`flutter build apk --release --split-per-abi` 成功；版本保持 `1.4.4+15`。
+
+**一个待观察的偶发（与本次改动无关）**：本轮三次全量测试中有 **1 次** `test/diagnostics_export_test.dart`（"truncates an oversized log file and says so"）失败；该文件**单独连跑两次均 20 条全绿**，随后全量复跑也全绿 ⇒ 判定为**顺序/时序相关的偶发**。它涉及日志文件大小与截断时机，值得后续单独查（本次改动只碰发现页 UI 与两个测试文件，不可能影响它）。已记录，未改动。

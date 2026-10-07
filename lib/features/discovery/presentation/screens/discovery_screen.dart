@@ -56,44 +56,23 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
-            Card(
-              child: ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Theme.of(
-                    context,
-                  ).colorScheme.primaryContainer,
-                  child: Icon(
-                    Icons.wb_sunny,
-                    color: Theme.of(context).colorScheme.onPrimaryContainer,
-                  ),
-                ),
-                title: const Text('每日推荐'),
-                subtitle: const Text('根据你的口味生成'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => context.push('/recommendations'),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Card(
-              child: ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Theme.of(
-                    context,
-                  ).colorScheme.tertiaryContainer,
-                  child: Icon(
-                    Icons.trending_up,
-                    color: Theme.of(context).colorScheme.onTertiaryContainer,
-                  ),
-                ),
-                title: const Text('榜单中心'),
-                subtitle: const Text('各平台榜单 · QQ 热歌榜 300 首'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => context.push('/toplists'),
-              ),
-            ),
-            const SizedBox(height: 8),
+            // Three side-by-side entries, all the same compact weight.
+            //
+            // The 每日推荐 and 榜单中心 cards that used to sit above this row are
+            // gone: 榜单中心 was listed twice (card + tile), the cards' subtitles
+            // did not fit a compact layout, and the 艺人 / 专辑 tile only handed
+            // over to the search tab, which is already one tap away in the bottom
+            // bar. Each button keeps the destination it always had.
             Row(
               children: [
+                Expanded(
+                  child: _DiscoveryEntry(
+                    icon: Icons.wb_sunny,
+                    label: '每日推荐',
+                    onTap: () => context.push('/recommendations'),
+                  ),
+                ),
+                const SizedBox(width: 8),
                 Expanded(
                   child: _DiscoveryEntry(
                     icon: Icons.leaderboard_outlined,
@@ -107,17 +86,6 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
                     icon: Icons.fiber_new_outlined,
                     label: '新歌速递',
                     onTap: () => context.push('/new-songs'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _DiscoveryEntry(
-                    icon: Icons.person_search_outlined,
-                    label: '艺人 / 专辑',
-                    // Artists and albums are addressed by platform id, which only
-                    // a search can produce, so this entry hands over to the
-                    // search tab instead of inventing an id-less route.
-                    onTap: () => context.go('/?tab=0'),
                   ),
                 ),
               ],
@@ -174,7 +142,11 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
   }
 }
 
-/// A compact entry tile for the 榜单中心 / 新歌速递 / 艺人·专辑 row.
+/// One of the three compact entries at the top of the 发现 tab
+/// (每日推荐 / 榜单中心 / 新歌速递): icon above a single-line label, side by side.
+///
+/// Deliberately has no subtitle - the row of three is the compact form of these
+/// destinations, and the descriptions the removed cards carried did not fit.
 class _DiscoveryEntry extends StatelessWidget {
   const _DiscoveryEntry({
     required this.icon,

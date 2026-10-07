@@ -5,14 +5,17 @@ import 'package:mconnect/features/discovery/presentation/providers/playlist_reco
 import 'package:mconnect/features/discovery/presentation/screens/discovery_screen.dart';
 import 'package:mconnect/features/library/presentation/screens/library_screen.dart';
 
-/// 榜单中心 / 新歌速递 live on the 发现 tab only.
+/// Guards where the three content entries live and what shape they take.
 ///
-/// Both halves of that statement are guarded, because either one alone is a bug:
-/// * re-adding the library copy makes the library list long enough to push 设置
-///   below the fold on a compact screen, for two destinations that were already
-///   one tab away;
-/// * dropping the discovery entry without the library one would make
-///   `/toplists` and `/new-songs` unreachable entirely.
+/// * 榜单中心 / 新歌速递 belong to the 发现 tab, not the library list. Re-adding
+///   the library copy makes that list long enough to push 设置 below the fold on
+///   a compact screen, for two destinations already one tab away; dropping the
+///   discovery entry without the library one would make `/toplists` and
+///   `/new-songs` unreachable.
+/// * On 发现 they are three equal side-by-side buttons: 每日推荐 / 榜单中心 /
+///   新歌速递. 榜单中心 used to appear twice (a full-width card *and* a tile) and
+///   艺人 / 专辑 only handed over to the search tab, which is already a bottom
+///   destination.
 ///
 /// The library assertion deliberately inspects the ListView's **declared**
 /// children rather than the laid-out ones. `ListView` only builds what is near
@@ -34,8 +37,9 @@ void main() {
 
   group('library vs discovery entries', () {
     testWidgets('the library screen no longer lists them', (tester) async {
-      // A Scaffold supplies the Material ancestor ListTile requires; the real app
-      // gets it from the route shell.
+      // A Scaffold supplies the Material ancestor ListTile requires (a bare
+      // MaterialApp throws during build, which would make a red run look right
+      // for the wrong reason); the real app gets it from the route shell.
       await tester.pumpWidget(
         const MaterialApp(home: Scaffold(body: LibraryScreen())),
       );
@@ -72,7 +76,9 @@ void main() {
       );
     });
 
-    testWidgets('the discovery screen still lists both', (tester) async {
+    testWidgets('the discovery screen shows exactly three side-by-side entries', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
@@ -88,10 +94,23 @@ void main() {
       );
       await tester.pump();
 
-      // Both entries sit in the first screenful, so they are built; this is the
-      // "the content is still reachable" half of the guard.
-      expect(find.text('榜单中心'), findsWidgets);
+      // Exactly one of each - this is what pins "no duplicate 榜单中心".
+      expect(find.text('每日推荐'), findsOneWidget);
+      expect(find.text('榜单中心'), findsOneWidget);
       expect(find.text('新歌速递'), findsOneWidget);
+
+      // The 艺人 / 专辑 hand-off to the search tab was removed.
+      expect(find.text('艺人 / 专辑'), findsNothing);
+
+      // ...and they are laid out horizontally, left to right in this order.
+      final daily = tester.getCenter(find.text('每日推荐'));
+      final charts = tester.getCenter(find.text('榜单中心'));
+      final newSongs = tester.getCenter(find.text('新歌速递'));
+
+      expect(daily.dy, closeTo(charts.dy, 1));
+      expect(charts.dy, closeTo(newSongs.dy, 1));
+      expect(daily.dx, lessThan(charts.dx));
+      expect(charts.dx, lessThan(newSongs.dx));
     });
   });
 }

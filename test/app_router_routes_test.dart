@@ -18,6 +18,9 @@ void main() {
       '/artist/kugou/abcde',
       '/new-songs',
       '/backup',
+      // The 发现 tab's 每日推荐 button is now its always-visible entry (the
+      // full-width card was dropped), so its target is pinned here too.
+      '/recommendations',
     ];
 
     for (final location in locations) {
