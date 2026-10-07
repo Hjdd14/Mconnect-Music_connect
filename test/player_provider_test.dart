@@ -1853,6 +1853,191 @@ group('diagnostics instrumentation', () {
       expect(audio.volumeChanges, isEmpty);
       expect(audio.volume, 1.0);
     });
+
+    // --- 卡死修复 W1 -----------------------------------------------------
+
+    test(
+      'a wedged audio mutex does not block later taps and is bounded',
+      () async {
+        final wedging = _WedgingAudioController();
+        final notifier = PlayerNotifier(
+          audioController: wedging,
+          platformResolver: (_) => _FakeMusicPlatform(),
+          audioControllerFactory: () => _FakeAudioController(),
+          // 让第一个 playSong 真的吊在锁内（而不是靠自身超时脱身）。
+          audioOperationTimeout: const Duration(seconds: 30),
+          audioDisposeTimeout: const Duration(milliseconds: 20),
+          mutexWaitTimeout: const Duration(milliseconds: 40),
+          mutexMaxPending: 3,
+          stuckWatchdogInterval: Duration.zero,
+          keepAliveController: const NoopPlaybackKeepAliveController(),
+        );
+        addTearDown(notifier.dispose);
+        addTearDown(() {
+          if (!wedging.stopGate.isCompleted) wedging.stopGate.complete();
+        });
+
+        // 第 1 次：卡在 _safeStop 上，永久持锁。
+        unawaited(notifier.playSong(_song('wedge-hold')));
+        await pumpEventQueue();
+
+        // 连发 30 次：每一次都必须在超时/上界内返回，而不是永久排队。
+        final followUps = [
+          for (var i = 0; i < 30; i++) notifier.playSong(_song('wedge-$i')),
+        ];
+        await expectLater(
+          Future.wait(followUps).timeout(const Duration(seconds: 10)),
+          completes,
+        );
+
+        expect(
+          DiagnosticsService.instance.recentEvents.any(
+            (e) => e.type == 'player' && e.message.contains('audio_mutex_wedged'),
+          ),
+          isTrue,
+          reason: '等待持锁者超时必须记 audio_mutex_wedged',
+        );
+        expect(
+          DiagnosticsService.instance.recentEvents.any(
+            (e) =>
+                e.type == 'slow_operation' &&
+                e.message.contains('audio_mutex_overflow'),
+          ),
+          isTrue,
+          reason: '超过等待上界必须记 audio_mutex_overflow',
+        );
+      },
+    );
+
+    test('concurrent recreate triggers install exactly one new controller', () async {
+      final failing = _SlowDisposeAudioController(
+        hangOnStop: true,
+        hangOnSeek: true,
+        delay: const Duration(milliseconds: 150),
+      );
+      var created = 0;
+      final notifier = PlayerNotifier(
+        audioController: failing,
+        platformResolver: (_) => _FakeMusicPlatform(),
+        audioControllerFactory: () {
+          created++;
+          return _FakeAudioController();
+        },
+        audioOperationTimeout: const Duration(milliseconds: 20),
+        audioDisposeTimeout: const Duration(seconds: 2),
+        stuckWatchdogInterval: Duration.zero,
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+      );
+      addTearDown(notifier.dispose);
+
+      // 触发点 1：seek 超时 → _safeSeek 的 catch。
+      unawaited(notifier.seek(const Duration(seconds: 30)));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      // 触发点 2：stop 超时 → _safeStop 的 catch（此时第一次重建仍在 dispose 中）。
+      unawaited(notifier.playSong(_song('recreate-once')));
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+
+      expect(created, 1, reason: '单飞守卫：并发触发只允许装一个新 controller');
+      expect(
+        failing.disposeCalls,
+        1,
+        reason: '并发重建不许对同一个 controller 各 dispose 一次（会 cancel 掉彼此在用的订阅）',
+      );
+      expect(notifier.hasAudioControllerForTest, isTrue);
+    });
+
+    test(
+      'the stuck watchdog force-resets a transport wedged while "paused"',
+      () async {
+        final wedging = _WedgingAudioController();
+        var created = 0;
+        final notifier = PlayerNotifier(
+          audioController: wedging,
+          platformResolver: (_) => _FakeMusicPlatform(),
+          audioControllerFactory: () {
+            created++;
+            return _FakeAudioController();
+          },
+          audioOperationTimeout: const Duration(seconds: 30),
+          audioDisposeTimeout: const Duration(milliseconds: 20),
+          mutexWaitTimeout: const Duration(milliseconds: 40),
+          stuckWatchdogInterval: const Duration(milliseconds: 20),
+          stuckWatchdogThreshold: const Duration(milliseconds: 60),
+          keepAliveController: const NoopPlaybackKeepAliveController(),
+        );
+        addTearDown(notifier.dispose);
+        addTearDown(() {
+          if (!wedging.stopGate.isCompleted) wedging.stopGate.complete();
+        });
+
+        unawaited(notifier.playSong(_song('stuck-watchdog')));
+        await pumpEventQueue();
+
+        // 关键：这正是真机日志里的状态 —— 已经"不在播放"，所以 12s 停滞自愈
+        // （要求 isPlaying && controller.playing）100% 不会触发。
+        expect(notifier.state.isPlaying, isFalse);
+        expect(notifier.state.isTransitioning, isTrue);
+
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+
+        expect(
+          notifier.state.isTransitioning,
+          isFalse,
+          reason: '看门狗必须复位过渡标志',
+        );
+        expect(notifier.isTransportBusyForTest, isFalse);
+        expect(notifier.state.error, contains('已重置播放器'));
+        expect(created, greaterThanOrEqualTo(1));
+        expect(
+          DiagnosticsService.instance.recentEvents.any(
+            (e) => e.type == 'player' && e.message.contains('player_forced_reset'),
+          ),
+          isTrue,
+        );
+      },
+    );
+
+    test('a failed restore does not latch the restore flag', () async {
+      final platform = _ErroringUrlPlatform(failingIds: const {'restore-fail'});
+      final store = _MemoryPlaybackStore(
+        restored: PlayerPlaybackMemory(
+          currentSong: _song('restore-fail'),
+          playlist: [_song('restore-fail')],
+          currentIndex: 0,
+          position: const Duration(seconds: 5),
+          duration: const Duration(minutes: 3),
+          currentQuality: AudioLevel.low,
+        ),
+      );
+      final notifier = PlayerNotifier(
+        audioController: _FakeAudioController(),
+        platformResolver: (_) => platform,
+        audioControllerFactory: () => _FakeAudioController(),
+        playbackMemoryStore: store,
+        playbackMemorySaveInterval: Duration.zero,
+        stuckWatchdogInterval: Duration.zero,
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+      );
+      addTearDown(notifier.dispose);
+
+      await pumpEventQueue();
+      expect(notifier.state.currentSong?.id, 'restore-fail');
+
+      // 第一次：走恢复路径并失败。
+      await notifier.togglePlay();
+      await pumpEventQueue();
+      expect(platform.requestedQualitiesFor('restore-fail'), hasLength(1));
+
+      // 第二次：标志已复位 → 走普通 togglePlay，不再重试恢复取流。
+      await notifier.togglePlay();
+      await pumpEventQueue();
+
+      expect(
+        platform.requestedQualitiesFor('restore-fail'),
+        hasLength(1),
+        reason: '恢复失败必须清 _restoredSourceNeedsLoad，否则每次点击都重进失败路径',
+      );
+    });
   });
 }
 
@@ -2069,6 +2254,59 @@ class _FakeCapableAudioController extends _FakeAudioController
   @override
   Future<void> setSkipSilence(bool enabled) async {
     skipSilenceChanges.add(enabled);
+  }
+}
+
+/// `stop()` 的第一次调用永不返回，模拟"一个持锁操作被平台通道吊死"。
+///
+/// [stopGate] 在用例收尾时完成，让被吊住的 playSong 能正常收尾（不留悬空 timer）。
+class _WedgingAudioController extends _FakeAudioController {
+  final Completer<void> stopGate = Completer<void>();
+  int stopCalls = 0;
+
+  @override
+  Future<void> stop() {
+    stopCalls++;
+    if (stopCalls == 1) return stopGate.future;
+    return super.stop();
+  }
+}
+
+/// dispose 需要一段真实时间，用来把两次重建触发点重叠在一起。
+class _SlowDisposeAudioController extends _FakeAudioController {
+  final Duration delay;
+  int disposeCalls = 0;
+
+  _SlowDisposeAudioController({
+    super.hangOnStop,
+    super.hangOnSeek,
+    this.delay = const Duration(milliseconds: 150),
+  });
+
+  @override
+  Future<void> dispose() async {
+    disposeCalls++;
+    await Future<void>.delayed(delay);
+    await super.dispose();
+  }
+}
+
+/// getSongUrl 对指定歌曲直接失败（用来制造"恢复取流失败"）。
+class _ErroringUrlPlatform extends _FakeMusicPlatform {
+  final Set<String> failingIds;
+
+  _ErroringUrlPlatform({required this.failingIds});
+
+  @override
+  Future<String> getSongUrl(
+    String songId, {
+    AudioLevel quality = AudioLevel.low,
+  }) {
+    requestedQualities.add((songId: songId, quality: quality));
+    if (failingIds.contains(songId)) {
+      return Future.error(StateError('url unavailable'));
+    }
+    return Future.value('https://example.test/$songId-${quality.name}.mp3');
   }
 }
 

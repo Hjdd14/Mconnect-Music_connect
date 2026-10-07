@@ -151,16 +151,80 @@ class PlayerState {
 }
 
 /// Simple async mutex to serialize audio operations and prevent platform channel deadlocks.
+///
+/// It stays the **single** serialization point (running transport calls
+/// concurrently is what deadlocks just_audio's platform channel), but it is no
+/// longer unbounded: a wedged holder used to block every later tap at
+/// `await prev` forever, which is exactly the "app freezes, must be force-killed"
+/// chain from the device logs (frozen `position_ms`, `is_playing:false`,
+/// six process restarts in eight minutes).
 class _AudioMutex {
+  _AudioMutex({
+    this.onWedged,
+    this.waitTimeout = const Duration(seconds: 8),
+    this.maxPending = 8,
+  });
+
+  /// Invoked (fire-and-forget) when waiting for the previous holder timed out.
+  final void Function(String label, int waitedMs)? onWedged;
+
+  /// How long a waiter may block on the previous holder before it gives up and
+  /// runs its own operation anyway. Every inner await of a healthy operation is
+  /// bounded by its own timeout (≤10s), so exceeding this means a wedge.
+  final Duration waitTimeout;
+
+  /// Upper bound on queued waiters. Past it a waiter stops waiting (and a
+  /// diagnostic is recorded) instead of growing an unbounded chain.
+  final int maxPending;
+
   Future<void>? _last;
+  int _pending = 0;
+
+  @visibleForTesting
+  int get pendingCount => _pending;
 
   Future<T> run<T>(Future<T> Function() fn, {String label = 'audio'}) async {
-    final prev = _last;
     final completer = Completer<void>();
+    final prev = _last;
     _last = completer.future;
+    // The `try` (and therefore the `finally`) covers everything after the
+    // completer is published: a synchronous throw can no longer leave
+    // `_last` pointing at a future that is never completed, which used to
+    // strand every subsequent waiter forever.
     final wait = Stopwatch()..start();
+    _pending++;
     try {
-      if (prev != null) await prev;
+      if (prev != null) {
+        if (_pending > maxPending) {
+          // 队列超出上界：不再等待，直接执行本次操作并记诊断。
+          // （无法"踢掉"已经在 await 上的最老等待者；而它的等待本身也会先于
+          // 本调用被 waitTimeout 解开，所以这里放弃等待即可给队列封顶。）
+          DiagnosticsService.instance.record(
+            'slow_operation',
+            'audio_mutex_overflow',
+            data: {
+              'label': label,
+              'pending': _pending,
+              'max_pending': maxPending,
+            },
+          );
+        } else {
+          try {
+            await prev.timeout(waitTimeout);
+          } on TimeoutException {
+            DiagnosticsService.instance.record(
+              'player',
+              'audio_mutex_wedged',
+              data: {
+                'label': label,
+                'waited_ms': wait.elapsedMilliseconds,
+                'timeout_ms': waitTimeout.inMilliseconds,
+              },
+            );
+            onWedged?.call(label, wait.elapsedMilliseconds);
+          }
+        }
+      }
       if (kDebugMode && wait.elapsedMilliseconds > 100) {
         debugPrint('AudioMutex[$label] waited ${wait.elapsedMilliseconds}ms');
       }
@@ -173,7 +237,8 @@ class _AudioMutex {
       }
       return await fn();
     } finally {
-      completer.complete();
+      _pending--;
+      if (!completer.isCompleted) completer.complete();
     }
   }
 }
@@ -194,6 +259,10 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   final Duration _playbackStallThreshold;
   final Duration _playbackRecoveryCooldown;
   final Duration _playbackStartupGracePeriod;
+  final Duration _mutexWaitTimeout;
+  final int _mutexMaxPending;
+  final Duration _stuckWatchdogInterval;
+  final Duration _stuckWatchdogThreshold;
   final DateTime Function() _now;
   final PlayerPlaybackMemoryStore _playbackMemoryStore;
   final playback_notification.PlaybackNotificationController
@@ -206,7 +275,11 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   final Future<void> Function()? _toggleFloatingLyrics;
   final bool Function() _isFloatingLyricsEnabled;
   final List<StreamSubscription> _subscriptions = [];
-  final _mutex = _AudioMutex();
+  late final _AudioMutex _mutex = _AudioMutex(
+    waitTimeout: _mutexWaitTimeout,
+    maxPending: _mutexMaxPending,
+    onWedged: _onAudioMutexWedged,
+  );
   final Random _random;
   /// 随机播放的"已播集合"（本轮尚未播过的曲目之外不再挑）。
   final Set<String> _shuffledPlayedSongKeys = {};
@@ -245,6 +318,10 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   String? _recoverySongKey;
   int _recoveryAttemptsForSong = 0;
   String? _recoveryLimitReportedSongKey;
+  Timer? _stuckWatchdogTimer;
+  DateTime? _lastTransportProgressAt;
+  bool _isForcingReset = false;
+  Future<void>? _recreateInFlight;
 
   PlayerNotifier({
     PlayerAudioController? audioController,
@@ -268,6 +345,10 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     this._playbackStallThreshold = const Duration(seconds: 12),
     this._playbackRecoveryCooldown = const Duration(seconds: 30),
     this._playbackStartupGracePeriod = const Duration(seconds: 8),
+    this._mutexWaitTimeout = const Duration(seconds: 8),
+    this._mutexMaxPending = 8,
+    this._stuckWatchdogInterval = const Duration(seconds: 5),
+    this._stuckWatchdogThreshold = const Duration(seconds: 30),
     DateTime Function()? now,
     Random? random,
   }) : _audioController = audioController,
@@ -304,6 +385,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     unawaited(_restorePlaybackMemory());
     _syncNotificationState();
     _startPlaybackHealthMonitor();
+    _startStuckWatchdog();
   }
 
   Future<void> _playFromNotification() async {
@@ -340,8 +422,18 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
   void _setState(PlayerState nextState) {
     state = nextState;
+    _markTransportProgress();
     _syncNotificationState();
     unawaited(_syncPlaybackKeepAlive(nextState.isPlaying));
+  }
+
+  /// Records that the transport did something observable.
+  ///
+  /// The stuck watchdog (see [_checkStuckTransport]) only fires when *nothing*
+  /// has progressed for [_stuckWatchdogThreshold], so every real state change —
+  /// position, processing state, request generation, flags — has to rearm it.
+  void _markTransportProgress() {
+    _lastTransportProgressAt = _now();
   }
 
   void _syncNotificationState() {
@@ -425,6 +517,110 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
   @visibleForTesting
   Future<void> runPlaybackHealthCheckForTest() => _checkPlaybackHealth();
+
+  @visibleForTesting
+  Future<void> runStuckWatchdogForTest() => _checkStuckTransport();
+
+  /// True while any transport-level flag is latched.
+  @visibleForTesting
+  bool get isTransportBusyForTest =>
+      state.isTransitioning ||
+      _isSwitchingQuality ||
+      _isRecoveringPlayback ||
+      _restoredSourceNeedsLoad;
+
+  // --- 卡死看门狗（独立于 12s 转场看门狗） -------------------------------
+  //
+  // 与 12s 停滞自愈的区别：后者只服务"Android + isPlaying + 在线歌曲"的
+  // 位置停滞，而真机日志里的死法是 `is_playing:false` + 位置冻住 —— 那时
+  // `_canCheckPlaybackHealth` 与新加的 `_ensurePlaybackVolume` 都因为
+  // `isPlaying` 为假而永不触发。因此这条看门狗**不以 isPlaying 为前提**：
+  // 只要"有当前曲目 + 处于过渡/换音质/恢复中 + 超过阈值没有任何位置或状态
+  // 推进"，就强制把播放面复位到可用状态。
+
+  void _startStuckWatchdog() {
+    if (_stuckWatchdogInterval <= Duration.zero) return;
+    _stuckWatchdogTimer = Timer.periodic(
+      _stuckWatchdogInterval,
+      (_) => unawaited(_checkStuckTransport()),
+    );
+  }
+
+  bool _isTransportSuspicious() {
+    if (state.currentSong == null) return false;
+    return state.isTransitioning ||
+        _isSwitchingQuality ||
+        _isRecoveringPlayback ||
+        _restoredSourceNeedsLoad;
+  }
+
+  Future<void> _checkStuckTransport() async {
+    if (!mounted || _isForcingReset) return;
+    if (!_isTransportSuspicious()) {
+      // 正常播放（或空闲）：重新起算，避免把长时间的普通播放当成卡死。
+      _markTransportProgress();
+      return;
+    }
+    final last = _lastTransportProgressAt;
+    if (last == null) {
+      _markTransportProgress();
+      return;
+    }
+    if (_now().difference(last) < _stuckWatchdogThreshold) return;
+    await _forceResetStuckPlayback('transport_stuck');
+  }
+
+  /// 强制把播放面复位到"可再次操作"的状态。
+  ///
+  /// 由看门狗或 [_AudioMutex] 超时触发（两者都可能发生在**没有**持锁的情况下，
+  /// 所以这里绝不进入 `_AudioMutex` —— 那正是卡死的源头）。复位会推进两个代际
+  /// 令牌，让所有在途的陈旧分支在下一个守卫处立刻退出。
+  Future<void> _forceResetStuckPlayback(String reason) async {
+    if (!mounted || _isForcingReset) return;
+    _isForcingReset = true;
+    try {
+      final song = state.currentSong;
+      DiagnosticsService.instance.record(
+        'player',
+        'player_forced_reset',
+        data: {
+          'reason': reason,
+          'song_id': song?.id,
+          'platform': song?.platform.name,
+          'is_playing': state.isPlaying,
+          'is_transitioning': state.isTransitioning,
+          'is_switching_quality': _isSwitchingQuality,
+          'is_recovering': _isRecoveringPlayback,
+          'restored_source_needs_load': _restoredSourceNeedsLoad,
+          'position_ms': state.position.inMilliseconds,
+        },
+      );
+      _playRequestId++;
+      _qualityRequestId++;
+      _isSwitchingQuality = false;
+      _isRecoveringPlayback = false;
+      _restoredSourceNeedsLoad = false;
+      _cancelTransitionWatchdog();
+      _setState(
+        state.copyWith(
+          isTransitioning: false,
+          error: () => '播放未能恢复，已重置播放器，请重试',
+        ),
+      );
+      _resetPlaybackHealthWindow(applyGrace: true);
+      await _recreatePlayer();
+    } finally {
+      _isForcingReset = false;
+      _markTransportProgress();
+    }
+  }
+
+  void _onAudioMutexWedged(String label, int waitedMs) {
+    debugPrint(
+      'PlayerNotifier: audio mutex wedged on "$label" after ${waitedMs}ms, forcing reset',
+    );
+    unawaited(_forceResetStuckPlayback('audio_mutex_wedged:$label'));
+  }
 
   /// Whether a controller instance is still referenced. `dispose()` must leave
   /// this false so nothing can resurrect the disposed platform channel.
@@ -1299,7 +1495,10 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   void _startTransitionWatchdog(int requestId) {
     _transitionWatchdog?.cancel();
     _transitionWatchdog = Timer(const Duration(seconds: 12), () {
-      if (!mounted || requestId != _playRequestId || !state.isTransitioning) {
+      // 只看全局的 isTransitioning，不再要求 `requestId == _playRequestId`：
+      // 当新请求已经推进了 id 却卡在队列里时，旧看门狗会被这个守卫拒绝复位，
+      // 于是该标志永久为真，连带把三处门禁（健康检查/音量守护/通知）永久关掉。
+      if (!mounted || !state.isTransitioning) {
         return;
       }
       debugPrint(
@@ -1311,6 +1510,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
           error: () => 'Playback is taking longer than expected.',
         ),
       );
+      _markTransportProgress();
     });
   }
 
@@ -1320,17 +1520,52 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   }
 
   /// Recreate the AudioPlayer when the platform channel is corrupted.
-  Future<void> _recreatePlayer() async {
+  ///
+  /// Single-flight: all seven trigger points (the `_safeStop`/`_safeSeek`
+  /// failure paths, `_handleAsyncPlayError`, `setUrl` retries and the forced
+  /// reset) funnel through here, and several are fire-and-forget. Without the
+  /// guard two concurrent rebuilds cancelled each other's subscriptions and
+  /// installed two controllers — the "double instance / crossed audio" defect
+  /// behind the freeze reports.
+  Future<void> _recreatePlayer() {
+    final inFlight = _recreateInFlight;
+    if (inFlight != null) return inFlight;
+
+    final completer = Completer<void>();
+    // Publish before doing any work so a re-entrant caller (even a synchronous
+    // one) always observes the in-flight future.
+    _recreateInFlight = completer.future;
+    unawaited(() async {
+      try {
+        await _doRecreatePlayer();
+      } catch (e, s) {
+        debugPrint('PlayerNotifier recreate failed: $e');
+        DiagnosticsService.instance.recordError('player.recreatePlayer', e, s);
+      } finally {
+        _recreateInFlight = null;
+        if (!completer.isCompleted) completer.complete();
+      }
+    }());
+    return completer.future;
+  }
+
+  Future<void> _doRecreatePlayer() async {
+    if (!mounted) return;
     debugPrint('PlayerNotifier: recreating AudioPlayer');
+    final previous = _audioController;
     for (final sub in _subscriptions) {
       await sub.cancel();
     }
     _subscriptions.clear();
     try {
-      await _audioController?.dispose().timeout(_audioDisposeTimeout);
+      await previous?.dispose().timeout(_audioDisposeTimeout);
     } catch (e) {
       debugPrint('PlayerNotifier dispose during recreate failed: $e');
     }
+    // 期间可能已被 dispose()（置空）或已有人装了更新的 controller —— 两种情况下
+    // 都不许再替换，否则会复活死掉的平台通道 / 丢掉正在用的实例。
+    if (!mounted) return;
+    if (!identical(_audioController, previous)) return;
     _audioController = _audioControllerFactory();
     _setupListeners(_audioController!);
     await _restoreControllerAudioSettings();
@@ -1694,6 +1929,10 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       } catch (e, s) {
         if (requestId != _playRequestId) return;
         _cancelTransitionWatchdog();
+        // 失败路径也必须清掉这个标志：它只在成功路径被写 false 时，恢复失败会让
+        // 之后每次 togglePlay 都重新进入这条必然失败的路径，同时把
+        // `_canCheckPlaybackHealth` 的 `!_restoredSourceNeedsLoad` 门禁永久关死。
+        _restoredSourceNeedsLoad = false;
         _setState(
           state.copyWith(
             isPlaying: false,
@@ -2076,6 +2315,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   @override
   void dispose() {
     _cancelTransitionWatchdog();
+    _stuckWatchdogTimer?.cancel();
+    _stuckWatchdogTimer = null;
     _playbackMemoryTimer?.cancel();
     _playbackHealthTimer?.cancel();
     unawaited(flushPlaybackMemory());
