@@ -23,18 +23,30 @@ class _UiStyle extends UiStyleNotifier {
 
 /// Seeds a song plus an arbitrary playback position.
 class _Player extends PlayerNotifier {
-  _Player({Duration position = Duration.zero, Duration duration = const Duration(seconds: 200)})
-    : super(
-        audioController: _Idle(),
-        audioControllerFactory: _Idle.new,
-      ) {
+  _Player({
+    Duration position = Duration.zero,
+    Duration duration = const Duration(seconds: 200),
+    bool playing = false,
+  }) : super(
+         audioController: _Idle(),
+         audioControllerFactory: _Idle.new,
+       ) {
     state = state.copyWith(
       currentSong: _song,
       playlist: const [_song],
       currentIndex: 0,
       position: position,
       duration: duration,
+      isPlaying: playing,
     );
+  }
+
+  void setPosition(Duration position) {
+    state = state.copyWith(position: position);
+  }
+
+  void setPlaying(bool playing) {
+    state = state.copyWith(isPlaying: playing);
   }
 }
 
@@ -76,12 +88,14 @@ void main() {
   Widget host({
     Duration position = Duration.zero,
     Duration duration = const Duration(seconds: 200),
+    _Player? player,
   }) {
     return ProviderScope(
       overrides: [
         uiStyleProvider.overrideWith((ref) => _UiStyle()),
         playerProvider.overrideWith(
-          (ref) => _Player(position: position, duration: duration),
+          (ref) =>
+              player ?? _Player(position: position, duration: duration),
         ),
       ],
       child: MaterialApp(
@@ -103,6 +117,10 @@ void main() {
     );
     expect(paint.foregroundPainter, isNotNull);
     return paint.foregroundPainter!;
+  }
+
+  double ringProgress(WidgetTester tester) {
+    return (ringPainter(tester) as dynamic).progress as double;
   }
 
   group('capsule perimeter progress geometry', () {
@@ -224,7 +242,210 @@ void main() {
       );
       await tester.pump();
 
-      expect((ringPainter(tester) as dynamic).progress, greaterThanOrEqualTo(1.0));
+      expect(
+        (ringPainter(tester) as dynamic).progress,
+        greaterThanOrEqualTo(1.0),
+      );
+    });
+  });
+
+  group('capsule progress interpolation', () {
+    const duration = Duration(seconds: 200);
+    const position = Duration(seconds: 40);
+
+    double progressOf(
+      CapsuleProgressInterpolation interpolation, {
+      Duration at = position,
+      bool isPlaying = true,
+      required Duration elapsed,
+    }) {
+      return interpolation.progress(
+        position: at,
+        duration: duration,
+        isPlaying: isPlaying,
+        elapsed: elapsed,
+        reducedMotion: false,
+      );
+    }
+
+    test('a pause followed by a resume never collapses the ring', () {
+      // 采样点就是锚点（权威 position 刚发布），progress = 40/200。
+      final interpolation = CapsuleProgressInterpolation(
+        position: position,
+        elapsed: const Duration(milliseconds: 40500),
+      );
+      final before = progressOf(
+        interpolation,
+        elapsed: const Duration(milliseconds: 40500),
+      );
+      expect(before, closeTo(0.2, 0.0001));
+
+      // 暂停 → 恢复。单调时钟在此期间走了 39 秒。
+      interpolation.update(
+        position: position,
+        elapsed: const Duration(milliseconds: 40500),
+        isPlaying: false,
+        wasPlaying: true,
+      );
+      interpolation.update(
+        position: position,
+        elapsed: const Duration(milliseconds: 79500),
+        isPlaying: true,
+        wasPlaying: false,
+      );
+      final after = progressOf(
+        interpolation,
+        elapsed: const Duration(milliseconds: 79516),
+      );
+
+      expect(after, greaterThanOrEqualTo(before));
+      expect(after, closeTo(0.2, 0.001));
+      // 旧实现（ticker 累计时钟在 stop→repeat 后回零）会在这里塌到 ≈0.003。
+      expect(after, greaterThan(0.15), reason: '恢复后不得塌向 0');
+    });
+
+    test('a transient playing:false frame does not rewind the ring', () {
+      // Android 在缓冲/过渡时会短暂上报 playing:false（见 player_provider 的
+      // `_shouldKeepPlayingThroughTransientState`），同样会 stop→repeat ticker。
+      final interpolation = CapsuleProgressInterpolation(
+        position: position,
+        elapsed: const Duration(milliseconds: 40500),
+      );
+      final before = progressOf(
+        interpolation,
+        elapsed: const Duration(milliseconds: 40500),
+      );
+
+      interpolation.update(
+        position: position,
+        elapsed: const Duration(milliseconds: 40516),
+        isPlaying: false,
+        wasPlaying: true,
+      );
+      interpolation.update(
+        position: position,
+        elapsed: const Duration(milliseconds: 40532),
+        isPlaying: true,
+        wasPlaying: false,
+      );
+      final after = progressOf(
+        interpolation,
+        elapsed: const Duration(milliseconds: 40548),
+      );
+
+      expect(after, greaterThanOrEqualTo(before));
+      expect(after, greaterThan(0.15));
+    });
+
+    test('resuming after a long pause does not jump forward', () {
+      final interpolation = CapsuleProgressInterpolation(
+        position: position,
+        elapsed: const Duration(seconds: 40),
+      );
+
+      interpolation.update(
+        position: position,
+        elapsed: const Duration(seconds: 40),
+        isPlaying: false,
+        wasPlaying: true,
+      );
+      // 暂停 60 秒后恢复：单调时钟已经走过 100 秒。
+      interpolation.update(
+        position: position,
+        elapsed: const Duration(seconds: 100),
+        isPlaying: true,
+        wasPlaying: false,
+      );
+
+      final after = progressOf(
+        interpolation,
+        elapsed: const Duration(seconds: 100),
+      );
+      // 不重锚会是 (40s + 60s) / 200s = 0.5，即凭空前跳。
+      expect(after, closeTo(0.2, 0.001));
+    });
+
+    test('a backwards seek drops immediately and a forward seek rises', () {
+      final interpolation = CapsuleProgressInterpolation(
+        position: const Duration(seconds: 100),
+        elapsed: const Duration(seconds: 100),
+      );
+      final before = progressOf(
+        interpolation,
+        at: const Duration(seconds: 100),
+        elapsed: const Duration(seconds: 100, milliseconds: 500),
+      );
+      expect(before, closeTo(0.5025, 0.001));
+
+      // 向后 seek 到 20s：必须立刻变小（旧实现把 anchorElapsed 清零，会大跳到 0.6）。
+      interpolation.update(
+        position: const Duration(seconds: 20),
+        elapsed: const Duration(seconds: 101),
+        isPlaying: true,
+        wasPlaying: true,
+      );
+      final afterBackwards = progressOf(
+        interpolation,
+        at: const Duration(seconds: 20),
+        elapsed: const Duration(seconds: 101),
+      );
+      expect(afterBackwards, lessThan(before));
+      expect(afterBackwards, closeTo(0.1, 0.001));
+
+      // 向前 seek 到 180s：必须立刻变大。
+      interpolation.update(
+        position: const Duration(seconds: 180),
+        elapsed: const Duration(seconds: 102),
+        isPlaying: true,
+        wasPlaying: true,
+      );
+      final afterForwards = progressOf(
+        interpolation,
+        at: const Duration(seconds: 180),
+        elapsed: const Duration(seconds: 102),
+      );
+      expect(afterForwards, greaterThan(afterBackwards));
+      expect(afterForwards, closeTo(0.9, 0.001));
+    });
+
+    test('the interpolation never falls behind the authoritative position', () {
+      // 旧 bug 的形态：锚点偏移远大于此刻的时钟值。
+      expect(
+        CapsuleProgressInterpolation.progressFor(
+          position: position,
+          duration: duration,
+          isPlaying: true,
+          elapsed: const Duration(seconds: 1),
+          anchorPosition: position,
+          anchorElapsed: const Duration(seconds: 39, milliseconds: 500),
+          reducedMotion: false,
+        ),
+        closeTo(0.2, 0.0001),
+      );
+    });
+
+    testWidgets('resuming in the real widget does not collapse the ring', (
+      tester,
+    ) async {
+      final player = _Player(position: position, playing: true);
+      await tester.pumpWidget(host(player: player));
+      await tester.pump();
+
+      // 让 ticker 累计出可观的时间，并在一次整秒 position 更新时捕获锚点偏移。
+      await tester.pump(const Duration(seconds: 39));
+      player.setPosition(const Duration(seconds: 41));
+      await tester.pump(const Duration(milliseconds: 500));
+
+      player.setPlaying(false);
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(ringProgress(tester), closeTo(0.205, 0.01));
+
+      player.setPlaying(true);
+      await tester.pump(const Duration(milliseconds: 16));
+
+      final resumed = ringProgress(tester);
+      expect(resumed, closeTo(0.205, 0.01));
+      expect(resumed, greaterThan(0.15), reason: '恢复后不得塌向 0');
     });
   });
 }

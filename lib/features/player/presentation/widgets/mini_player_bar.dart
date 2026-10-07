@@ -328,8 +328,10 @@ class _MiniPlayerBarState extends ConsumerState<MiniPlayerBar> {
 /// The player only publishes a new `position` when its **whole second** changes
 /// (`player_provider.dart`, `sec != _lastPositionSecond`), so painting the raw
 /// value would make the indicator jump once per second. This interpolates between
-/// those updates on a frame ticker, and snaps instead of interpolating after a
-/// seek or when the platform asks for reduced motion.
+/// those updates against a monotonic clock (see
+/// [CapsuleProgressInterpolation]), while the frame ticker is only a repaint
+/// driver that stops while paused. After a seek, or when the platform asks for
+/// reduced motion, the value snaps instead of interpolating.
 class _CapsuleProgressRing extends StatefulWidget {
   final Duration position;
   final Duration duration;
@@ -351,21 +353,115 @@ class _CapsuleProgressRing extends StatefulWidget {
   State<_CapsuleProgressRing> createState() => _CapsuleProgressRingState();
 }
 
+/// Interpolation for the capsule's perimeter progress.
+///
+/// Public for the same reason [CapsuleProgressGeometry] is: the defect this
+/// replaces is invisible to a frame-pumping test and unreachable from a private
+/// helper, so it reached users. The temporal math and the anchor bookkeeping are
+/// both here, free of any widget dependency, so a test can drive the exact
+/// "play → pause → resume → next whole-second update" sequence.
+class CapsuleProgressInterpolation {
+  Duration _anchorPosition;
+  Duration _anchorElapsed;
+
+  CapsuleProgressInterpolation({
+    required Duration position,
+    required Duration elapsed,
+  }) : _anchorPosition = position,
+       _anchorElapsed = elapsed;
+
+  Duration get anchorPosition => _anchorPosition;
+  Duration get anchorElapsed => _anchorElapsed;
+
+  /// Pure progress calculation; see the class docs for the contract of
+  /// [elapsed] (a **monotonic** clock that is never reset).
+  static double progressFor({
+    required Duration position,
+    required Duration duration,
+    required bool isPlaying,
+    required Duration elapsed,
+    required Duration anchorPosition,
+    required Duration anchorElapsed,
+    required bool reducedMotion,
+  }) {
+    final total = duration.inMicroseconds;
+    if (total <= 0) return 0;
+    if (reducedMotion || !isPlaying) {
+      return position.inMicroseconds / total;
+    }
+    final interpolated = anchorPosition + (elapsed - anchorElapsed);
+    // 护栏：插值不得落到最后一次权威 position 之前。正常情况下每次 position 变化
+    // 都会重新锚定，所以这条只在"插值落到权威值之前"（旧 bug 的形态）才生效，
+    // 不会挡住合法的向后 seek —— 那种情况会先重锚，插值随之立刻变小。
+    final effective = interpolated < position ? position : interpolated;
+    return effective.inMicroseconds / total;
+  }
+
+  /// Folds in a new authoritative sample from the player.
+  ///
+  /// Re-anchors on **any** position change *and* on a pause→play edge:
+  ///
+  /// * position change — the anchor's definition is "offset since the anchor",
+  ///   so a fresh authoritative position means zero offset. This also replaces
+  ///   the old `isSeek ? Duration.zero : elapsed` special case, which zeroed the
+  ///   anchor against a ticker-relative clock and made a backwards seek jump
+  ///   forwards.
+  /// * pause→play edge — [elapsed] is monotonic and therefore keeps running
+  ///   while paused, so without re-anchoring a resume after a 60s pause would
+  ///   jump the ring 60s ahead.
+  void update({
+    required Duration position,
+    required Duration elapsed,
+    required bool isPlaying,
+    required bool wasPlaying,
+  }) {
+    final resumed = isPlaying && !wasPlaying;
+    if (position != _anchorPosition || resumed) {
+      _anchorPosition = position;
+      _anchorElapsed = elapsed;
+    }
+  }
+
+  double progress({
+    required Duration position,
+    required Duration duration,
+    required bool isPlaying,
+    required Duration elapsed,
+    required bool reducedMotion,
+  }) {
+    return CapsuleProgressInterpolation.progressFor(
+      position: position,
+      duration: duration,
+      isPlaying: isPlaying,
+      elapsed: elapsed,
+      anchorPosition: _anchorPosition,
+      anchorElapsed: _anchorElapsed,
+      reducedMotion: reducedMotion,
+    );
+  }
+}
+
 class _CapsuleProgressRingState extends State<_CapsuleProgressRing>
     with SingleTickerProviderStateMixin {
-  /// Wall-clock baseline captured whenever `position` changes.
-  Duration _anchorPosition = Duration.zero;
-  Duration _anchorElapsed = Duration.zero;
-
-  /// A position jump larger than this is treated as a seek, not as playback.
-  static const _seekThreshold = Duration(seconds: 3);
+  /// Monotonic time base, started once and **never** reset.
+  ///
+  /// The ticker is only a repaint driver: its `lastElapsedDuration` is relative
+  /// to its own start, so stopping it while paused and repeating it on resume
+  /// rewound the clock by however long playback had been running — the ring
+  /// collapsed towards zero on the next frame and jumped back on the following
+  /// whole-second position update.
+  final Stopwatch _clock = Stopwatch()..start();
 
   late final AnimationController _ticker;
+  late final CapsuleProgressInterpolation _interpolation;
 
   @override
   void initState() {
     super.initState();
-    _anchorPosition = widget.position;
+    _interpolation = CapsuleProgressInterpolation(
+      position: widget.position,
+      elapsed: _elapsed,
+    );
     _ticker = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 1),
@@ -376,12 +472,12 @@ class _CapsuleProgressRingState extends State<_CapsuleProgressRing>
   @override
   void didUpdateWidget(_CapsuleProgressRing oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.position != oldWidget.position) {
-      final delta = widget.position - _anchorPosition;
-      final isSeek = delta.isNegative || delta > _seekThreshold;
-      _anchorElapsed = isSeek ? Duration.zero : _elapsed;
-      _anchorPosition = widget.position;
-    }
+    _interpolation.update(
+      position: widget.position,
+      elapsed: _elapsed,
+      isPlaying: widget.isPlaying,
+      wasPlaying: oldWidget.isPlaying,
+    );
     _syncTicker();
   }
 
@@ -394,9 +490,7 @@ class _CapsuleProgressRingState extends State<_CapsuleProgressRing>
     }
   }
 
-  Duration get _elapsed => Duration(
-    microseconds: (_ticker.lastElapsedDuration ?? Duration.zero).inMicroseconds,
-  );
+  Duration get _elapsed => _clock.elapsed;
 
   @override
   void dispose() {
@@ -404,17 +498,13 @@ class _CapsuleProgressRingState extends State<_CapsuleProgressRing>
     super.dispose();
   }
 
-  double get _progress {
-    final total = widget.duration.inMicroseconds;
-    if (total <= 0) return 0;
-
-    final reducedMotion = MediaQuery.disableAnimationsOf(context);
-    final effective = reducedMotion || !widget.isPlaying
-        ? widget.position
-        : _anchorPosition + (_elapsed - _anchorElapsed);
-
-    return effective.inMicroseconds / total;
-  }
+  double get _progress => _interpolation.progress(
+    position: widget.position,
+    duration: widget.duration,
+    isPlaying: widget.isPlaying,
+    elapsed: _elapsed,
+    reducedMotion: MediaQuery.disableAnimationsOf(context),
+  );
 
   @override
   Widget build(BuildContext context) {
