@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mconnect/core/diagnostics/diagnostics_service.dart';
 import 'package:mconnect/models/audio_quality.dart';
 import 'package:mconnect/platform/kugou/kugou_api.dart';
+import 'package:mconnect/platform/kugou/kugou_endpoints.dart';
 import 'package:mconnect/platform/kugou/kugou_platform.dart';
 
 void main() {
@@ -354,6 +355,77 @@ void main() {
       }
     }
   });
+
+  // --- v1.4.1 (task-17 §4b) ---
+
+  test('Kugou private playback endpoint is HTTPS', () async {
+    expect(KugouEndpoints.songPrivateUrl, startsWith('https://'));
+
+    final dio = Dio();
+    RequestOptions? captured;
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          captured = options;
+          handler.resolve(
+            Response(
+              requestOptions: options,
+              statusCode: 200,
+              data: {
+                'status': 1,
+                'data': {'url': 'https://tracker.example.test/private.flac'},
+              },
+            ),
+          );
+        },
+      ),
+    );
+    final api = KugouApi(dio: dio)
+      ..setSessionFields(
+        token: 'token-1',
+        userid: '10001',
+        vipToken: 'vip-token-1',
+        vipType: '6',
+      );
+
+    await api.getSongPrivatePlaybackUrl('abcdef');
+
+    expect(captured, isNotNull);
+    expect(captured!.uri.scheme, 'https');
+    expect(captured!.uri.host, 'tracker.kugou.com');
+    // The bearer token still travels (it must), but no longer in the clear.
+    expect(captured!.method, 'POST');
+  });
+
+  test(
+    'Kugou degrades to the HTTPS song info url and records the downgrade',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'mconnect_kugou_diag_fallback_',
+      );
+      await DiagnosticsService.instance.initializeForTest(tempDir);
+      try {
+        final url = await KugouPlatform(api: _SongInfoDirectUrlOnlyApi())
+            .getSongUrl('HASH_DOWNGRADE', quality: AudioLevel.lossless);
+
+        // Every higher-quality route failed, so playback falls back to the
+        // already-HTTPS `getSongInfo` url instead of failing outright.
+        expect(url, 'https://sharefs.example.test/low.mp3');
+
+        await DiagnosticsService.instance.flush();
+        final content = await DiagnosticsService.instance.logFile
+            .readAsString();
+        expect(content, contains('quality_downgraded_to_songinfo'));
+        expect(content, contains('failed_routes'));
+        expect(content, isNot(contains('token-1')));
+      } finally {
+        await DiagnosticsService.instance.resetForTest();
+        if (await tempDir.exists()) {
+          await tempDir.delete(recursive: true);
+        }
+      }
+    },
+  );
 }
 
 class _SongInfoApi extends KugouApi {
@@ -493,8 +565,53 @@ class _VipSongInfoDirectUrlApi extends KugouApi {
   }
 }
 
-class _AllRoutesFailVipApi extends KugouApi {
-  _AllRoutesFailVipApi() {
+/// `getSongInfo` still yields an (HTTPS) url, but every higher-quality route
+/// fails — the case that now degrades instead of throwing.
+class _SongInfoDirectUrlOnlyApi extends KugouApi {
+  _SongInfoDirectUrlOnlyApi() {
+    setSessionFields(
+      token: 'token-1',
+      userid: '10001',
+      vipToken: 'vip-token-1',
+      vipType: '6',
+    );
+  }
+
+  @override
+  Future<Map<String, dynamic>> getSongInfo(String hash) async {
+    return {
+      'status': 1,
+      'hash': hash,
+      'album_audio_id': 32100650,
+      'url': 'https://sharefs.example.test/low.mp3',
+    };
+  }
+
+  @override
+  Future<Map<String, dynamic>> getSongPrivatePlaybackUrl(
+    String hash, {
+    String? albumAudioId,
+    AudioLevel quality = AudioLevel.low,
+  }) async {
+    return {
+      'status': 0,
+      'data': {'url': ''},
+    };
+  }
+
+  @override
+  Future<Map<String, dynamic>> getSongPlaybackUrl(
+    String hash, {
+    String? albumId,
+    String? albumAudioId,
+    AudioLevel quality = AudioLevel.low,
+    KugouPlaybackClient client = KugouPlaybackClient.android,
+  }) async {
+    return {};
+  }
+}
+
+class _AllRoutesFailVipApi extends KugouApi {  _AllRoutesFailVipApi() {
     setSessionFields(
       token: 'token-1',
       userid: '10001',

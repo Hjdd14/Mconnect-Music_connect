@@ -406,31 +406,78 @@ void main() {
     },
   );
 
-  test('Kugou phone login stores token and userid for playlist APIs', () async {
-    final api = _PhoneLoginKugouApi();
-    final platform = KugouPlatform(api: api);
+  test(
+    'Kugou phone login is refused without issuing any network request',
+    () async {
+      final dio = Dio();
+      var requests = 0;
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            requests++;
+            handler.resolve(
+              Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: {
+                  'status': 1,
+                  'data': {'user_id': '30003', 'token': 'phone-token'},
+                },
+              ),
+            );
+          },
+        ),
+      );
+      final api = KugouApi(dio: dio);
+      final platform = KugouPlatform(api: api);
 
-    final result = await platform.loginByPhone('13800138000', '123456');
+      final codeResult = await platform.sendPhoneCode('13800138000');
+      final loginResult = await platform.loginByPhone('13800138000', '123456');
 
-    expect(result.success, isTrue);
-    expect(api.token, 'phone-token');
-    expect(api.userid, '30003');
-    expect(result.user, isNotNull);
-    expect(result.user!.id, '30003');
-  });
+      expect(platform.supportsPhoneLogin, isFalse);
+      expect(codeResult.success, isFalse);
+      expect(codeResult.error, contains('扫码'));
+      expect(loginResult.success, isFalse);
+      expect(loginResult.error, contains('扫码'));
+      expect(requests, 0, reason: 'the retired path must not hit the network');
+      expect(api.token, isNull);
+      expect(platform.isLoggedIn, isFalse);
+    },
+  );
 
-  test('Kugou concept phone login asks the user to use QR login', () async {
-    final api = _PhoneLoginKugouApi();
-    final platform = KugouPlatform(api: api)..setClientVariant('lite');
+  test(
+    'Kugou concept variant also refuses phone login without a network request',
+    () async {
+      final dio = Dio();
+      var requests = 0;
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            requests++;
+            handler.resolve(
+              Response(
+                requestOptions: options,
+                statusCode: 200,
+                data: {'status': 1},
+              ),
+            );
+          },
+        ),
+      );
+      final api = KugouApi(dio: dio);
+      final platform = KugouPlatform(api: api)..setClientVariant('lite');
 
-    final codeResult = await platform.sendPhoneCode('13800138000');
-    final loginResult = await platform.loginByPhone('13800138000', '123456');
+      final codeResult = await platform.sendPhoneCode('13800138000');
+      final loginResult = await platform.loginByPhone('13800138000', '123456');
 
-    expect(codeResult.success, isFalse);
-    expect(codeResult.error, contains('二维码'));
-    expect(loginResult.success, isFalse);
-    expect(loginResult.error, contains('二维码'));
-  });
+      expect(api.clientMode, KugouPlaybackClient.lite);
+      expect(codeResult.success, isFalse);
+      expect(codeResult.error, contains('扫码'));
+      expect(loginResult.success, isFalse);
+      expect(loginResult.error, contains('扫码'));
+      expect(requests, 0);
+    },
+  );
 
   test(
     'Kugou QR success stores extended VIP and device session fields',
@@ -559,20 +606,6 @@ class _QrSuccessProfileOnlyKugouApi extends KugouApi {
     return {
       'status': 1,
       'data': {'userid': '20002', 'nickname': 'Profile User'},
-    };
-  }
-}
-
-class _PhoneLoginKugouApi extends KugouApi {
-  @override
-  Future<Map<String, dynamic>> login(String phone, String code) async {
-    return {
-      'status': 1,
-      'data': {
-        'user_id': '30003',
-        'nick_name': 'Phone User',
-        'token': 'phone-token',
-      },
     };
   }
 }

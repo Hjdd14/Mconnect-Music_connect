@@ -25,14 +25,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   bool _loading = true;
   String? _error;
   StreamSubscription<QrLoginStatus>? _pollSubscription;
-  bool _showPhoneLogin = false;
   String _kugouAuthVariant = 'lite';
-
-  // Phone login fields
-  final _phoneController = TextEditingController();
-  final _codeController = TextEditingController();
-  bool _phoneLoading = false;
-  bool _codeLoading = false;
 
   String? get _authVariant =>
       widget.platform == PlatformType.kugou ? _kugouAuthVariant : null;
@@ -46,8 +39,6 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   @override
   void dispose() {
     _pollSubscription?.cancel();
-    _phoneController.dispose();
-    _codeController.dispose();
     super.dispose();
   }
 
@@ -91,44 +82,6 @@ class _LoginPageState extends ConsumerState<LoginPage> {
             // Allow retry
           }
         });
-  }
-
-  Future<void> _handlePhoneLogin() async {
-    final phone = _phoneController.text.trim();
-    final code = _codeController.text.trim();
-    if (phone.isEmpty || code.isEmpty) {
-      showErrorSnackBar(context, '请输入手机号和验证码');
-      return;
-    }
-    setState(() => _phoneLoading = true);
-    final result = await ref
-        .read(authProvider.notifier)
-        .loginByPhone(widget.platform, phone, code, authVariant: _authVariant);
-    if (!mounted) return;
-    setState(() => _phoneLoading = false);
-    if (result.success) {
-      if (!mounted) return;
-      showSuccessSnackBar(context, '登录成功');
-      Navigator.pop(context);
-    } else {
-      if (!mounted) return;
-      showErrorSnackBar(context, result.error ?? '登录失败');
-    }
-  }
-
-  Future<void> _handleSendCode() async {
-    final phone = _phoneController.text.trim();
-    if (phone.isEmpty) {
-      showErrorSnackBar(context, '请输入手机号');
-      return;
-    }
-    setState(() => _codeLoading = true);
-    final result = await ref
-        .read(authProvider.notifier)
-        .sendPhoneCode(widget.platform, phone, authVariant: _authVariant);
-    if (!mounted) return;
-    setState(() => _codeLoading = false);
-    showInfoSnackBar(context, result.success ? '验证码已发送' : (result.error ?? '验证码发送失败'));
   }
 
   Color _platformColor() => PlatformAccent.colorOf(context, widget.platform);
@@ -181,14 +134,15 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     final platformColor = _platformColor();
     final cs = Theme.of(context).colorScheme;
 
-    // Phone-code login is offered for Kugou only.
+    // QR-code login is the only login method.
     //
-    // It used to be offered for Netease too. That entry point is deliberately gone,
-    // so Netease logs in by QR code only. The platform layer still implements
-    // `sendPhoneCode` / `loginByPhone` and is untouched — this only removes the way
-    // to reach it, which is why re-enabling it is a one-line change here.
-    final supportsPhoneLogin = widget.platform == PlatformType.kugou;
-    // QR login is available for all registered platforms.
+    // Kugou's phone/SMS login was removed in v1.4.1 (user decision): the request
+    // carried the phone number in cleartext to a host without usable TLS, and
+    // `KugouPlatform.supportsPhoneLogin` now reports `false`. Netease's phone
+    // entry point was already gone before that, so nothing here offers it — the
+    // platform layer still *declares* `sendPhoneCode`/`loginByPhone` (the
+    // interface cannot drop them) but every implementation that had them is
+    // either refused or gone.
     final supportsQrLogin =
         widget.platform == PlatformType.netease ||
         widget.platform == PlatformType.qq ||
@@ -306,83 +260,6 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                         icon: const Icon(Icons.refresh, size: 18),
                         label: const Text('刷新二维码'),
                       ),
-                  ],
-                  // Phone login toggle
-                  if (supportsPhoneLogin) ...[
-                    const SizedBox(height: 24),
-                    const Divider(),
-                    const SizedBox(height: 12),
-                    TextButton(
-                      onPressed: () =>
-                          setState(() => _showPhoneLogin = !_showPhoneLogin),
-                      child: Text(
-                        _showPhoneLogin ? '收起手机号登录' : '使用手机号登录',
-                        style: TextStyle(color: platformColor),
-                      ),
-                    ),
-                    if (_showPhoneLogin) ...[
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _phoneController,
-                        keyboardType: TextInputType.phone,
-                        decoration: InputDecoration(
-                          labelText: '手机号',
-                          prefixIcon: const Icon(Icons.phone),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _codeController,
-                        keyboardType: TextInputType.number,
-                        decoration: InputDecoration(
-                          labelText: '验证码',
-                          prefixIcon: const Icon(Icons.sms),
-                          suffixIcon: TextButton(
-                            onPressed: _codeLoading ? null : _handleSendCode,
-                            child: _codeLoading
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Text('获取验证码'),
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: _phoneLoading ? null : _handlePhoneLogin,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: platformColor,
-                            foregroundColor: AppColors.onBrand,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child: _phoneLoading
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: AppColors.onBrand,
-                                  ),
-                                )
-                              : const Text('登录'),
-                        ),
-                      ),
-                    ],
                   ],
                 ],
               ),

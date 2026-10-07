@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 import '../../core/network/api_exception.dart';
 import '../../core/network/platform_http.dart';
 import '../../models/audio_quality.dart';
+import '../../models/platform_type.dart';
 import 'kugou_endpoints.dart';
 
 enum KugouPlaybackClient { android, lite }
@@ -31,6 +32,8 @@ class KugouApi {
     : _dio =
           dio ??
           createPlatformDio(
+            // Enables central session-expiry reporting (see platform_http).
+            platform: PlatformType.kugou,
             label: '酷狗音乐',
             headers: {
               'User-Agent':
@@ -682,7 +685,14 @@ class KugouApi {
     return _decodeResponse(res.data);
   }
 
-  /// Login with phone number
+  /// Login with phone number.
+  ///
+  /// **Unreachable from the app since v1.4.1**: Kugou is QR-login only
+  /// (`KugouPlatform.supportsPhoneLogin == false`, and `loginByPhone` refuses
+  /// before calling this). Kept only so the method that used to work still
+  /// exists for reference; do NOT re-enable — `loginIndex` and
+  /// `sendMobileCode` are cleartext hosts, and `login.user.kugou.com` has no
+  /// usable TLS (probe: docs/kugou-cleartext-probe.md).
   Future<Map<String, dynamic>> login(String phone, String code) async {
     final res = await _dio.post(
       KugouEndpoints.loginIndex,
@@ -692,6 +702,9 @@ class KugouApi {
   }
 
   /// Request a phone verification code.
+  ///
+  /// **Unreachable from the app since v1.4.1** — see [login]. Sending a phone
+  /// number over this host would be cleartext with no TLS alternative.
   Future<Map<String, dynamic>> sendMobileCode(String phone) async {
     final res = await _dio.post(
       KugouEndpoints.sendMobileCode,

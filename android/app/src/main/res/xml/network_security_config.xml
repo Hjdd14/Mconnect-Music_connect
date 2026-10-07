@@ -9,13 +9,19 @@
 
   改后：默认禁止明文，只对确实没有 HTTPS 的服务放行：
 
-  * kugou.com —— 酷狗 16 个明文端点分布在 mobilecdn.kugou.com、
-    mobilecdnbj.kugou.com、login.user.kugou.com 上；实测这些主机的 443
-    不可用（TLS 握手直接失败），所以必须保留明文。同一域下还有封面图
-    （imge.kugou.com、singerimg.kugou.com，接口返回的就是 http 链接）。
-    m.kugou.com/?json=true（首页推荐）同样是 http。
-    已经改走 HTTPS 的酷狗端点：getSongInfo（播放地址）、lyrics.kugou.com、
-    krcs.kugou.com —— 见 kugou_endpoints.dart 的注释。
+  * kugou.com —— 酷狗十余个明文端点分布在 mobilecdn.kugou.com、
+    mobilecdnbj.kugou.com、login.user.kugou.com 上。v1.4.1 用 Dart 探针
+    （scripts/test_kugou_tls_probe.dart，证书校验开启）复查：这些主机 443 上
+    的证书**主机名不匹配**（CERTIFICATE_VERIFY_FAILED: Hostname mismatch），
+    客户端必然拒绝，因此只能保留明文。同一域下还有封面图（imge.kugou.com、
+    singerimg.kugou.com，接口返回的就是 http 链接），首页推荐
+    m.kugou.com/?json=true 同样是 http。
+    已经改走 HTTPS 的酷狗端点：getSongInfo、songPrivateUrl（私密取流）、
+    lyrics.kugou.com、krcs.kugou.com —— 见 kugou_endpoints.dart 的注释。
+    ⚠️ v1.4.1「酷狗只留扫码登录」**不改变本文件**：`login.user.kugou.com`
+    从来不是独立条目，`kugou.com` 这一条还支撑 search/rank/singer/album/
+    homepage/collect/vip 等端点，故白名单**条数未变**（详见
+    docs/kugou-cleartext-probe.md）。
   * kgcdn.com —— 酷狗 CDN 域名族（fs.kgcdn.com 等）。属于兜底：本次探针里
     实际拿到的播放地址是 https://sharefs.kugou.com（详见报告），保留此项是
     为了避免线上 v5 取流路由返回该域名的明文地址时播放直接失败。
@@ -24,8 +30,10 @@
     isure.stream.qqmusic.qq.com / aqqmusic.tc.qq.com 等取流主机（WS-C），
     同上，保留以免收窄后 QQ 播放回归。
 
-  残余风险（无法用白名单消除，见 WS-D 报告）：裸 IP 的播放直链无法列入
-  domain-config；同一 kugou.com 域内的明文端点仍可被同路径中间人改写。
+  残余风险（无法用白名单消除，见 docs/kugou-cleartext-probe.md）：裸 IP 的
+  播放直链无法列入 domain-config；mobilecdn* 上的读接口与带 token 的
+  collect/uncollect、user/vip 仍是明文，同一 kugou.com 域内的明文端点仍可被
+  同路径中间人改写。
 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false">

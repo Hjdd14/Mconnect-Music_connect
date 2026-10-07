@@ -133,7 +133,7 @@ void main() {
     expect(platform.supportsDailyRecommendations, isTrue);
     expect(platform.supportsArtistPage, isTrue);
     expect(platform.supportsAlbumPage, isTrue);
-    expect(platform.supportsPhoneLogin, isTrue);
+    expect(platform.supportsPhoneLogin, isFalse);
     expect(platform.supportsNewSongs, isFalse);
   });
 

@@ -1,0 +1,42 @@
+== 酷狗明文主机 443 可用性（Dart 栈，证书校验开启） ==
+
+--- tracker.kugou.com（私密取流地址 priv_url）
+    HTTPS https://tracker.kugou.com/v6/priv_url
+    => HTTPS OK  http=200 len=57 99ms json keys=status,error_code,message status=0
+    => HTTP  OK  http=200 len=57 (对照)
+
+--- mobilecdn.kugou.com/api/v2/user/vip（token 在 query）
+    HTTPS https://mobilecdn.kugou.com/api/v2/user/vip?format=json
+    => HTTPS FAIL HandshakeException: HandshakeException: Handshake error in client (OS Error: 
+	CERTIFICATE_VERIFY_FAILED: Hostname mismatch(../../third_party/boringssl/src/ssl/handshake.cc:320))
+    => HTTP  OK  http=404 len=166 (对照)
+
+--- mobilecdn.kugou.com/api/v5/song/collect（token 在 query）
+    HTTPS https://mobilecdn.kugou.com/api/v5/song/collect?hash=E2948B4513F34F7A4C7767EAD15BC4F8
+    => HTTPS FAIL HandshakeException: HandshakeException: Handshake error in client (OS Error: 
+	CERTIFICATE_VERIFY_FAILED: Hostname mismatch(../../third_party/boringssl/src/ssl/handshake.cc:320))
+    => HTTP  OK  http=404 len=166 (对照)
+
+--- mobilecdn.kugou.com/api/v3/rank/list（对照：已确认走 http 的读接口）
+    HTTPS https://mobilecdn.kugou.com/api/v3/rank/list?format=json&withsong=0&plat=0&page=1&pagesize=1
+    => HTTPS FAIL HandshakeException: HandshakeException: Handshake error in client (OS Error: 
+	CERTIFICATE_VERIFY_FAILED: Hostname mismatch(../../third_party/boringssl/src/ssl/handshake.cc:320))
+    => HTTP  OK  http=200 len=37325 (对照)
+
+--- mobilecdnbj.kugou.com/api/v3/singer/info（对照）
+    HTTPS https://mobilecdnbj.kugou.com/api/v3/singer/info?singerid=3060
+    => HTTPS FAIL HandshakeException: HandshakeException: Handshake error in client (OS Error: 
+	CERTIFICATE_VERIFY_FAILED: Hostname mismatch(../../third_party/boringssl/src/ssl/handshake.cc:320))
+    => HTTP  OK  http=200 len=2462 (对照)
+
+--- login.user.kugou.com/v7/send_mobile_code（手机号，UI 即将不可达）
+    HTTPS https://login.user.kugou.com/v7/send_mobile_code
+    => HTTPS FAIL HandshakeException: HandshakeException: Handshake error in client (OS Error: 
+	CERTIFICATE_VERIFY_FAILED: Hostname mismatch(../../third_party/boringssl/src/ssl/handshake.cc:320))
+    => HTTP  OK  http=200 len=44 (对照)
+
+--- m.kugou.com/app/i/getSongInfo.php（已改 HTTPS，回归对照）
+    HTTPS https://m.kugou.com/app/i/getSongInfo.php?cmd=playInfo&hash=E2948B4513F34F7A4C7767EAD15BC4F8
+    => HTTPS OK  http=200 len=2706 46ms json keys=authors,hash,author_name,imgUrl,status,audio_id status=1
+
+Running build hooks...Running build hooks...

@@ -1,7 +1,13 @@
 class KugouEndpoints {
   KugouEndpoints._();
 
-  // CDN endpoints (HTTP to avoid SSL certificate issues)
+  // NOTE (v1.4.1): several endpoints below are plain HTTP because their host has
+  // **no usable TLS** — `mobilecdn.kugou.com`, `mobilecdnbj.kugou.com` and
+  // `login.user.kugou.com` answer 443 with `CERTIFICATE_VERIFY_FAILED: Hostname
+  // mismatch` (probe: scripts/test_kugou_tls_probe.dart). Those hosts are why
+  // `network_security_config.xml` still needs a `kugou.com` cleartext entry;
+  // endpoints whose host *does* serve TLS have been moved to HTTPS (songInfo,
+  // songPrivateUrl, lyrics/krcs). See docs/kugou-cleartext-probe.md.
   static const String searchBase =
       'http://mobilecdn.kugou.com/api/v3/search/song';
   static const String playlistSearch =
@@ -14,7 +20,15 @@ class KugouEndpoints {
   /// so it is deliberately **not** on the cleartext allowlist any more.
   static const String songInfo = 'https://m.kugou.com/app/i/getSongInfo.php';
   static const String songPlaybackUrl = 'https://gateway.kugou.com/v5/url';
-  static const String songPrivateUrl = 'http://tracker.kugou.com/v6/priv_url';
+
+  /// VIP / 私密取流 (`v6/priv_url`).
+  ///
+  /// Moved to HTTPS in v1.4.1 (task-17 §4b): the response carries a **private
+  /// stream URL**, so a cleartext response rewritten on-path would be persisted
+  /// by the download manager — the same risk class as [songInfo]. Probe
+  /// (`scripts/test_kugou_tls_probe.dart`, 2026-10-06): `tracker.kugou.com`
+  /// completes TLS with a valid certificate (`HTTP 200`).
+  static const String songPrivateUrl = 'https://tracker.kugou.com/v6/priv_url';
   static const String lyricsSearch = 'https://lyrics.kugou.com/search';
   static const String lyricsSearchByHash = 'https://krcs.kugou.com/search';
   static const String lyricsDownload = 'https://lyrics.kugou.com/download';
@@ -64,9 +78,13 @@ class KugouEndpoints {
   static const String qrLoginPage =
       'https://h5.kugou.com/apps/loginQRCode/html/index.html';
 
-  /// Phone + SMS-code login. HTTPS is **not** available on this host (verified:
-  /// TLS handshake fails, plain HTTP answers 200), so it stays on the
-  /// cleartext allowlist — see `network_security_config.xml`.
+  /// Phone + SMS-code login. **Unreachable from the UI since v1.4.1** — Kugou is
+  /// QR-login only (`KugouPlatform.supportsPhoneLogin == false`), and this
+  /// constant is kept solely so the retired API method still compiles.
+  ///
+  /// Do not wire it back up without first fixing the transport: this host has
+  /// **no usable TLS** (probe 2026-10-06: `CERTIFICATE_VERIFY_FAILED: Hostname
+  /// mismatch`), so the phone number and the SMS code would travel in cleartext.
   static const String sendMobileCode =
       'http://login.user.kugou.com/v7/send_mobile_code';
 
@@ -81,6 +99,14 @@ class KugouEndpoints {
       'http://mobilecdnbj.kugou.com/api/v5/special/song';
   static const String userPlaylistSongs =
       'https://gateway.kugou.com/v4/get_list_all_file';
+  /// Collect / uncollect a song. **Cleartext with the session token in the
+  /// query string** — accepted residual risk, not an oversight:
+  /// `mobilecdn.kugou.com` has no usable TLS (probe 2026-10-06:
+  /// `CERTIFICATE_VERIFY_FAILED: Hostname mismatch`), so the only alternatives
+  /// are "leave the like button broken" or "accept that an on-path attacker can
+  /// read the token and forge a like". The token is the user's own and the
+  /// action is reversible, so the feature is kept and the risk documented; see
+  /// `docs/kugou-cleartext-probe.md`.
   static const String songCollect =
       'http://mobilecdn.kugou.com/api/v5/song/collect';
   static const String songUncollect =
@@ -88,6 +114,9 @@ class KugouEndpoints {
   static const String rankSong = 'http://mobilecdn.kugou.com/api/v3/rank/song';
   static const String loginIndex =
       'http://mobilecdn.kugou.com/api/v2/login/index';
+
+  /// VIP status. Same cleartext + token-in-query caveat as [songCollect]; this
+  /// one is read-only.
   static const String vipInfoApi = 'http://mobilecdn.kugou.com/api/v2/user/vip';
   static const String playlistAdd =
       'https://gateway.kugou.com/cloudlist.service/v5/add_list';

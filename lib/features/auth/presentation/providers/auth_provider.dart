@@ -171,42 +171,14 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  /// Login via phone (Netease and Kugou support this)
-  Future<LoginResult> sendPhoneCode(
-    PlatformType platform,
-    String phone, {
-    String? authVariant,
-  }) async {
-    try {
-      final impl = PlatformRegistry.get(platform);
-      _configureKugouVariant(impl, authVariant);
-      return await impl.sendPhoneCode(phone);
-    } catch (e) {
-      return LoginResult(success: false, error: e.toString());
-    }
-  }
-
-  Future<LoginResult> loginByPhone(
-    PlatformType platform,
-    String phone,
-    String code, {
-    String? authVariant,
-  }) async {
-    try {
-      final impl = PlatformRegistry.get(platform);
-      _configureKugouVariant(impl, authVariant);
-      final result = await impl.loginByPhone(phone, code);
-      if (result.success) {
-        state = state.copyWith(
-          loggedUsers: {...state.loggedUsers, platform: result.user},
-        );
-        await _saveSession(platform);
-      }
-      return result;
-    } catch (e) {
-      return LoginResult(success: false, error: e.toString());
-    }
-  }
+  /// Login via phone.
+  ///
+  /// Removed in v1.4.1 together with the login page's phone form: nothing in the
+  /// app offers phone login any more (Kugou — the last platform that had a UI for
+  /// it — is QR-only now, and its platform implementation refuses without a
+  /// network call). Re-adding the UI means re-adding these two methods; the
+  /// transport problem they would hit is documented in
+  /// `docs/kugou-cleartext-probe.md`.
 
   /// Logout from a platform
   Future<void> logout(PlatformType platform) async {

@@ -47,9 +47,16 @@ class KugouPlatform extends MusicPlatform {
   @override
   bool get supportsDailyRecommendations => true;
 
-  /// Phone + SMS-code login is implemented in [sendPhoneCode]/[loginByPhone].
+  /// Kugou is **QR-code login only** since v1.4.1.
+  ///
+  /// The phone/SMS path was removed both here and in the login page: its
+  /// request would carry the phone number (and the code) in cleartext, and
+  /// `login.user.kugou.com` has no usable TLS
+  /// (docs/kugou-cleartext-probe.md). [MusicPlatform.sendPhoneCode] and
+  /// `loginByPhone` cannot be deleted from the interface (8 test doubles
+  /// override them), so they stay as explicit refusals.
   @override
-  bool get supportsPhoneLogin => true;
+  bool get supportsPhoneLogin => false;
 
   @override
   bool get supportsArtistPage => true;
@@ -309,53 +316,28 @@ class KugouPlatform extends MusicPlatform {
     return false;
   }
 
+  /// Retired in v1.4.1: Kugou is QR-only. Returns a refusal **without issuing
+  /// any network request** — the request used to put the phone number on the
+  /// wire in cleartext to a host that cannot be reached over TLS.
   @override
   Future<LoginResult> sendPhoneCode(String phone) async {
-    if (_api.clientMode == KugouPlaybackClient.lite) {
-      return const LoginResult(success: false, error: '酷狗概念版请使用二维码登录');
-    }
-    try {
-      final res = await _api.sendMobileCode(phone);
-      final status = res['status'];
-      final error = res['error_msg'] ?? res['msg'] ?? res['message'];
-      if (status == 1 ||
-          status == true ||
-          res['code'] == 0 ||
-          res['errcode'] == 0) {
-        return const LoginResult(success: true);
-      }
-      return LoginResult(success: false, error: error?.toString() ?? '验证码发送失败');
-    } catch (e) {
-      return LoginResult(success: false, error: e.toString());
-    }
+    return const LoginResult(
+      success: false,
+      error: _phoneLoginRetiredMessage,
+    );
   }
 
+  /// Retired in v1.4.1 — see [sendPhoneCode]. No network request is made.
   @override
   Future<LoginResult> loginByPhone(String phone, String code) async {
-    if (_api.clientMode == KugouPlaybackClient.lite) {
-      return const LoginResult(success: false, error: '酷狗概念版请使用二维码登录');
-    }
-    try {
-      final res = await _api.login(phone, code);
-      if (_isSuccessResponse(res)) {
-        final data = res['data'];
-        _syncApiSessionFields(data);
-        _syncApiSessionFields(res);
-        final userid = _extractUserId(data) ?? _extractUserId(res);
-        _currentUser = data is Map
-            ? _userFromData(data, fallbackUserId: userid)
-            : User(
-                id: userid ?? '',
-                nickname: '閰风嫍鐢ㄦ埛',
-                platform: PlatformType.kugou,
-              );
-        return LoginResult(success: true, user: _currentUser);
-      }
-      return LoginResult(success: false, error: res['error_msg'] ?? '登录失败');
-    } catch (e) {
-      return LoginResult(success: false, error: e.toString());
-    }
+    return const LoginResult(
+      success: false,
+      error: _phoneLoginRetiredMessage,
+    );
   }
+
+  static const String _phoneLoginRetiredMessage =
+      '酷狗已不再支持手机号登录，请使用扫码登录';
 
   @override
   Future<User?> getUserInfo() async => _currentUser;
@@ -622,6 +604,27 @@ class KugouPlatform extends MusicPlatform {
       ),
     );
     if (liteUrl != null) return liteUrl;
+
+    // Last resort: the play info URL we already fetched from the *HTTPS*
+    // `getSongInfo` endpoint. Reached when the higher-quality routes fail, so
+    // playback degrades to whatever bitrate that URL carries instead of failing
+    // outright — and unlike the retired cleartext path it cannot be rewritten
+    // on-path. The downgrade is recorded, not hidden.
+    if (playUrl != null && playUrl.isNotEmpty) {
+      DiagnosticsService.instance.record(
+        'kugou_playback',
+        'quality_downgraded_to_songinfo',
+        data: {
+          'song_id_hash_prefix': songId.length >= 8
+              ? songId.substring(0, 8)
+              : songId,
+          'requested_quality': quality.name,
+          'kugou_client': _api.clientModeName,
+          'failed_routes': failures.join(','),
+        },
+      );
+      return playUrl;
+    }
 
     DiagnosticsService.instance.record(
       'kugou_playback',
