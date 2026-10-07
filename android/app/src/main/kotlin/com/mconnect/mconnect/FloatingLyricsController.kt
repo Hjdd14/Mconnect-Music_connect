@@ -318,6 +318,12 @@ class FloatingLyricsController(
             configureMarquee()
             textSize = (fontSize * TRANSLATION_FONT_SCALE).coerceAtLeast(11f)
         }
+        // Row order matters and is asserted by a source test: the line being
+        // sung, then *its own* translation, then the upcoming line.
+        //
+        // The payload's `translation` belongs to `text` (see
+        // floating_lyrics_provider.dart), so adding `nextText` before it put the
+        // next line between a line and its translation, which read as noise.
         lyricsColumn.addView(
             lyricText,
             LinearLayout.LayoutParams(
@@ -326,7 +332,7 @@ class FloatingLyricsController(
             ),
         )
         lyricsColumn.addView(
-            nextText,
+            translationText,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -335,7 +341,7 @@ class FloatingLyricsController(
             },
         )
         lyricsColumn.addView(
-            translationText,
+            nextText,
             LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
