@@ -37,17 +37,26 @@ void main() {
   // The 「自动换源」 switch had a provider-level test (`source_match_test.dart`)
   // but nothing that ever *tapped the row*: deleting the `onChanged` wiring in
   // the settings page would have left every existing test green.
-  // ⚠️ SKIPPED, and the reason is a real open item rather than flake:
-  // this case never finishes on this build (it consumes the full 10-minute
-  // per-test timeout, which also stalls the whole suite). Bounded pumps replaced
-  // every `pumpAndSettle` in the test *and* in `_dragUntilTextVisible`, so the
-  // stall is not the page's always-on animation settling — some awaited step
-  // simply never completes, and locating it needs a bisect I have not spent the
-  // budget on. The A-6a gap it was written to close (the 自动换源 switch is
-  // asserted nowhere at the widget level) therefore remains OPEN.
-  // Next increment: bisect with a per-step `debugPrint`, then either fix the step
-  // and delete this `skip`, or narrow the case to the switch alone (no drag, no
-  // page) so it cannot depend on this page's lifecycle.
+  // ⚠️ SKIPPED, and the reason is a real open item rather than flake.
+  //
+  // BISECTED — do not redo this: the body **completes**. Six `print('STEP n')`
+  // markers (before/after pumpWidget, before/after the drag, before/after each
+  // tap) all fire — twice for the two taps — and the test still dies on its own
+  // timeout (`TimeoutException after 0:00:30` with `timeout: Timeout(30s)`).
+  // So the stall is NOT an awaited step in the body, and NOT `pumpAndSettle`
+  // waiting on this page's always-on animation either: every `pumpAndSettle` in
+  // this test *and* in `_dragUntilTextVisible` was already replaced with bounded
+  // pumps before the bisect.
+  // What is left is the **teardown / pending-async** phase — something started
+  // during the test (a provider's unawaited work, or a timer this page schedules)
+  // never settles and the binding waits for it after the body returns.
+  // NEXT INCREMENT: `addTearDown` probes plus `binding.transientCallbackCount` /
+  // the pending-timer list at the end of the body. The answer is there, not in
+  // the steps.
+  //
+  // The gap A-6a exists to close (the 自动换源 switch is asserted nowhere at widget
+  // level) therefore remains OPEN. A skipped test beats a hanging one: the hang
+  // eats the full timeout and stalls the whole suite.
   testWidgets('the 自动换源 switch is wired to the provider and flips it', (
     tester,
   ) async {
