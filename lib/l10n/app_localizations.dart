@@ -1339,6 +1339,30 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'暂无歌单，或当前平台未登录'**
   String get libraryPlaylistsEmpty;
+
+  /// No description provided for @libraryMyPlaylistsEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂无我的歌单，可点击右上角新建或从分享链接导入'**
+  String get libraryMyPlaylistsEmpty;
+
+  /// No description provided for @librarySongCount.
+  ///
+  /// In zh, this message translates to:
+  /// **'{count} 首'**
+  String librarySongCount(int count);
+
+  /// No description provided for @libraryPlaylistActions.
+  ///
+  /// In zh, this message translates to:
+  /// **'歌单操作'**
+  String get libraryPlaylistActions;
+
+  /// No description provided for @libraryExportPlaylist.
+  ///
+  /// In zh, this message translates to:
+  /// **'导出歌单'**
+  String get libraryExportPlaylist;
 }
 
 class _AppLocalizationsDelegate

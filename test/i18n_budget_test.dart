@@ -101,7 +101,20 @@ void main() {
   //   `libraryDeletePlaylistFailed`、`commonDelete`（+ 复用 `actionCancel`）。
   //   整棵树 900/98 → **882/98**（−18，与文件实测吻合）；孤儿仍为 **0**。
   //   ⚠️ 该文件**还剩 15 处**（导出/二维码/分享 + 列表空态/错误区），下一批继续。
-  const baselineTotal = 882;
+  //
+  // W3-D B4-2（继续，`platform_playlists_page` 的列表/空态/菜单区）：
+  //   该文件 15 → **13**（平台 tab 错误态 `'加载歌单失败'`→复用
+  //   `libraryPlaylistLoadFailed`、空态 `'暂无歌单，或当前平台未登录'`→
+  //   `libraryPlaylistsEmpty`），再 13 → **7**（`_MyPlaylistsTab`：错误态复用
+  //   `libraryPlaylistLoadFailed`、空态→`libraryMyPlaylistsEmpty`、
+  //   `'{n} 首'`→`librarySongCount(n)`、`'歌单操作'`→`libraryPlaylistActions`、
+  //   菜单 `'导出歌单'`→`libraryExportPlaylist`、`'删除歌单'`→复用 `libraryDeletePlaylist`）。
+  //   新增 6 个 key（`libraryPlaylistsEmpty`/`libraryMyPlaylistsEmpty`/
+  //   `librarySongCount`/`libraryPlaylistActions`/`libraryExportPlaylist` +
+  //   上一片的 `libraryPlaylistLoadFailed`）。
+  //   整棵树 882/98 → **876/98**（−6，与文件实测吻合）；**孤儿 = 0**。
+  //   ⚠️ 该文件**还剩 7 处**（导出/二维码/分享区），下一批继续。
+  const baselineTotal = 876;
   const baselineFiles = 98;
 
   test('lib/ 的硬编码中文不得超过基线（总数与文件数都不许涨）', () {

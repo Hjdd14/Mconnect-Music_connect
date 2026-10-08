@@ -680,4 +680,18 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get libraryPlaylistsEmpty => '暂无歌单，或当前平台未登录';
+
+  @override
+  String get libraryMyPlaylistsEmpty => '暂无我的歌单，可点击右上角新建或从分享链接导入';
+
+  @override
+  String librarySongCount(int count) {
+    return '$count 首';
+  }
+
+  @override
+  String get libraryPlaylistActions => '歌单操作';
+
+  @override
+  String get libraryExportPlaylist => '导出歌单';
 }

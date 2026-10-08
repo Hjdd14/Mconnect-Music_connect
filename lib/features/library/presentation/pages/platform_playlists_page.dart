@@ -552,20 +552,19 @@ class _MyPlaylistsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final l = context.l10n;
     if (state.isLoading && state.playlists.isEmpty) {
       return const AsyncStateView.loading();
     }
     if (state.error != null && state.playlists.isEmpty) {
       return AsyncStateView.error(
-        title: '加载歌单失败',
+        title: l.libraryPlaylistLoadFailed,
         message: state.error!,
         onRetry: onRetry,
       );
     }
     if (state.playlists.isEmpty) {
-      return const AsyncStateView.empty(
-        title: '暂无我的歌单，可点击右上角新建或从分享链接导入',
-      );
+      return AsyncStateView.empty(title: l.libraryMyPlaylistsEmpty);
     }
     return Column(
       children: [
@@ -594,9 +593,9 @@ class _MyPlaylistsTab extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  subtitle: Text('${playlist.songCount} 首'),
+                  subtitle: Text(l.librarySongCount(playlist.songCount)),
                   trailing: PopupMenuButton<String>(
-                    tooltip: '歌单操作',
+                    tooltip: l.libraryPlaylistActions,
                     onSelected: (value) {
                       switch (value) {
                         case 'export':
@@ -607,19 +606,19 @@ class _MyPlaylistsTab extends StatelessWidget {
                           break;
                       }
                     },
-                    itemBuilder: (context) => const [
+                    itemBuilder: (context) => [
                       PopupMenuItem(
                         value: 'export',
                         child: ListTile(
-                          leading: Icon(Icons.ios_share),
-                          title: Text('导出歌单'),
+                          leading: const Icon(Icons.ios_share),
+                          title: Text(l.libraryExportPlaylist),
                         ),
                       ),
                       PopupMenuItem(
                         value: 'delete',
                         child: ListTile(
-                          leading: Icon(Icons.delete_outline),
-                          title: Text('删除歌单'),
+                          leading: const Icon(Icons.delete_outline),
+                          title: Text(l.libraryDeletePlaylist),
                         ),
                       ),
                     ],

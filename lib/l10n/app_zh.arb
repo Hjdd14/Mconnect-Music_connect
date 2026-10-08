@@ -403,5 +403,17 @@
   "commonDelete": "删除",
 
   "libraryPlaylistLoadFailed": "加载歌单失败",
-  "libraryPlaylistsEmpty": "暂无歌单，或当前平台未登录"
+  "libraryPlaylistsEmpty": "暂无歌单，或当前平台未登录",
+
+  "libraryMyPlaylistsEmpty": "暂无我的歌单，可点击右上角新建或从分享链接导入",
+  "librarySongCount": "{count} 首",
+  "@librarySongCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryPlaylistActions": "歌单操作",
+  "libraryExportPlaylist": "导出歌单"
 }

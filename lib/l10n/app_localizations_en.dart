@@ -705,4 +705,19 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get libraryPlaylistsEmpty =>
       'No playlists yet, or you are not signed in on this platform';
+
+  @override
+  String get libraryMyPlaylistsEmpty =>
+      'No playlists yet — create one from the top right, or import a share link';
+
+  @override
+  String librarySongCount(int count) {
+    return '$count songs';
+  }
+
+  @override
+  String get libraryPlaylistActions => 'Playlist actions';
+
+  @override
+  String get libraryExportPlaylist => 'Export playlist';
 }
