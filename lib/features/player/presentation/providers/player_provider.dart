@@ -26,6 +26,20 @@ import '../../data/playback_notification_service.dart' as playback_notification;
 
 export '../../data/player_audio_controller.dart';
 
+// ── Wave 1-A 拆分地图（part 而不是模块边界） ───────────────────────────────
+// 4 个 part 与本文件**同一个库**：它们共享下面 PlayerNotifier 的每个私有字段，
+// 所以这是"行为搬出去、状态留在 facade"，不是可独立复用的模块。
+//   data/playback_health_monitor.dart      健康监测 + 卡死看门狗 + 停滞自愈 + 音量守护 + _AudioMutex
+//   data/playback_fade_controller.dart     淡入淡出 + 音量 + 播放选项（倍速/跳过静音/A-B）
+//   data/playback_memory_coordinator.dart  断点续播 + A-2 播放偏好落盘
+//   data/notification_state_sync.dart      通知/MediaSession 与「喜欢」状态同步
+// NOTE the `../../`: this file lives in presentation/providers/, so `..` alone
+// would resolve to presentation/data/ — the parts are in features/player/data/.
+part '../../data/playback_health_monitor.dart';
+part '../../data/playback_fade_controller.dart';
+part '../../data/playback_memory_coordinator.dart';
+part '../../data/notification_state_sync.dart';
+
 enum RepeatMode { off, all, one }
 
 typedef SongLikeResolver = bool Function(Song song);
@@ -83,7 +97,27 @@ enum PlaybackFailureKind { unavailable, vipRequired, network, unknown }
 /// `PlayerState.currentQuality`）的通用货币就是档位，换源方要的也正是"还能接受
 /// 的最低档"。
 typedef CrossSourceResolver =
-    Future<String?> Function(Song song, AudioLevel quality);
+    Future<CrossSourceResult?> Function(Song song, AudioLevel quality);
+
+/// 一次跨源换源的结果（Wave 1-A）。
+///
+/// 失败链只要 URL，但播放页的「已换源 · 来自 X」角标需要**来源平台**——两者是同一次
+/// 解析的产物，所以一起返回，而不是让调用方再反查一次。
+class CrossSourceResult {
+  const CrossSourceResult({
+    required this.url,
+    this.platform,
+    this.fromCache = false,
+  });
+
+  final String url;
+
+  /// 直链来自哪个内置平台（角标用）。
+  final PlatformType? platform;
+
+  /// 直链是缓存命中（未过期）还是本轮重新解析。
+  final bool fromCache;
+}
 
 /// 一次失败的 `playSong` 尝试，交给失败链处理（Wave 0-A / item 2）。
 class _PlaybackFailure {
@@ -161,6 +195,12 @@ class PlayerState {
   final Duration? abLoopStart;
   final Duration? abLoopEnd;
 
+  /// 当前音频**实际来自哪个平台**（Wave 1-A 跨源换源）。
+  ///
+  /// `null` = 就是 [currentSong] 自己的平台（正常播放）；非 null 且与
+  /// `currentSong.platform` 不同时，播放页显示「已换源 · 来自 X」角标。
+  final PlatformType? sourcePlatform;
+
   const PlayerState({
     this.currentSong,
     this.playlist = const [],
@@ -178,6 +218,7 @@ class PlayerState {
     this.skipSilence = false,
     this.abLoopStart,
     this.abLoopEnd,
+    this.sourcePlatform,
   });
 
   bool get hasAbLoop => abLoopStart != null && abLoopEnd != null;
@@ -199,6 +240,7 @@ class PlayerState {
     bool? skipSilence,
     Duration? Function()? abLoopStart,
     Duration? Function()? abLoopEnd,
+    PlatformType? Function()? sourcePlatform,
   }) {
     return PlayerState(
       currentSong: currentSong ?? this.currentSong,
@@ -217,101 +259,65 @@ class PlayerState {
       skipSilence: skipSilence ?? this.skipSilence,
       abLoopStart: abLoopStart != null ? abLoopStart() : this.abLoopStart,
       abLoopEnd: abLoopEnd != null ? abLoopEnd() : this.abLoopEnd,
+      sourcePlatform: sourcePlatform != null
+          ? sourcePlatform()
+          : this.sourcePlatform,
     );
   }
-}
 
-/// Simple async mutex to serialize audio operations and prevent platform channel deadlocks.
-///
-/// It stays the **single** serialization point (running transport calls
-/// concurrently is what deadlocks just_audio's platform channel), but it is no
-/// longer unbounded: a wedged holder used to block every later tap at
-/// `await prev` forever, which is exactly the "app freezes, must be force-killed"
-/// chain from the device logs (frozen `position_ms`, `is_playing:false`,
-/// six process restarts in eight minutes).
-class _AudioMutex {
-  _AudioMutex({
-    this.onWedged,
-    this.waitTimeout = const Duration(seconds: 8),
-    this.maxPending = 8,
-  });
-
-  /// Invoked (fire-and-forget) when waiting for the previous holder timed out.
-  final void Function(String label, int waitedMs)? onWedged;
-
-  /// How long a waiter may block on the previous holder before it gives up and
-  /// runs its own operation anyway. Every inner await of a healthy operation is
-  /// bounded by its own timeout (≤10s), so exceeding this means a wedge.
-  final Duration waitTimeout;
-
-  /// Upper bound on queued waiters. Past it a waiter stops waiting (and a
-  /// diagnostic is recorded) instead of growing an unbounded chain.
-  final int maxPending;
-
-  Future<void>? _last;
-  int _pending = 0;
-
-  @visibleForTesting
-  int get pendingCount => _pending;
-
-  Future<T> run<T>(Future<T> Function() fn, {String label = 'audio'}) async {
-    final completer = Completer<void>();
-    final prev = _last;
-    _last = completer.future;
-    // The `try` (and therefore the `finally`) covers everything after the
-    // completer is published: a synchronous throw can no longer leave
-    // `_last` pointing at a future that is never completed, which used to
-    // strand every subsequent waiter forever.
-    final wait = Stopwatch()..start();
-    _pending++;
-    try {
-      if (prev != null) {
-        if (_pending > maxPending) {
-          // 队列超出上界：不再等待，直接执行本次操作并记诊断。
-          // （无法"踢掉"已经在 await 上的最老等待者；而它的等待本身也会先于
-          // 本调用被 waitTimeout 解开，所以这里放弃等待即可给队列封顶。）
-          DiagnosticsService.instance.record(
-            'slow_operation',
-            'audio_mutex_overflow',
-            data: {
-              'label': label,
-              'pending': _pending,
-              'max_pending': maxPending,
-            },
-          );
-        } else {
-          try {
-            await prev.timeout(waitTimeout);
-          } on TimeoutException {
-            DiagnosticsService.instance.record(
-              'player',
-              'audio_mutex_wedged',
-              data: {
-                'label': label,
-                'waited_ms': wait.elapsedMilliseconds,
-                'timeout_ms': waitTimeout.inMilliseconds,
-              },
-            );
-            onWedged?.call(label, wait.elapsedMilliseconds);
-          }
-        }
-      }
-      if (kDebugMode && wait.elapsedMilliseconds > 100) {
-        debugPrint('AudioMutex[$label] waited ${wait.elapsedMilliseconds}ms');
-      }
-      if (wait.elapsedMilliseconds > 500) {
-        DiagnosticsService.instance.record(
-          'slow_operation',
-          'audio_mutex_wait',
-          data: {'label': label, 'elapsed_ms': wait.elapsedMilliseconds},
-        );
-      }
-      return await fn();
-    } finally {
-      _pending--;
-      if (!completer.isCompleted) completer.complete();
-    }
+  /// 值相等（Wave 1-A）。
+  ///
+  /// `StateNotifier` 只在 `nextState != state` 时通知。没有 `==` 时**任何**调用都会
+  /// 换一个新实例 → 所有监听者（含只关心 `isShuffle` 的按钮、只关心 `currentSong`
+  /// 的 mini player）被唤醒；`player_audio_controller` 重复上报同一个
+  /// playing/processingState 时也会白唤一轮。有了 `==`，内容没变的更新被吸收。
+  ///
+  /// **`position` 必须参与比较**：位置每秒推进是真的状态变化，进度条/胶囊进度环
+  /// 依赖它触发重绘。把它排除掉会静默吃掉所有播放进度更新（早先 W0-A 的
+  /// "播放页进度不动"就是这个形态）。
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is PlayerState &&
+        other.currentSong?.id == currentSong?.id &&
+        other.currentSong?.platform == currentSong?.platform &&
+        other.currentIndex == currentIndex &&
+        other.isPlaying == isPlaying &&
+        other.position == position &&
+        other.duration == duration &&
+        other.currentQuality == currentQuality &&
+        other.qualityPreference == qualityPreference &&
+        other.error == error &&
+        other.isShuffle == isShuffle &&
+        other.repeatMode == repeatMode &&
+        other.isTransitioning == isTransitioning &&
+        other.playbackSpeed == playbackSpeed &&
+        other.skipSilence == skipSilence &&
+        other.abLoopStart == abLoopStart &&
+        other.abLoopEnd == abLoopEnd &&
+        other.sourcePlatform == sourcePlatform;
   }
+
+  @override
+  int get hashCode => Object.hash(
+    currentSong?.id,
+    currentSong?.platform,
+    currentIndex,
+    isPlaying,
+    position,
+    duration,
+    currentQuality,
+    qualityPreference,
+    error,
+    isShuffle,
+    repeatMode,
+    isTransitioning,
+    playbackSpeed,
+    skipSilence,
+    abLoopStart,
+    abLoopEnd,
+    sourcePlatform,
+  );
 }
 
 class PlayerNotifier extends StateNotifier<PlayerState> {
@@ -481,29 +487,6 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     _startStuckWatchdog();
   }
 
-  Future<void> _playFromNotification() async {
-    if (_restoredSourceNeedsLoad && state.currentSong != null) {
-      await _playRestoredSong();
-      return;
-    }
-    await togglePlay();
-  }
-
-  Future<void> _toggleLikeCurrentSongFromNotification() async {
-    final song = state.currentSong;
-    final toggle = _toggleSongLike;
-    if (song == null || toggle == null) return;
-    await toggle(song);
-    _syncNotificationState();
-  }
-
-  Future<void> _toggleFloatingLyricsFromNotification() async {
-    final toggle = _toggleFloatingLyrics;
-    if (toggle == null) return;
-    await toggle();
-    _syncNotificationState();
-  }
-
   PlayerAudioController _ensureAudioController() {
     final existing = _audioController;
     if (existing != null) return existing;
@@ -529,51 +512,29 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     _lastTransportProgressAt = _now();
   }
 
-  void _syncNotificationState() {
-    _notificationController.update(
-      currentSong: state.currentSong,
-      playlist: state.playlist,
-      currentIndex: state.currentIndex,
-      isCurrentSongLiked:
-          state.currentSong != null &&
-          _isCurrentSongLikedNow(state.currentSong!),
-      isFloatingLyricsEnabled: _isFloatingLyricsEnabled(),
-      isPlaying: state.isPlaying,
-      position: state.position,
-      duration: state.duration,
-    );
-  }
-
   /// `(platform, id)` 形式的喜欢键。
   ///
   /// 与 `likes_provider.dart` 里 `'${platform}_${id}'` 的拼法同构，也与本文件的
   /// [_songKey] 同义。用 id+platform 而不是 `Song.dedupeKey`：喜欢列表是按
   /// `(id, platform)` 存的（见 `LikesNotifier.toggleLike`），用 dedupeKey 会把
   /// 同一首歌在另一个平台上的条目也判成"已喜欢"。
+  /// Reads [state] for the code that lives in the `part` files.
+  ///
+  /// `StateNotifier.state` is annotated `@protected` **and**
+  /// `@visibleForTesting`, and the analyzer enforces both: an `extension` on
+  /// `PlayerNotifier` is not an instance member of the subclass, so touching
+  /// `state` from a part produces two warnings per access
+  /// (`invalid_use_of_protected_member` +
+  /// `invalid_use_of_visible_for_testing_member`) — 98 accesses meant ~196
+  /// warnings, i.e. the repository's "analyze: 0 issues" gate could never pass.
+  ///
+  /// A getter *declared in the class* is a plain instance member, so parts may
+  /// read it through the implicit `this`. This exists solely for that reason;
+  /// do not add new state mutations here (writes stay in the facade).
+  PlayerState get _s => state;
+
   static String likedSongKeyFor(Song song) =>
       '${song.platform.name}_${song.id}';
-
-  /// 用整份喜欢列表刷新 key 集合（Wave 0-A / P-1）。
-  ///
-  /// 以前 `playerProvider` 把 `likesProvider.songs.any(...)`（最多 500 首）当
-  /// [SongLikeResolver] 传进来，而它**每秒**都会被调一次（位置 tick → 状态更新 →
-  /// 通知刷新，Windows 也一样）→ 每秒一次 O(n)。现在只在喜欢列表变化时重建一次
-  /// `Set`，热路径上只剩一次 `Set.contains`。
-  void updateLikedSongs(Iterable<Song> songs) {
-    _likedSongKeys
-      ..clear()
-      ..addAll(songs.map(likedSongKeyFor));
-    _hasLikedSongKeys = true;
-    _syncNotificationState();
-  }
-
-  bool _isCurrentSongLikedNow(Song song) {
-    if (_hasLikedSongKeys) {
-      return _likedSongKeys.contains(likedSongKeyFor(song));
-    }
-    // 兜底：只有从未调用 [updateLikedSongs] 的构造方式（单测、嵌套用例）才走这里。
-    return _isSongLiked(song);
-  }
 
   Duration _initialDurationForSong(Song song) {
     if (song.duration > Duration.zero) return song.duration;
@@ -599,461 +560,6 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         state.isTransitioning &&
         state.isPlaying &&
         !playerState.playing;
-  }
-
-  void refreshNotificationState() {
-    _syncNotificationState();
-  }
-
-  Future<void> _syncPlaybackKeepAlive(
-    bool isPlaying, {
-    bool force = false,
-  }) async {
-    if (!force && _lastKeepAlivePlaying == isPlaying) return;
-    _lastKeepAlivePlaying = isPlaying;
-    await _keepAliveController.setPlaying(isPlaying, force: force);
-  }
-
-  Future<void> reassertBackgroundPlayback() async {
-    _syncNotificationState();
-    DiagnosticsService.instance.record(
-      'background_playback',
-      'reassert',
-      data: {
-        'is_playing': state.isPlaying,
-        'position_ms': state.position.inMilliseconds,
-        'duration_ms': state.duration.inMilliseconds,
-        'song_id': state.currentSong?.id,
-        'platform': state.currentSong?.platform.name,
-      },
-    );
-    if (!state.isPlaying) return;
-    await _syncPlaybackKeepAlive(true, force: true);
-  }
-
-  void _startPlaybackHealthMonitor() {
-    if (!PlatformUtils.isAndroid) return;
-    if (_playbackHealthCheckInterval <= Duration.zero) return;
-    _playbackHealthTimer = Timer.periodic(
-      _playbackHealthCheckInterval,
-      (_) => unawaited(_checkPlaybackHealth()),
-    );
-  }
-
-  @visibleForTesting
-  Future<void> runPlaybackHealthCheckForTest() => _checkPlaybackHealth();
-
-  @visibleForTesting
-  Future<void> runStuckWatchdogForTest() => _checkStuckTransport();
-
-  /// True while any transport-level flag is latched.
-  @visibleForTesting
-  bool get isTransportBusyForTest =>
-      state.isTransitioning ||
-      _isSwitchingQuality ||
-      _isRecoveringPlayback ||
-      _restoredSourceNeedsLoad;
-
-  // --- 卡死看门狗（独立于 12s 转场看门狗） -------------------------------
-  //
-  // 与 12s 停滞自愈的区别：后者只服务"Android + isPlaying + 在线歌曲"的
-  // 位置停滞，而真机日志里的死法是 `is_playing:false` + 位置冻住 —— 那时
-  // `_canCheckPlaybackHealth` 与新加的 `_ensurePlaybackVolume` 都因为
-  // `isPlaying` 为假而永不触发。因此这条看门狗**不以 isPlaying 为前提**：
-  // 只要"有当前曲目 + 处于过渡/换音质/恢复中 + 超过阈值没有任何位置或状态
-  // 推进"，就强制把播放面复位到可用状态。
-
-  void _startStuckWatchdog() {
-    if (_stuckWatchdogInterval <= Duration.zero) return;
-    _stuckWatchdogTimer = Timer.periodic(
-      _stuckWatchdogInterval,
-      (_) => unawaited(_checkStuckTransport()),
-    );
-  }
-
-  bool _isTransportSuspicious() {
-    if (state.currentSong == null) return false;
-    return state.isTransitioning ||
-        _isSwitchingQuality ||
-        _isRecoveringPlayback ||
-        _restoredSourceNeedsLoad;
-  }
-
-  Future<void> _checkStuckTransport() async {
-    if (!mounted || _isForcingReset) return;
-    if (!_isTransportSuspicious()) {
-      // 正常播放（或空闲）：重新起算，避免把长时间的普通播放当成卡死。
-      _markTransportProgress();
-      return;
-    }
-    final last = _lastTransportProgressAt;
-    if (last == null) {
-      _markTransportProgress();
-      return;
-    }
-    if (_now().difference(last) < _stuckWatchdogThreshold) return;
-    await _forceResetStuckPlayback('transport_stuck');
-  }
-
-  /// 强制把播放面复位到"可再次操作"的状态。
-  ///
-  /// 由看门狗或 [_AudioMutex] 超时触发（两者都可能发生在**没有**持锁的情况下，
-  /// 所以这里绝不进入 `_AudioMutex` —— 那正是卡死的源头）。复位会推进两个代际
-  /// 令牌，让所有在途的陈旧分支在下一个守卫处立刻退出。
-  Future<void> _forceResetStuckPlayback(String reason) async {
-    if (!mounted || _isForcingReset) return;
-    _isForcingReset = true;
-    try {
-      final song = state.currentSong;
-      DiagnosticsService.instance.record(
-        'player',
-        'player_forced_reset',
-        data: {
-          'reason': reason,
-          'song_id': song?.id,
-          'platform': song?.platform.name,
-          'is_playing': state.isPlaying,
-          'is_transitioning': state.isTransitioning,
-          'is_switching_quality': _isSwitchingQuality,
-          'is_recovering': _isRecoveringPlayback,
-          'restored_source_needs_load': _restoredSourceNeedsLoad,
-          'position_ms': state.position.inMilliseconds,
-        },
-      );
-      _playRequestId++;
-      _qualityRequestId++;
-      _isSwitchingQuality = false;
-      _isRecoveringPlayback = false;
-      _restoredSourceNeedsLoad = false;
-      _cancelTransitionWatchdog();
-      _setState(
-        state.copyWith(
-          isTransitioning: false,
-          error: () => '播放未能恢复，已重置播放器，请重试',
-        ),
-      );
-      _resetPlaybackHealthWindow(applyGrace: true);
-      await _recreatePlayer();
-    } finally {
-      _isForcingReset = false;
-      _markTransportProgress();
-    }
-  }
-
-  void _onAudioMutexWedged(String label, int waitedMs) {
-    debugPrint(
-      'PlayerNotifier: audio mutex wedged on "$label" after ${waitedMs}ms, forcing reset',
-    );
-    unawaited(_forceResetStuckPlayback('audio_mutex_wedged:$label'));
-  }
-
-  /// Whether a controller instance is still referenced. `dispose()` must leave
-  /// this false so nothing can resurrect the disposed platform channel.
-  @visibleForTesting
-  bool get hasAudioControllerForTest => _audioController != null;
-
-  String? _songKey(Song? song) =>
-      song == null ? null : '${song.platform.name}:${song.id}';
-
-  bool _isOnlineSong(Song song) => song.platform != PlatformType.local;
-
-  bool _isNearPlaybackEnd() {
-    final song = state.currentSong;
-    if (song == null) return true;
-    final effectiveDuration = state.duration == Duration.zero
-        ? song.duration
-        : state.duration;
-    if (effectiveDuration == Duration.zero) return false;
-    return state.position + _playbackEndTolerance >= effectiveDuration;
-  }
-
-  bool _isStalledProcessingState(ProcessingState state) {
-    return state == ProcessingState.idle ||
-        state == ProcessingState.loading ||
-        state == ProcessingState.buffering;
-  }
-
-  bool _samePlaybackHealthFingerprint() {
-    return _healthSongKey == _songKey(state.currentSong) &&
-        _healthPlayRequestId == _playRequestId &&
-        _healthQualityRequestId == _qualityRequestId;
-  }
-
-  void _resetPlaybackRecoveryIfSongChanged(String? songKey) {
-    if (_recoverySongKey == songKey) return;
-    _recoverySongKey = songKey;
-    _recoveryAttemptsForSong = 0;
-    _recoveryLimitReportedSongKey = null;
-  }
-
-  void _resetPlaybackHealthWindow({
-    bool applyGrace = true,
-    bool resetRecoveryAttempts = false,
-  }) {
-    final now = _now();
-    final songKey = _songKey(state.currentSong);
-    _healthSongKey = songKey;
-    _healthPlayRequestId = _playRequestId;
-    _healthQualityRequestId = _qualityRequestId;
-    _lastPlaybackHealthPosition = state.position;
-    _lastPlaybackHealthPositionChangedAt = now;
-    _lastProcessingStateChangedAt = now;
-    _playbackHealthGraceUntil =
-        applyGrace && _playbackStartupGracePeriod > Duration.zero
-        ? now.add(_playbackStartupGracePeriod)
-        : null;
-    if (resetRecoveryAttempts) {
-      _recoverySongKey = songKey;
-      _recoveryAttemptsForSong = 0;
-      _recoveryLimitReportedSongKey = null;
-    }
-  }
-
-  void _observePlaybackHealthPosition(Duration position) {
-    if (position + _playbackPositionAdvanceTolerance <
-        _lastPlaybackHealthPosition) {
-      _lastPlaybackHealthPosition = position;
-      _lastPlaybackHealthPositionChangedAt = _now();
-      _healthSongKey = _songKey(state.currentSong);
-      _healthPlayRequestId = _playRequestId;
-      _healthQualityRequestId = _qualityRequestId;
-      return;
-    }
-    if (position >=
-        _lastPlaybackHealthPosition + _playbackPositionAdvanceTolerance) {
-      _lastPlaybackHealthPosition = position;
-      _lastPlaybackHealthPositionChangedAt = _now();
-      _healthSongKey = _songKey(state.currentSong);
-      _healthPlayRequestId = _playRequestId;
-      _healthQualityRequestId = _qualityRequestId;
-    }
-  }
-
-  bool _canCheckPlaybackHealth() {
-    final song = state.currentSong;
-    final controller = _audioController;
-    return PlatformUtils.isAndroid &&
-        song != null &&
-        _isOnlineSong(song) &&
-        state.isPlaying &&
-        controller != null &&
-        controller.playing &&
-        !state.isTransitioning &&
-        !_isSwitchingQuality &&
-        !_restoredSourceNeedsLoad &&
-        !_isSleepFadingOut &&
-        !_isRecoveringPlayback;
-  }
-
-  Future<void> _checkPlaybackHealth() async {
-    if (!mounted) return;
-    await _ensurePlaybackVolume();
-    if (!_canCheckPlaybackHealth()) {
-      _resetPlaybackHealthWindow(applyGrace: false);
-      return;
-    }
-    final now = _now();
-    final graceUntil = _playbackHealthGraceUntil;
-    if (graceUntil != null && now.isBefore(graceUntil)) return;
-    if (_isNearPlaybackEnd()) {
-      _resetPlaybackHealthWindow(applyGrace: false);
-      return;
-    }
-    if (!_samePlaybackHealthFingerprint()) {
-      _resetPlaybackHealthWindow(applyGrace: false);
-      return;
-    }
-
-    final processingChangedAt = _lastProcessingStateChangedAt;
-    final processingStalled =
-        _isStalledProcessingState(_lastProcessingState) &&
-        processingChangedAt != null &&
-        now.difference(processingChangedAt) >= _playbackStallThreshold;
-    final positionChangedAt = _lastPlaybackHealthPositionChangedAt;
-    final positionStalled =
-        positionChangedAt != null &&
-        now.difference(positionChangedAt) >= _playbackStallThreshold;
-    if (!processingStalled && !positionStalled) return;
-
-    final reason = processingStalled
-        ? 'processing_${_lastProcessingState.name}'
-        : 'position_stalled';
-    await _recoverStalledOnlinePlayback(reason);
-  }
-
-  // 音量守护：健康监测 tick 里把残留在非 1.0 的播放器音量拉回满音量，
-  // 避免淡入淡出被打断等泄漏让后台播放只走进度没有声音。
-  Future<void> _ensurePlaybackVolume() async {
-    if (!mounted) return;
-    final controller = _audioController;
-    if (controller == null) return;
-    if (state.currentSong == null || !state.isPlaying) return;
-    if (state.isTransitioning ||
-        _isSwitchingQuality ||
-        _isRecoveringPlayback ||
-        _restoredSourceNeedsLoad) {
-      return;
-    }
-    final current = controller.volume;
-    if (current >= 1.0) return;
-    if (_isSleepFadingOut) {
-      // 睡眠定时的淡出是合法的非满音量窗口（它不依赖用户的淡入淡出开关）。
-      return;
-    }
-    if (_fadeEnabled) {
-      final lastWriteAt = _lastVolumeWriteAt;
-      if (lastWriteAt != null &&
-          _now().difference(lastWriteAt) <
-              _fadeDuration + const Duration(seconds: 1)) {
-        // 正在淡入淡出的合法非满音量窗口，不干预，避免顶掉淡入淡出。
-        return;
-      }
-    }
-    DiagnosticsService.instance.record(
-      'player',
-      'volume_watchdog_restore',
-      data: {'volume': current, 'fade_enabled': _fadeEnabled},
-    );
-    await _safeSetVolume(1);
-  }
-
-  Future<void> _recoverStalledOnlinePlayback(String reason) async {
-    if (_isRecoveringPlayback) return;
-    final song = state.currentSong;
-    if (song == null || !_isOnlineSong(song)) return;
-    final songKey = _songKey(song);
-    _resetPlaybackRecoveryIfSongChanged(songKey);
-
-    final now = _now();
-    final lastRecoveryAt = _lastPlaybackRecoveryAt;
-    if (_playbackRecoveryCooldown > Duration.zero &&
-        lastRecoveryAt != null &&
-        now.difference(lastRecoveryAt) < _playbackRecoveryCooldown) {
-      return;
-    }
-    if (_recoveryAttemptsForSong >= _maxPlaybackRecoveryAttemptsPerSong) {
-      if (_recoveryLimitReportedSongKey != songKey) {
-        _recoveryLimitReportedSongKey = songKey;
-        DiagnosticsService.instance.record(
-          'player',
-          'playback_recovery_limit_reached',
-          data: {
-            'song_id': song.id,
-            'platform': song.platform.name,
-            'reason': reason,
-            'attempts': _recoveryAttemptsForSong,
-          },
-        );
-        _setState(
-          state.copyWith(
-            error: () => 'Playback stalled repeatedly. Please switch tracks.',
-          ),
-        );
-      }
-      return;
-    }
-
-    final requestId = _playRequestId;
-    final qualityRequestId = _qualityRequestId;
-    final quality = state.currentQuality;
-    final resumePosition = state.position;
-    _isRecoveringPlayback = true;
-    _recoveryAttemptsForSong++;
-    _lastPlaybackRecoveryAt = now;
-    DiagnosticsService.instance.record(
-      'player',
-      'playback_stall_recovery_start',
-      data: {
-        'song_id': song.id,
-        'platform': song.platform.name,
-        'reason': reason,
-        'position_ms': resumePosition.inMilliseconds,
-        'attempt': _recoveryAttemptsForSong,
-      },
-    );
-
-    // 自愈必须走 _AudioMutex：它做的是 stop/setUrl/seek/play 这一整套传输序列，
-    // 以前被当作"内部恢复"豁免、裸奔执行，于是和持锁的 playSong 并发抢同一个
-    // 控制器（可表现为点了 B 却在放 A）。锁自身不嵌套——内部没有任何
-    // `_mutex.run`。
-    try {
-      await _mutex.run(() async {
-        // 等锁期间播放可能已经换曲/换音质，重新确认后立即放弃。
-        if (!mounted) return;
-        if (requestId != _playRequestId || qualityRequestId != _qualityRequestId) {
-          return;
-        }
-        final platform = _platformResolver(song.platform);
-        final url = await DiagnosticsService.instance.measure(
-          'platform.getSongUrl.stallRecovery',
-          () => platform
-              .getSongUrl(song.id, quality: quality)
-              .timeout(const Duration(seconds: 10)),
-          data: {
-            'platform': song.platform.name,
-            'song_id': song.id,
-            'quality': quality.name,
-          },
-        );
-        final stillSamePlayback =
-            mounted &&
-            requestId == _playRequestId &&
-            qualityRequestId == _qualityRequestId &&
-            state.currentSong?.id == song.id &&
-            state.currentSong?.platform == song.platform;
-        if (!stillSamePlayback) return;
-
-        final fadeGeneration = _cancelActiveFades();
-        await _safeStop();
-        if (requestId != _playRequestId) return;
-        await _setUrlWithRecovery(url, 'playbackStallRecovery');
-        if (requestId != _playRequestId) return;
-        if (resumePosition > Duration.zero) {
-          await _safeSeek(resumePosition);
-        }
-        if (requestId != _playRequestId) return;
-        await _safeSetVolume(1);
-        _safePlay(requestId: requestId);
-        _schedulePlaybackVolumeRecovery(fadeGeneration);
-        _setState(
-          state.copyWith(
-            isPlaying: true,
-            isTransitioning: false,
-            position: resumePosition,
-            error: () => null,
-          ),
-        );
-        _resetPlaybackHealthWindow(applyGrace: true);
-        DiagnosticsService.instance.record(
-          'player',
-          'playback_stall_recovery_success',
-          data: {
-            'song_id': song.id,
-            'platform': song.platform.name,
-            'position_ms': resumePosition.inMilliseconds,
-            'attempt': _recoveryAttemptsForSong,
-          },
-        );
-      }, label: 'stallRecovery');
-    } catch (error, stack) {
-      if (!mounted) return;
-      DiagnosticsService.instance.recordError(
-        'player.playbackStallRecovery',
-        error,
-        stack,
-        data: {
-          'song_id': song.id,
-          'platform': song.platform.name,
-          'reason': reason,
-          'attempt': _recoveryAttemptsForSong,
-        },
-      );
-      _setState(
-        state.copyWith(error: () => '播放恢复失败：${_userFacingError(error)}'),
-      );
-    } finally {
-      _isRecoveringPlayback = false;
-    }
   }
 
   void _setupListeners(PlayerAudioController controller) {
@@ -1149,161 +655,6 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     );
   }
 
-  Future<void> _restorePlaybackMemory() async {
-    try {
-      final memory = await _playbackMemoryStore.load();
-      if (!mounted || memory == null) return;
-      final playlist = memory.playlist.isEmpty
-          ? [memory.currentSong]
-          : memory.playlist;
-      var currentIndex = memory.currentIndex;
-      if (currentIndex < 0 || currentIndex >= playlist.length) {
-        currentIndex = playlist.indexWhere(
-          (song) =>
-              song.id == memory.currentSong.id &&
-              song.platform == memory.currentSong.platform,
-        );
-      }
-      if (currentIndex < 0) currentIndex = 0;
-      _lastPositionSecond = memory.position.inSeconds;
-      _restoredSourceNeedsLoad = true;
-      _setState(
-        state.copyWith(
-          currentSong: memory.currentSong,
-          playlist: playlist,
-          currentIndex: currentIndex,
-          isPlaying: false,
-          position: memory.position,
-          duration: memory.duration,
-          currentQuality: memory.currentQuality,
-          qualityPreference: memory.qualityPreference,
-          // A-2：播放偏好和"上次播到哪"一起恢复。
-          playbackSpeed: memory.playbackSpeed,
-          skipSilence: memory.skipSilence,
-          isShuffle: memory.isShuffle,
-          repeatMode: _repeatModeFromName(memory.repeatMode),
-          abLoopStart: () => memory.abLoopStart,
-          abLoopEnd: () => memory.abLoopEnd,
-          error: () => null,
-          isTransitioning: false,
-        ),
-      );
-      await _applyRestoredPreferencesToController();
-    } catch (e, s) {
-      debugPrint('PlayerNotifier restore playback memory failed: $e');
-      debugPrint('$s');
-    }
-  }
-
-  PlayerPlaybackMemory? _buildPlaybackMemory() {
-    final song = state.currentSong;
-    if (song == null) return null;
-    final playlist = state.playlist.isEmpty ? [song] : state.playlist;
-    var currentIndex = state.currentIndex;
-    if (currentIndex < 0 || currentIndex >= playlist.length) {
-      currentIndex = playlist.indexWhere(
-        (item) => item.id == song.id && item.platform == song.platform,
-      );
-    }
-    return PlayerPlaybackMemory(
-      currentSong: song,
-      playlist: playlist,
-      currentIndex: currentIndex < 0 ? 0 : currentIndex,
-      position: state.position,
-      duration: state.duration,
-      currentQuality: state.currentQuality,
-      qualityPreference: state.qualityPreference,
-      // A-2：偏好跟着一起落盘，任何一次 [_schedulePlaybackMemorySave] 都会带上。
-      playbackSpeed: state.playbackSpeed,
-      skipSilence: state.skipSilence,
-      isShuffle: state.isShuffle,
-      repeatMode: state.repeatMode.name,
-      abLoopStart: state.abLoopStart,
-      abLoopEnd: state.abLoopEnd,
-    );
-  }
-
-  RepeatMode _repeatModeFromName(String name) {
-    return RepeatMode.values.firstWhere(
-      (mode) => mode.name == name,
-      orElse: () => RepeatMode.off,
-    );
-  }
-
-  /// 把恢复出来的偏好推给**已经存在**的控制器。
-  ///
-  /// 全新控制器不需要这一步：[`_restoreControllerAudioSettings`] 会在创建/重建时
-  /// 把 `state.playbackSpeed` / `state.skipSilence` 推过去。这里只覆盖"启动时已经
-  /// 有注入控制器"的情况（测试与热重建）。
-  Future<void> _applyRestoredPreferencesToController() async {
-    final controller = _audioController;
-    if (controller == null) return;
-    if (controller is PlaybackSpeedCapable && state.playbackSpeed != 1.0) {
-      try {
-        await (controller as PlaybackSpeedCapable)
-            .setPlaybackSpeed(state.playbackSpeed)
-            .timeout(_audioOperationTimeout);
-      } catch (e) {
-        debugPrint('PlayerNotifier restore speed failed: $e');
-      }
-    }
-    if (controller is SkipSilenceCapable && state.skipSilence) {
-      try {
-        await (controller as SkipSilenceCapable)
-            .setSkipSilence(true)
-            .timeout(_audioOperationTimeout);
-      } catch (e) {
-        debugPrint('PlayerNotifier restore skip silence failed: $e');
-      }
-    }
-  }
-
-  void _schedulePlaybackMemorySave() {
-    final memory = _buildPlaybackMemory();
-    if (memory == null) return;
-    _pendingPlaybackMemory = memory;
-    if (_playbackMemorySaveInterval == Duration.zero) {
-      unawaited(flushPlaybackMemory());
-      return;
-    }
-    if (_playbackMemoryTimer?.isActive == true) return;
-    _playbackMemoryTimer = Timer(
-      _playbackMemorySaveInterval,
-      () => unawaited(flushPlaybackMemory()),
-    );
-  }
-
-  Future<void> flushPlaybackMemory() async {
-    final memory = _takePlaybackMemorySnapshot();
-    if (memory == null) return;
-    await _savePlaybackMemory(memory);
-  }
-
-  /// 同步取出待落盘的快照，并清掉挂起的定时器。
-  ///
-  /// **必须同步**：快照要读 `state`，而 `StateNotifier` 在 `dispose()` 之后会对
-  /// `state` 抛 "Tried to use ... after `dispose` was called"。以前 `dispose()` 里
-  /// 直接 `unawaited(flushPlaybackMemory())`，快照是在那个异步体的同步段里构造的
-  /// —— 只要 `dispose()` 被走到第二次（Riverpod 随 scope 销毁一次、宿主/测试收尾
-  /// 再销毁一次），第二次就会读到已失效的 `state` 并抛异常（widget 用例就是这样
-  /// 被带崩的）。
-  PlayerPlaybackMemory? _takePlaybackMemorySnapshot() {
-    final memory = _pendingPlaybackMemory ?? _buildPlaybackMemory();
-    _pendingPlaybackMemory = null;
-    _playbackMemoryTimer?.cancel();
-    _playbackMemoryTimer = null;
-    return memory;
-  }
-
-  Future<void> _savePlaybackMemory(PlayerPlaybackMemory memory) async {
-    try {
-      await _playbackMemoryStore.save(memory);
-    } catch (e, s) {
-      debugPrint('PlayerNotifier save playback memory failed: $e');
-      debugPrint('$s');
-    }
-  }
-
   AudioPlayer get audioPlayer {
     final controller = _ensureAudioController();
     if (controller is JustAudioController) {
@@ -1312,306 +663,6 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     throw StateError(
       'The injected audio controller does not expose just_audio.AudioPlayer.',
     );
-  }
-
-  void setFadeOptions({required bool enabled, required Duration duration}) {
-    _fadeEnabled = enabled;
-    _fadeGeneration++;
-    _fadeDuration = duration <= Duration.zero
-        ? Duration.zero
-        : Duration(milliseconds: duration.inMilliseconds.clamp(200, 3000));
-    if (!enabled) {
-      unawaited(_safeSetVolume(1));
-    }
-  }
-
-  Future<void> applyEqualizerSettings(AudioEffectsSettings settings) async {
-    // Remembered so `_recreatePlayer` can push the same curve to the brand new
-    // controller: a recreated player starts with the equalizer disabled.
-    _lastEqualizerSettings = settings;
-    try {
-      await _ensureAudioController()
-          .applyEqualizer(
-            enabled: settings.equalizerEnabled,
-            bandGains: settings.effectiveEqualizerBandGains,
-          )
-          .timeout(const Duration(milliseconds: 300));
-    } catch (e, s) {
-      debugPrint('PlayerNotifier applyEqualizer failed: $e');
-      DiagnosticsService.instance.recordError(
-        'player.equalizer',
-        e,
-        s,
-        data: {'enabled': settings.equalizerEnabled},
-      );
-    }
-  }
-
-  /// Whether the current backend can change playback speed.
-  bool get supportsPlaybackSpeed =>
-      _ensureAudioController() is PlaybackSpeedCapable;
-
-  /// Whether the current backend can skip silent passages.
-  bool get supportsSkipSilence =>
-      _ensureAudioController() is SkipSilenceCapable;
-
-  /// Sets the playback speed, clamped to a sane range.
-  ///
-  /// Not routed through [_AudioMutex]: like the volume writes this is a single
-  /// property write, not part of the stop/setUrl/seek/play transport sequence
-  /// the mutex exists to serialize.
-  Future<void> setPlaybackSpeed(double speed) async {
-    final clamped = speed.clamp(0.5, 2.0).toDouble();
-    final controller = _ensureAudioController();
-    if (controller is! PlaybackSpeedCapable) {
-      _setState(state.copyWith(error: () => '当前播放后端不支持倍速播放'));
-      return;
-    }
-    // 显式转换：Dart 不会把 PlayerAudioController 提升为不相关的接口类型。
-    final speedController = controller as PlaybackSpeedCapable;
-    try {
-      await speedController
-          .setPlaybackSpeed(clamped)
-          .timeout(_audioOperationTimeout);
-      _setState(state.copyWith(playbackSpeed: clamped, error: () => null));
-      _schedulePlaybackMemorySave();
-    } catch (e, s) {
-      DiagnosticsService.instance.recordError(
-        'player.setPlaybackSpeed',
-        e,
-        s,
-        data: {'speed': clamped},
-      );
-      _setState(state.copyWith(error: () => '设置倍速失败：${_userFacingError(e)}'));
-    }
-  }
-
-  Future<void> setSkipSilence(bool enabled) async {
-    final controller = _ensureAudioController();
-    if (controller is! SkipSilenceCapable) {
-      _setState(state.copyWith(error: () => '当前播放后端不支持跳过静音'));
-      return;
-    }
-    final skipSilenceController = controller as SkipSilenceCapable;
-    try {
-      await skipSilenceController
-          .setSkipSilence(enabled)
-          .timeout(_audioOperationTimeout);
-      _setState(state.copyWith(skipSilence: enabled, error: () => null));
-      _schedulePlaybackMemorySave();
-    } catch (e, s) {
-      DiagnosticsService.instance.recordError(
-        'player.setSkipSilence',
-        e,
-        s,
-        data: {'enabled': enabled},
-      );
-      _setState(state.copyWith(error: () => '设置跳过静音失败：${_userFacingError(e)}'));
-    }
-  }
-
-  /// Marks the start of an A-B loop at [position] (defaults to the current
-  /// playback position).
-  void setAbLoopStart([Duration? position]) {
-    final start = position ?? state.position;
-    final end = state.abLoopEnd;
-    if (end != null && end <= start) {
-      // 新的 A 落在 B 之后：丢弃已经无效的 B 而不是留下一个空区间。
-      _setState(state.copyWith(abLoopStart: () => start, abLoopEnd: () => null));
-      _schedulePlaybackMemorySave();
-      return;
-    }
-    _setState(state.copyWith(abLoopStart: () => start));
-    _schedulePlaybackMemorySave();
-  }
-
-  void setAbLoopEnd([Duration? position]) {
-    final end = position ?? state.position;
-    final start = state.abLoopStart;
-    if (start == null || end <= start) {
-      _setState(state.copyWith(error: () => 'B 点必须晚于 A 点'));
-      return;
-    }
-    _setState(state.copyWith(abLoopEnd: () => end, error: () => null));
-    _schedulePlaybackMemorySave();
-  }
-
-  void clearAbLoop() {
-    if (!state.hasAbLoop && state.abLoopStart == null) return;
-    _setState(state.copyWith(abLoopStart: () => null, abLoopEnd: () => null));
-    _schedulePlaybackMemorySave();
-  }
-
-  void _enforceAbLoop(Duration position) {
-    final start = state.abLoopStart;
-    final end = state.abLoopEnd;
-    if (start == null || end == null) return;
-    if (position < end) return;
-    if (_isSeekingAbLoop) return;
-    _isSeekingAbLoop = true;
-    unawaited(
-      _safeSeek(start).whenComplete(() => _isSeekingAbLoop = false),
-    );
-  }
-
-  Future<void> _safeSetVolume(double volume) async {
-    final target = volume.clamp(0.0, 1.0);
-    try {
-      await _ensureAudioController()
-          .setVolume(target)
-          .timeout(const Duration(milliseconds: 300));
-      _lastVolumeWriteAt = _now();
-      DiagnosticsService.instance.record(
-        'player',
-        'volume_set',
-        data: {'volume': target},
-      );
-    } catch (e, s) {
-      debugPrint('PlayerNotifier setVolume failed: $e');
-      DiagnosticsService.instance.recordError(
-        'player.setVolume',
-        e,
-        s,
-        data: {'volume': target},
-      );
-    }
-  }
-
-  Future<void> _runFade({
-    required double from,
-    required double to,
-    required int generation,
-  }) async {
-    if (!_fadeEnabled) return;
-    if (generation != _fadeGeneration) return;
-    if (from == to) {
-      await _safeSetVolume(to);
-      return;
-    }
-    if (_fadeDuration == Duration.zero) {
-      await _safeSetVolume(to);
-      return;
-    }
-    const steps = 6;
-    await _safeSetVolume(from);
-    final stepDelay = Duration(
-      milliseconds: max(1, _fadeDuration.inMilliseconds ~/ steps),
-    );
-    for (var i = 1; i <= steps; i++) {
-      await Future<void>.delayed(stepDelay);
-      if (generation != _fadeGeneration) return;
-      final value = from + ((to - from) * i / steps);
-      await _safeSetVolume(value);
-    }
-  }
-
-  int _cancelActiveFades() => ++_fadeGeneration;
-
-  bool _shouldHandleCompletedEvent() {
-    if (state.isTransitioning || state.currentSong == null) {
-      DiagnosticsService.instance.record(
-        'player',
-        'ignored_completed_event',
-        data: {
-          'reason': state.isTransitioning ? 'transitioning' : 'no_song',
-          'song_id': state.currentSong?.id,
-          'position_ms': state.position.inMilliseconds,
-          'duration_ms': state.duration.inMilliseconds,
-        },
-      );
-      return false;
-    }
-
-    final effectiveDuration = state.duration == Duration.zero
-        ? state.currentSong!.duration
-        : state.duration;
-    const tolerance = Duration(seconds: 3);
-    if (effectiveDuration > tolerance &&
-        state.position + tolerance < effectiveDuration) {
-      DiagnosticsService.instance.record(
-        'player',
-        'ignored_completed_event',
-        data: {
-          'reason': 'before_end',
-          'song_id': state.currentSong?.id,
-          'position_ms': state.position.inMilliseconds,
-          'duration_ms': effectiveDuration.inMilliseconds,
-        },
-      );
-      return false;
-    }
-
-    return true;
-  }
-
-  /// Fades the current playback out and then pauses it.
-  ///
-  /// Used by the sleep timer: the previous implementation called `pause()`
-  /// abruptly, cutting the audio mid-note. The ramp is written directly rather
-  /// than reusing [_runFade] because that helper no-ops unless the user turned
-  /// the regular fade-in/out setting on, and the sleep fade must always happen.
-  Future<void> fadeOutAndPause({
-    Duration duration = const Duration(milliseconds: 1500),
-  }) async {
-    return _mutex.run(() async {
-      try {
-        final controller = _ensureAudioController();
-        if (!controller.playing) return;
-        final generation = _cancelActiveFades();
-        _isSleepFadingOut = true;
-        await _rampVolume(
-          from: controller.volume.clamp(0.0, 1.0),
-          to: 0,
-          duration: duration,
-          generation: generation,
-        );
-        if (generation != _fadeGeneration) return;
-        await controller.pause().timeout(_audioOperationTimeout);
-        _setState(state.copyWith(isPlaying: false));
-        _resetPlaybackHealthWindow(applyGrace: false);
-        // 淡出到 0 后把播放器音量复位，否则下一次播放会静音。
-        await _safeSetVolume(1);
-      } catch (e, s) {
-        debugPrint('fadeOutAndPause failed: $e');
-        DiagnosticsService.instance.recordError('player.fadeOutAndPause', e, s);
-        await _recreatePlayer();
-      } finally {
-        _isSleepFadingOut = false;
-      }
-    }, label: 'fadeOutAndPause');
-  }
-
-  Future<void> _rampVolume({
-    required double from,
-    required double to,
-    required Duration duration,
-    required int generation,
-  }) async {
-    if (generation != _fadeGeneration) return;
-    if (from == to || duration <= Duration.zero) {
-      await _safeSetVolume(to);
-      return;
-    }
-    const steps = 6;
-    final stepDelay = Duration(
-      milliseconds: max(1, duration.inMilliseconds ~/ steps),
-    );
-    for (var i = 1; i <= steps; i++) {
-      await Future<void>.delayed(stepDelay);
-      if (generation != _fadeGeneration) return;
-      await _safeSetVolume(from + ((to - from) * i / steps));
-    }
-  }
-
-  void _schedulePlaybackVolumeRecovery(int generation) {
-    if (!_fadeEnabled) return;
-    final delay = _fadeDuration + const Duration(milliseconds: 150);
-    Timer(delay, () {
-      if (!mounted || generation != _fadeGeneration || !state.isPlaying) {
-        return;
-      }
-      unawaited(_safeSetVolume(1));
-    });
   }
 
   /// Safely stop the player (ignores errors).
@@ -1957,6 +1008,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
               duration: initialDuration,
               error: () => null,
               isTransitioning: true,
+              // 新的一首可能又要换源：先把上一首的来源角标清掉（Wave 1-A）。
+              sourcePlatform: () => null,
             ),
           );
         } else {
@@ -1969,6 +1022,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
               duration: initialDuration,
               error: () => null,
               isTransitioning: true,
+              sourcePlatform: () => null,
             ),
           );
         }
@@ -2191,10 +1245,18 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         },
       );
       try {
-        final url = await resolver(failure.song, quality);
+        final result = await resolver(failure.song, quality);
         if (!mounted || failure.requestId != _playRequestId) return false;
+        final url = result?.url;
         if (url == null || url.trim().isEmpty) continue;
-        if (await _playResolvedUrl(failure, url, quality, 'crossSource')) {
+        if (await _playResolvedUrl(
+          failure,
+          url,
+          quality,
+          'crossSource',
+          // 角标要的"来自哪个平台"就来自这次解析的结果（Wave 1-A）。
+          sourcePlatform: result?.platform,
+        )) {
           DiagnosticsService.instance.record(
             'player',
             'playback_failure_cross_source_success',
@@ -2215,12 +1277,16 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   }
 
   /// 用换来的直链重新起播；成功返回 true。
+  ///
+  /// [sourcePlatform] 只在"跨源换源"这条路上非空：它决定播放页的来源角标；降档
+  /// 重试仍然是原平台，传 `null`（= 清掉旧角标）。
   Future<bool> _playResolvedUrl(
     _PlaybackFailure failure,
     String url,
     AudioLevel quality,
-    String label,
-  ) {
+    String label, {
+    PlatformType? sourcePlatform,
+  }) {
     // 同样在锁外调用（失败链整体在锁外），这里再进一次锁是安全的。
     return _mutex.run(() async {
       if (!mounted || failure.requestId != _playRequestId) return false;
@@ -2239,6 +1305,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
             isPlaying: true,
             isTransitioning: false,
             error: () => null,
+            sourcePlatform: () => sourcePlatform,
           ),
         );
         _resetPlaybackHealthWindow(applyGrace: true);
