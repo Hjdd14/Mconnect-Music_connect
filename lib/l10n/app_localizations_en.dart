@@ -660,4 +660,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String downloadStarted(String name, String quality) {
     return 'Download started: $name ($quality)';
   }
+
+  @override
+  String get libraryRefreshCurrentPlaylist => 'Refresh the current playlists';
+
+  @override
+  String get libraryNewPlaylist => 'New playlist';
+
+  @override
+  String get libraryMyPlaylists => 'My playlists';
 }

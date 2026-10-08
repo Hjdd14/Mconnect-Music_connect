@@ -82,7 +82,14 @@ void main() {
   //   `downloadStarted`（6 个参数化 key 带 `@placeholders`）。
   //   ⚠️ 剩余 B4-2：`platform_playlists_page` 37、`download_page` 37、
   //      `playlist_detail_page` 29、`import_playlist_page` 29 = **132 处**。
-  const baselineTotal = 904;
+  //
+  // W3-D B4-2（继续，`platform_playlists_page` 的 AppBar/TabBar 区）：
+  //   该文件 37 → **33**（本批 −4：`'歌单'` 复用现成的 `commonPlaylist`、
+  //   `'刷新当前歌单'`、`'新建歌单'`、`'我的歌单'`），新增 3 个 key
+  //   （`libraryRefreshCurrentPlaylist`/`libraryNewPlaylist`/`libraryMyPlaylists`）。
+  //   整棵树 904/98 → **900/98**（−4，与文件实测吻合）。
+  //   ⚠️ 该文件**还剩 33 处**（对话框/导出/二维码/列表区），下一批继续。
+  const baselineTotal = 900;
   const baselineFiles = 98;
 
   test('lib/ 的硬编码中文不得超过基线（总数与文件数都不许涨）', () {

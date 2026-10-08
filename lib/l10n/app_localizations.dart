@@ -1255,6 +1255,24 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'已开始下载: {name} ({quality})'**
   String downloadStarted(String name, String quality);
+
+  /// No description provided for @libraryRefreshCurrentPlaylist.
+  ///
+  /// In zh, this message translates to:
+  /// **'刷新当前歌单'**
+  String get libraryRefreshCurrentPlaylist;
+
+  /// No description provided for @libraryNewPlaylist.
+  ///
+  /// In zh, this message translates to:
+  /// **'新建歌单'**
+  String get libraryNewPlaylist;
+
+  /// No description provided for @libraryMyPlaylists.
+  ///
+  /// In zh, this message translates to:
+  /// **'我的歌单'**
+  String get libraryMyPlaylists;
 }
 
 class _AppLocalizationsDelegate

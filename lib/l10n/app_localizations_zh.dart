@@ -636,4 +636,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String downloadStarted(String name, String quality) {
     return '已开始下载: $name ($quality)';
   }
+
+  @override
+  String get libraryRefreshCurrentPlaylist => '刷新当前歌单';
+
+  @override
+  String get libraryNewPlaylist => '新建歌单';
+
+  @override
+  String get libraryMyPlaylists => '我的歌单';
 }

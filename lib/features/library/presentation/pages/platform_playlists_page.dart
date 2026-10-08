@@ -351,17 +351,18 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
   Widget build(BuildContext context) {
     final state = ref.watch(platformPlaylistsProvider);
     final myState = ref.watch(myPlaylistsProvider);
+    final l = context.l10n;
     final activeTab = _tabs[_tabController.index];
     final isCreating = activeTab == PlatformType.local
         ? myState.isSaving
         : state.isCreatingFor(activeTab);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('歌单'),
+        title: Text(l.commonPlaylist),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            tooltip: '刷新当前歌单',
+            tooltip: l.libraryRefreshCurrentPlaylist,
             onPressed: () {
               final platform = _tabs[_tabController.index];
               if (platform == PlatformType.local) {
@@ -381,7 +382,7 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.add),
-            tooltip: '新建歌单',
+            tooltip: l.libraryNewPlaylist,
             onPressed: isCreating ? null : _createPlaylist,
           ),
         ],
@@ -389,8 +390,11 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
           controller: _tabController,
           tabs: _tabs
               .map(
-                (p) =>
-                    Tab(text: p == PlatformType.local ? '我的歌单' : p.displayName),
+                (p) => Tab(
+                  text: p == PlatformType.local
+                      ? l.libraryMyPlaylists
+                      : p.displayName,
+                ),
               )
               .toList(),
         ),
