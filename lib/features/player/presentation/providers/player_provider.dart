@@ -368,6 +368,14 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   /// 下一首预解析（Wave 1-A 步骤 3）；`null` 时不做任何预取。
   final NextTrackPrefetcher? _prefetcher;
 
+  /// 换源直链播放失败时作废该 `(歌曲, 平台)` 缓存的回调（W2-B / 复核 F3）。
+  ///
+  /// 由 `playerProvider` 注入 `SourceMatchService.invalidateCache`；`null` 时只是
+  /// 不做失效。存在的理由：一条"时间上仍有效、但服务端已失效"的直链会被复用满
+  /// 整个 TTL（20 分钟），而**没有任何东西**在播放失败时把它作废。
+  final Future<void> Function(Song song, PlatformType platform)?
+  _invalidateCrossSource;
+
   /// 失败链最多连续跳几首，防止"整张队列都取不到流"时无限跳（见 [_failureChainSkips]）。
   final int _maxFailureChainSkips;
 
@@ -463,6 +471,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     this._offlineFilePathResolver,
     this._crossSourceResolver,
     this._prefetcher,
+    this._invalidateCrossSource,
     this._maxFailureChainSkips = 3,
     bool Function()? isOfflineModeEnabled,
     this._toggleFloatingLyrics,
@@ -779,6 +788,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   void _handleAsyncPlayError(Object error, StackTrace stack, int? requestId) {
     if (!mounted) return;
     if (requestId != null && requestId != _playRequestId) return;
+    // 换源流半途断：state 里还记着来源平台 → 说明是换源来的那条直链失效了（F3）。
+    _invalidateCrossSourceCache();
     debugPrint('PlayerNotifier play error: $error');
     debugPrint('PlayerNotifier play stack: $stack');
     _setState(
@@ -1338,6 +1349,13 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
             data: {'song_id': failure.song.id, 'quality': quality.name},
           );
           return true;
+        } else {
+          // 换源直链重试失败 → 当次失效该缓存，避免下一次失败链又命中这条死链
+          // （F3：源侧 `invalidateCache` 已就绪，这里是它的第一个生产调用方）。
+          _invalidateCrossSourceCache(
+            song: failure.song,
+            platform: result?.platform,
+          );
         }
       } catch (error, stack) {
         DiagnosticsService.instance.recordError(
@@ -1349,6 +1367,43 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       }
     }
     return false;
+  }
+
+  /// 换源来的直链放不出来 → **当次**作废该 `(歌曲, 平台)` 的缓存（W2-B / F3）。
+  ///
+  /// 两个触发点：① [_retryPlaybackWithCrossSource] 里重试失败（明确知道目标平台，
+  /// 用 `result.platform`）；② [_handleAsyncPlayError]（`state.sourcePlatform` 非空
+  /// = 断的是换源流，此时不再有可用的平台上文）。
+  ///
+  /// 与 `song.platform` 相同的平台**跳过** —— 只失效"换源来的"那条，不牵连原平台
+  /// 或本地文件；本地根本没有缓存行。
+  void _invalidateCrossSourceCache({Song? song, PlatformType? platform}) {
+    final invalidate = _invalidateCrossSource;
+    if (invalidate == null) return;
+    final targetSong = song ?? state.currentSong;
+    final targetPlatform = platform ?? state.sourcePlatform;
+    if (targetSong == null || targetPlatform == null) return;
+    if (targetPlatform == targetSong.platform) return;
+    DiagnosticsService.instance.record(
+      'player',
+      'cross_source_cache_invalidated',
+      data: {
+        'song_id': targetSong.id,
+        'platform': targetPlatform.name,
+        // 从 state 推断（触发点②）还是调用方明确给出（触发点①）——复盘时有用。
+        'from_state': song == null,
+      },
+    );
+    unawaited(
+      invalidate(targetSong, targetPlatform).catchError((
+        Object error,
+        StackTrace stack,
+      ) {
+        // 失效失败不该把播放路径带崩：它只是省一次重解析。
+        debugPrint('PlayerNotifier invalidateCrossSource failed: $error');
+        debugPrint('$stack');
+      }),
+    );
   }
 
   /// 用换来的直链重新起播；成功返回 true。
@@ -2156,6 +2211,8 @@ final playerProvider = StateNotifierProvider<PlayerNotifier, PlayerState>((
   final notifier = PlayerNotifier(
     playbackMemoryStore: HivePlayerPlaybackMemoryStore(),
     prefetcher: prefetcher,
+    invalidateCrossSource: (song, platform) =>
+        sourceMatchService.invalidateCache(song, platform),
     crossSourceResolver: (song, quality) async {
       final resolution = await sourceMatchService.resolveDetailed(
         song,

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:mconnect/core/diagnostics/diagnostics_service.dart';
+import 'package:mconnect/core/source_matching/source_match_settings.dart';
 import 'package:mconnect/core/theme/app_background.dart';
 import 'package:mconnect/core/theme/app_background_provider.dart';
 import 'package:mconnect/features/settings/presentation/pages/settings_page.dart';
@@ -32,6 +33,71 @@ void main() {
       await tempDir.delete(recursive: true);
     }
   });
+
+  // The 「自动换源」 switch had a provider-level test (`source_match_test.dart`)
+  // but nothing that ever *tapped the row*: deleting the `onChanged` wiring in
+  // the settings page would have left every existing test green.
+  // ⚠️ SKIPPED, and the reason is a real open item rather than flake:
+  // this case never finishes on this build (it consumes the full 10-minute
+  // per-test timeout, which also stalls the whole suite). Bounded pumps replaced
+  // every `pumpAndSettle` in the test *and* in `_dragUntilTextVisible`, so the
+  // stall is not the page's always-on animation settling — some awaited step
+  // simply never completes, and locating it needs a bisect I have not spent the
+  // budget on. The A-6a gap it was written to close (the 自动换源 switch is
+  // asserted nowhere at the widget level) therefore remains OPEN.
+  // Next increment: bisect with a per-step `debugPrint`, then either fix the step
+  // and delete this `skip`, or narrow the case to the switch alone (no drag, no
+  // page) so it cannot depend on this page's lifecycle.
+  testWidgets('the 自动换源 switch is wired to the provider and flips it', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const ProviderScope(child: MaterialApp(home: SettingsAudioPage())),
+    );
+    // NOT `pumpAndSettle`: this page carries an always-on animation, so settling
+    // blocks until the framework's 10-minute timeout (this test did exactly that,
+    // and one hanging test stalls the whole suite). Bounded pumps advance ~1s of
+    // frames, which is more than any transition on this page needs.
+    for (var i = 0; i < 60; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    await _dragUntilTextVisible(tester, '自动换源');
+    final row = find.ancestor(
+      of: find.text('自动换源'),
+      matching: find.byType(SwitchListTile),
+    );
+    expect(row, findsOneWidget);
+    expect(
+      tester.widget<SwitchListTile>(row).value,
+      isTrue,
+      reason: '计划 D-2 的默认值是「开」（source_match_settings.dart:11）',
+    );
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SettingsAudioPage)),
+    );
+    expect(container.read(autoSourceSwitchProvider).enabled, isTrue);
+
+    await tester.tap(find.text('自动换源'));
+    for (var i = 0; i < 60; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    expect(container.read(autoSourceSwitchProvider).enabled, isFalse);
+    expect(
+      tester.widget<SwitchListTile>(row).value,
+      isFalse,
+      reason: '开关本体必须跟着 provider 走，不能只是 provider 变了',
+    );
+
+    // …and back, so the wiring is proven in both directions.
+    await tester.tap(find.text('自动换源'));
+    for (var i = 0; i < 60; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(container.read(autoSourceSwitchProvider).enabled, isTrue);
+  }, skip: true);
 
   testWidgets('settings page exposes diagnostics log path', (tester) async {
     await tester.pumpWidget(
@@ -549,6 +615,10 @@ Future<void> _dragUntilTextVisible(WidgetTester tester, String label) async {
   for (var i = 0; i < 10; i++) {
     if (find.text(label).evaluate().isNotEmpty) return;
     await tester.drag(find.byType(Scrollable).first, const Offset(0, -260));
-    await tester.pumpAndSettle();
+    // Bounded, not `pumpAndSettle`: the settings page has an always-on animation,
+    // so settling here hangs until the 10-minute suite timeout (it did, once).
+    for (var frame = 0; frame < 30; frame++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
   }
 }

@@ -331,6 +331,30 @@ class AppLocalizationsEn extends AppLocalizations {
   String get actionLogout => 'Sign out';
 
   @override
+  String get commonRetry => 'Retry';
+
+  @override
+  String get commonPlayNext => 'Play next';
+
+  @override
+  String get commonAddToPlaylist => 'Add to playlist';
+
+  @override
+  String get commonDownload => 'Download';
+
+  @override
+  String get commonDownloaded => 'Downloaded';
+
+  @override
+  String get commonLike => 'Like';
+
+  @override
+  String get commonUnlike => 'Unlike';
+
+  @override
+  String get commonCopyLink => 'Copy link';
+
+  @override
   String get playerNowPlaying => 'Now playing';
 
   @override

@@ -222,11 +222,26 @@ void main() {
 class _RecordingChannel implements ShareChannel {
   final List<String> texts = [];
   final List<String?> subjects = [];
+  final List<List<String>> fileBatches = [];
+  final List<String?> fileSubjects = [];
 
   @override
   Future<void> shareText(String text, {String? subject, Rect? origin}) async {
     texts.add(text);
     subjects.add(subject);
+  }
+
+  @override
+  // 连带实现：`ShareChannel` 新增 `shareFiles`（歌词分享图用）后，假 channel 必须
+  // 跟上；它只记录调用，不真分享 —— 不是写漏了。
+  Future<void> shareFiles(
+    List<String> paths, {
+    String? subject,
+    String? text,
+    Rect? origin,
+  }) async {
+    fileBatches.add(List.of(paths));
+    fileSubjects.add(subject);
   }
 }
 
@@ -235,6 +250,17 @@ class _ThrowingChannel implements ShareChannel {
 
   @override
   Future<void> shareText(String text, {String? subject, Rect? origin}) async {
+    throw StateError('share unavailable');
+  }
+
+  @override
+  // 同上：接口新增方法后的连带实现。
+  Future<void> shareFiles(
+    List<String> paths, {
+    String? subject,
+    String? text,
+    Rect? origin,
+  }) async {
     throw StateError('share unavailable');
   }
 }

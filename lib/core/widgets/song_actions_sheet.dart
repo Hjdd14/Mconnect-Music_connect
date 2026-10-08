@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
 import '../../models/song.dart';
 
 /// Actions a song can offer from its long-press (or overflow) menu.
@@ -36,6 +37,10 @@ Future<SongAction?> showSongActionsSheet(
     showDragHandle: true,
     builder: (sheetContext) {
       final theme = Theme.of(sheetContext);
+      // Every song list in the app shows this menu, so its labels live in the
+      // shared `common*` group (docs/i18n-migration-plan.md §1.2 rule 3) — later
+      // batches only reference them instead of writing the same strings again.
+      final l = sheetContext.l10n;
       return SafeArea(
         // Scrollable on purpose: `showModalBottomSheet` caps an unscrollable
         // sheet at 9/16 of the screen, and this menu's six rows plus the header
@@ -61,13 +66,13 @@ Future<SongAction?> showSongActionsSheet(
               const Divider(height: 1),
               _ActionTile(
                 icon: Icons.playlist_play,
-                label: '下一首播放',
+                label: l.commonPlayNext,
                 action: SongAction.playNext,
               ),
               if (!isLocal)
                 _ActionTile(
                   icon: Icons.playlist_add,
-                  label: '添加到歌单',
+                  label: l.commonAddToPlaylist,
                   action: SongAction.addToPlaylist,
                 ),
               if (!isLocal)
@@ -75,25 +80,26 @@ Future<SongAction?> showSongActionsSheet(
                   icon: isDownloaded
                       ? Icons.download_done
                       : Icons.download_outlined,
-                  label: isDownloaded ? '已下载' : '下载',
+                  label: isDownloaded ? l.commonDownloaded : l.commonDownload,
                   action: SongAction.download,
                   enabled: !isDownloaded,
                 ),
               if (!isLocal)
                 _ActionTile(
                   icon: isLiked ? Icons.favorite : Icons.favorite_border,
-                  label: isLiked ? '取消喜欢' : '喜欢',
+                  label: isLiked ? l.commonUnlike : l.commonLike,
                   action: SongAction.toggleLike,
                 ),
               _ActionTile(
                 icon: Icons.link,
-                label: '复制链接',
+                label: l.commonCopyLink,
                 action: SongAction.copyLink,
               ),
               if (!isLocal)
                 _ActionTile(
                   icon: Icons.share_outlined,
-                  label: '分享',
+                  // Reuses the existing `share` key (zh/en already translated).
+                  label: l.share,
                   action: SongAction.share,
                 ),
               const SizedBox(height: 8),

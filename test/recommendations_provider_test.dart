@@ -1,6 +1,9 @@
 import 'dart:async';
 
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mconnect/features/discovery/presentation/pages/recommendations_page.dart';
 import 'package:mconnect/features/discovery/presentation/providers/recommendations_provider.dart';
 import 'package:mconnect/models/artist.dart';
 import 'package:mconnect/models/audio_quality.dart';
@@ -251,6 +254,47 @@ void main() {
       expect(notifier.state.error, isNull);
     },
   );
+  // A platform whose daily recommendations failed used to render as a bare error
+  // with no way out; the page now uses the shared error state, and nothing
+  // asserted that the retry is reachable — or that it does anything.
+  testWidgets('a failed platform tab offers a retry that really reloads', (
+    tester,
+  ) async {
+    var loads = 0;
+    final notifier = RecommendationsNotifier(
+      supportedTypes: const [PlatformType.qq],
+      platformResolver: (_) => _FakeRecommendationPlatform(
+        platform: PlatformType.qq,
+        error: Exception('daily api failed'),
+        onLoad: () => loads++,
+      ),
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          recommendationsProvider.overrideWith((ref) => notifier),
+        ],
+        child: const MaterialApp(home: RecommendationsPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // One platform is logged in but produced nothing → it stays visible as its
+    // own tab, and the page blames that platform rather than the whole page.
+    expect(loads, 1);
+    expect(find.textContaining('daily api failed'), findsOneWidget);
+    expect(find.widgetWithText(ElevatedButton, '重试'), findsOneWidget);
+
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+
+    expect(
+      loads,
+      2,
+      reason: '点重试必须真的再加载一次，而不是只把错误清掉',
+    );
+  });
 }
 
 Song _song(String id, PlatformType platform) => Song(

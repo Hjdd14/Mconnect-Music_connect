@@ -50,6 +50,21 @@ enum ScrobbleService {
     }
     return null;
   }
+
+  /// What the settings page calls this service.
+  String get label => displayName;
+
+  /// Whether the credential fields are the Last.fm-family trio (api key, api
+  /// secret, session key) rather than a single token. Derived from [transport] so
+  /// a new service only has to declare its transport.
+  bool get usesApiKey =>
+      transport == ScrobbleTransport.lastFmCompatible;
+
+  bool get usesToken =>
+      transport == ScrobbleTransport.listenBrainzNative;
+
+  /// Only a self-hosted instance has a base URL worth asking the user for.
+  bool get usesCustomBaseUrl => this == ScrobbleService.maloja;
 }
 
 /// The default base URL per service; a custom one overrides it (self-hosted
@@ -143,6 +158,20 @@ class ScrobbleSecrets {
           sessionKey.trim().isNotEmpty,
     ScrobbleTransport.listenBrainzNative => token.trim().isNotEmpty,
   };
+
+  ScrobbleSecrets copyWith({
+    String? apiKey,
+    String? apiSecret,
+    String? sessionKey,
+    String? token,
+  }) {
+    return ScrobbleSecrets(
+      apiKey: apiKey ?? this.apiKey,
+      apiSecret: apiSecret ?? this.apiSecret,
+      sessionKey: sessionKey ?? this.sessionKey,
+      token: token ?? this.token,
+    );
+  }
 }
 
 /// Reads and writes the secret half.

@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mconnect/features/audio_effects/data/eq_preset_codec.dart';
+import 'package:mconnect/features/audio_effects/presentation/providers/audio_effects_provider.dart';
 import 'package:mconnect/features/player/data/player_audio_controller.dart';
 
 void main() {
@@ -57,6 +60,162 @@ void main() {
         diagnostic,
         greaterThan(nativeBranch),
         reason: '诊断必须在 setProperty 之后（即只服务非 NativePlayer 分支）',
+      );
+    });
+  });
+
+  // W2-B item b：EQ 预设的 JSON 导入/导出。对外交换格式必须带 schema + version，
+  // 且**严格校验**（越界拒绝、不 clamp）——静默夹紧会把别人给的文件变成用户没见过的
+  // 曲线，而导入方还以为成功了。
+  group('EQ preset JSON import/export (W2-B item b)', () {
+    test('a custom curve round-trips through encode/decode', () {
+      final document = EqPresetDocument(
+        name: 'my curve',
+        bandGains: const [3, -2, 0, 4.5, -12],
+        preset: EqualizerPreset.rock,
+      );
+
+      final imported = EqPresetDocument.decode(document.encode());
+
+      expect(imported.isSuccess, isTrue);
+      expect(imported.error, isNull);
+      expect(imported.document!.name, 'my curve');
+      expect(imported.document!.bandGains, const [3, -2, 0, 4.5, -12]);
+      expect(imported.document!, document);
+    });
+
+    test('a built-in preset round-trips (5 bands, name + preset kept)', () {
+      final document = EqPresetDocument.fromPreset(EqualizerPreset.rock);
+
+      final imported = EqPresetDocument.decode(document.encode());
+
+      expect(imported.isSuccess, isTrue);
+      expect(imported.document!.name, EqualizerPreset.rock.displayName);
+      expect(imported.document!.bandGains, EqualizerPreset.rock.bandGains);
+      expect(imported.document!.preset, EqualizerPreset.rock);
+    });
+
+    test('the payload carries an explicit schema tag and version', () {
+      final json =
+          jsonDecode(
+                EqPresetDocument.fromPreset(EqualizerPreset.vocal).encode(),
+              )
+              as Map<String, dynamic>;
+
+      expect(json['schema'], EqPresetDocument.schemaTag);
+      expect(json['version'], EqPresetDocument.schemaVersion);
+    });
+
+    test('rejects a foreign schema tag', () {
+      final result = EqPresetDocument.fromJson({
+        'schema': 'some.other.app',
+        'version': 1,
+        'name': 'x',
+        'bandGains': const [0, 0, 0, 0, 0],
+      });
+
+      expect(result.isSuccess, isFalse);
+      expect(result.error, EqPresetError.wrongSchema);
+    });
+
+    test('rejects a missing or unknown version', () {
+      for (final version in <Object?>[null, 0, 2, '1', 1.0]) {
+        final result = EqPresetDocument.fromJson({
+          'schema': EqPresetDocument.schemaTag,
+          'version': version,
+          'name': 'x',
+          'bandGains': const [0, 0, 0, 0, 0],
+        });
+
+        expect(
+          result.error,
+          EqPresetError.unsupportedVersion,
+          reason: 'version=$version 必须被拒绝（缺版本与不认识合并成同一处置）',
+        );
+      }
+    });
+
+    test('rejects a wrong band count', () {
+      for (final gains in <List<double>>[
+        const [],
+        const [0, 0, 0, 0],
+        const [0, 0, 0, 0, 0, 0],
+      ]) {
+        final result = EqPresetDocument.fromJson({
+          'schema': EqPresetDocument.schemaTag,
+          'version': 1,
+          'name': 'x',
+          'bandGains': gains,
+        });
+
+        expect(result.error, EqPresetError.wrongBandCount);
+      }
+    });
+
+    test('rejects out-of-range gains instead of clamping them', () {
+      for (final gain in <double>[13, -12.5, 99]) {
+        final result = EqPresetDocument.fromJson({
+          'schema': EqPresetDocument.schemaTag,
+          'version': 1,
+          'name': 'x',
+          'bandGains': [gain, 0, 0, 0, 0],
+        });
+
+        expect(
+          result.error,
+          EqPresetError.gainOutOfRange,
+          reason: '$gain dB 越界必须被拒绝；clamp 成 ±12 会让导入方以为成功了',
+        );
+        expect(result.document, isNull);
+      }
+
+      // 边界值本身合法（±12 允许，只有越界才拒绝）。
+      final atEdge = EqPresetDocument.fromJson({
+        'schema': EqPresetDocument.schemaTag,
+        'version': 1,
+        'name': 'x',
+        'bandGains': const [12, -12, 0, 0, 0],
+      });
+      expect(atEdge.isSuccess, isTrue);
+      expect(atEdge.document!.bandGains, const [12, -12, 0, 0, 0]);
+    });
+
+    test('rejects non-numeric gains, missing gains and empty names', () {
+      EqPresetImport build(Object? gains, {Object? name = 'x'}) {
+        return EqPresetDocument.fromJson({
+          'schema': EqPresetDocument.schemaTag,
+          'version': 1,
+          'name': name,
+          'bandGains': gains,
+        });
+      }
+
+      expect(build(const ['loud', 0, 0, 0, 0]).error, EqPresetError.nonNumericGain);
+      expect(
+        build(const [0, 0, 0, 0, double.nan]).error,
+        EqPresetError.nonNumericGain,
+      );
+      expect(build(null).error, EqPresetError.missingGains);
+      expect(
+        build(const [0, 0, 0, 0, 0], name: '   ').error,
+        EqPresetError.missingName,
+      );
+      expect(
+        build(const [0, 0, 0, 0, 0], name: null).error,
+        EqPresetError.missingName,
+      );
+    });
+
+    test('rejects malformed JSON text and non-object payloads', () {
+      expect(EqPresetDocument.decode('{not json').error, EqPresetError.notJson);
+      expect(EqPresetDocument.decode('').error, EqPresetError.notJson);
+      expect(
+        EqPresetDocument.fromJson(const <Object?>[1, 2, 3]).error,
+        EqPresetError.notAnObject,
+      );
+      expect(
+        EqPresetDocument.fromJson('a string').error,
+        EqPresetError.notAnObject,
       );
     });
   });

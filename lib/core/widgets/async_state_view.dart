@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shimmer/shimmer.dart';
 
+import '../../l10n/l10n.dart';
 import '../theme/app_colors.dart';
 
 /// Which of the three mutually exclusive page states a view represents.
@@ -102,6 +103,15 @@ class AsyncStateView extends StatelessWidget {
 
       case AsyncStateKind.error:
       case AsyncStateKind.empty:
+        // **`outline` family = icons only; body copy is always
+        // `onSurfaceVariant`** (rule 2 above). `scheme.outlineVariant` here is
+        // deliberate and must not be "corrected" to a text colour: a 64dp
+        // decorative glyph reads as a quiet mark, whereas the same low-contrast
+        // colour on a paragraph fails contrast. The reverse mistake — using
+        // `outline` for body copy — is the one the audit found on ~10 pages.
+        //
+        // The error glyph is the one icon that gets `scheme.error`, because it
+        // carries meaning the sentence alone can miss at a glance.
         final iconColor = kind == AsyncStateKind.error
             ? scheme.error
             : scheme.outlineVariant;
@@ -122,7 +132,7 @@ class AsyncStateView extends StatelessWidget {
                   const SizedBox(height: 16),
                   ElevatedButton(
                     onPressed: onRetry,
-                    child: const Text('重试'),
+                    child: Text(context.l10n.commonRetry),
                   ),
                 ],
               ],

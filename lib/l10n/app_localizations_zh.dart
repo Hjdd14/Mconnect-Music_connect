@@ -314,6 +314,30 @@ class AppLocalizationsZh extends AppLocalizations {
   String get actionLogout => '退出';
 
   @override
+  String get commonRetry => '重试';
+
+  @override
+  String get commonPlayNext => '下一首播放';
+
+  @override
+  String get commonAddToPlaylist => '添加到歌单';
+
+  @override
+  String get commonDownload => '下载';
+
+  @override
+  String get commonDownloaded => '已下载';
+
+  @override
+  String get commonLike => '喜欢';
+
+  @override
+  String get commonUnlike => '取消喜欢';
+
+  @override
+  String get commonCopyLink => '复制链接';
+
+  @override
   String get playerNowPlaying => '正在播放';
 
   @override

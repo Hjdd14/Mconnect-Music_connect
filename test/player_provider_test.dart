@@ -2333,6 +2333,61 @@ group('diagnostics instrumentation', () {
       expect(notifier.state.error, isNull);
       expect(notifier.state.isPlaying, isTrue);
     });
+
+    test('换源流半途断 → 当次失效该缓存；且每链只调一次 resolver（F3）', () async {
+      final audio = _FakeAudioController()..failPlayWithAsyncError = true;
+      final invalidated = <PlatformType>[];
+      var resolverCalls = 0;
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        // 原平台对该曲取流全失败 → 必然走换源
+        platformResolver: (_) => _ErroringUrlPlatform(failingIds: const {'f3-1'}),
+        audioControllerFactory: () =>
+            _FakeAudioController()..failPlayWithAsyncError = true,
+        // 恢复到 high：使失败链的 attemptedQuality 是 high。旧实现会按
+        // [high, medium, low] 逐档调用 resolver（3 次），新实现只调 1 次 ⇒ 有判别力。
+        playbackMemoryStore: _MemoryPlaybackStore(
+          restored: PlayerPlaybackMemory.fromJson({
+            'currentSong': _memorySongJson('f3-1'),
+            'playlist': [_memorySongJson('f3-1')],
+            'currentIndex': 0,
+            'currentQuality': 'high',
+          }),
+        ),
+        crossSourceResolver: (song, quality) async {
+          resolverCalls++;
+          return const CrossSourceResult(
+            url: 'https://cross.test/f3.mp3',
+            platform: PlatformType.qq,
+          );
+        },
+        invalidateCrossSource: (song, platform) async =>
+            invalidated.add(platform),
+        stuckWatchdogInterval: Duration.zero,
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+      );
+      addTearDown(notifier.dispose);
+
+      await pumpEventQueue(); // 等 A-2 恢复落地（currentQuality → high）
+      await notifier.playSong(_song('f3-1'));
+      await pumpEventQueue();
+
+      expect(
+        notifier.state.currentQuality,
+        AudioLevel.high,
+        reason: '前置条件：失败链的 attemptedQuality 必须是 high，否则 (b) 无判别力',
+      );
+      expect(
+        resolverCalls,
+        1,
+        reason: '(b)：服务内部已逐级降档，失败链不得再按音质档循环调用',
+      );
+      expect(
+        invalidated,
+        [PlatformType.qq],
+        reason: '换源来的直链放不出来 → 必须当次失效该平台缓存（F3）',
+      );
+    });
   });
 
   // Wave 0-A (P-1)：位置每秒 tick 一次，以前每次都重扫 likesProvider.songs
@@ -2585,6 +2640,13 @@ class _FakeAudioController implements PlayerAudioController {
   _FakeAudioController({this.hangOnStop = false, this.hangOnSeek = false});
 
   bool failOnSetVolume = false;
+
+  /// 让 `play()` 以**异步**错误失败（用于测"换源流半途断"）。
+  ///
+  /// 必须是异步：状态（`sourcePlatform`）要先落位，随后才失败，那才是"换源成功
+  /// 起播、播到一半断"的形状；同步抛出会被更早的 catch 吃掉，测不到这个时机。
+  bool failPlayWithAsyncError = false;
+
   double _volume = 1.0;
 
   @override
@@ -2629,6 +2691,9 @@ class _FakeAudioController implements PlayerAudioController {
   @override
   Future<void> play() {
     playCalls++;
+    if (failPlayWithAsyncError) {
+      return Future<void>.error(StateError('play failed'));
+    }
     _playing = true;
     _playerStateController.add(
       const AudioPlaybackState(

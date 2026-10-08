@@ -149,6 +149,15 @@
   "actionReset": "Reset",
   "actionLogout": "Sign out",
 
+  "commonRetry": "Retry",
+  "commonPlayNext": "Play next",
+  "commonAddToPlaylist": "Add to playlist",
+  "commonDownload": "Download",
+  "commonDownloaded": "Downloaded",
+  "commonLike": "Like",
+  "commonUnlike": "Unlike",
+  "commonCopyLink": "Copy link",
+
   "playerNowPlaying": "Now playing",
   "playerNotPlaying": "Nothing playing",
   "playerAddedToLikes": "Added to your likes",

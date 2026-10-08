@@ -149,6 +149,15 @@
   "actionReset": "重置",
   "actionLogout": "退出",
 
+  "commonRetry": "重试",
+  "commonPlayNext": "下一首播放",
+  "commonAddToPlaylist": "添加到歌单",
+  "commonDownload": "下载",
+  "commonDownloaded": "已下载",
+  "commonLike": "喜欢",
+  "commonUnlike": "取消喜欢",
+  "commonCopyLink": "复制链接",
+
   "playerNowPlaying": "正在播放",
   "playerNotPlaying": "未在播放",
   "playerAddedToLikes": "已收藏到我喜欢",

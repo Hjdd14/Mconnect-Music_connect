@@ -436,8 +436,7 @@ class MainActivity : AudioServiceActivity() {
                 "durationMs" to document.durationMs,
                 "trackNumber" to document.trackNumber,
                 "coverPath" to document.coverPath,
-                "lyrics" to lyricsByKey[document.baseNameKey].orEmpty()
-                    .sortedByDescending { lyricPreference[it.extension] ?: 0 }
+                "lyrics" to lyricCandidatesFor(document, lyricsByKey)
                     .map {
                         mapOf("extension" to it.extension, "content" to it.content)
                     },
@@ -500,11 +499,41 @@ class MainActivity : AudioServiceActivity() {
                 // code keyed only on the lower-cased base name, so `A/01.mp3`
                 // and `B/01.mp3` shared whichever lyric file was walked last
                 // (H-16 "歌词串词").
-                val key = "$directoryKey|${baseName.lowercase()}"
                 val lyrics = readTextDocument(document, skippedFiles)
                 if (!lyrics.isNullOrBlank()) {
-                    lyricsByKey.getOrPut(key) { mutableListOf() }
-                        .add(LyricDocument(extension, lyrics))
+                    // A `lyrics/` subdirectory belongs to the folder it sits in, so
+                    // its sidecars are registered under the *parent's* key — that is
+                    // how the audio file next to it finds them. The Dart walk does
+                    // the same by offering `p.join(directory, 'lyrics', …)`.
+                    val inLyricsSubdirectory =
+                        directory.name?.equals("lyrics", ignoreCase = true) == true
+                    val keyDirectory = if (inLyricsSubdirectory) {
+                        directory.parentFile?.uri?.toString() ?: directoryKey
+                    } else {
+                        directoryKey
+                    }
+                    val rank = if (inLyricsSubdirectory) 1 else 0
+                    lyricsByKey
+                        .getOrPut("$keyDirectory|${baseName.lowercase()}") {
+                            mutableListOf()
+                        }
+                        .add(LyricDocument(extension, lyrics, rank))
+
+                    // The tagger shape: `周杰伦 - 稻香.lrc` also answers to `稻香`,
+                    // which is what lets it be found beside `01. 稻香.flac`. It is
+                    // stored under its *own* rank + 2, so an exactly named sidecar
+                    // always wins when both exist.
+                    val dash = baseName.lastIndexOf(" - ")
+                    if (dash > 0 && dash + 3 < baseName.length) {
+                        val tail = baseName.substring(dash + 3).trim()
+                        if (tail.isNotEmpty()) {
+                            lyricsByKey
+                                .getOrPut("$keyDirectory|${tail.lowercase()}") {
+                                    mutableListOf()
+                                }
+                                .add(LyricDocument(extension, lyrics, rank + 2))
+                        }
+                    }
                 }
             }
         }
@@ -639,6 +668,73 @@ class MainActivity : AudioServiceActivity() {
         return if (dot >= 0) name.substring(dot).lowercase() else ""
     }
 
+    /**
+     * The lyric candidates for one audio document, best first.
+     *
+     * Mirrors `_lyricCandidates` in `lib/features/local_music/data/local_music_repository.dart`
+     * so both platforms rank the same way (`|` in the table is the key separator,
+     * not a column):
+     *
+     * | candidate | Dart order | Kotlin rank |
+     * |---|---|---|
+     * | `<name>.lrc` beside the track | 1st | 0 |
+     * | `lyrics/<name>.lrc` | 2nd | 1 |
+     * | `歌手 - 歌名.lrc` (tail match) | after both | 2 |
+     * | `lyrics/歌手 - 歌名.lrc` | after both | 3 |
+     *
+     * The tagger shapes are found by additionally looking up the audio name with
+     * its leading track number removed (`01. 稻香` → `稻香`, `1-01 稻香` →
+     * `稻香`). The exact key is always tried first, so an exactly named sidecar
+     * cannot lose to a fuzzy one.
+     */
+    private fun lyricCandidatesFor(
+        audio: LocalAudioDocument,
+        lyricsByKey: Map<String, MutableList<LyricDocument>>,
+    ): List<LyricDocument> {
+        // `baseNameKey` is "<directoryKey>|<stem>"; an un-encoded URI cannot
+        // contain `|`, so this split is exact.
+        val directoryKey = audio.baseNameKey.substringBeforeLast('|')
+        val keys = mutableListOf(audio.baseNameKey)
+        for (stem in fuzzyStemsOf(audio.baseName)) {
+            val key = "$directoryKey|${stem.lowercase()}"
+            if (!keys.contains(key)) keys.add(key)
+        }
+        return keys
+            .flatMap { lyricsByKey[it].orEmpty() }
+            .distinct()
+            .sortedWith(
+                compareByDescending<LyricDocument> {
+                    lyricPreference[it.extension] ?: 0
+                }.thenBy { it.rank },
+            )
+    }
+
+    /**
+     * The stems an audio file name suggests besides its own, mirroring
+     * `_fuzzyStemsFor` in the Dart walk: up to two leading track numbers
+     * (`01. 稻香`, `1-01 稻香`, `[3] 稻香`) are stripped, and the part after the
+     * last ` - ` is offered as well (`歌手 - 歌名` beside `歌名.flac`).
+     */
+    private fun fuzzyStemsOf(audioStem: String): List<String> {
+        var stem = audioStem.trim()
+        val leadingTrackNumber = Regex(
+            "^\\s*(?:\\[\\d{1,3}\\]|\\d{1,3}\\s*[-._)]\\s*|\\d{1,3}\\s+)",
+        )
+        for (attempt in 0 until 2) {
+            val stripped = stem.replaceFirst(leadingTrackNumber, "").trim()
+            if (stripped == stem) break
+            stem = stripped
+        }
+        if (stem.isEmpty()) return emptyList()
+        val stems = mutableListOf(stem)
+        val dash = stem.lastIndexOf(" - ")
+        if (dash > 0 && dash + 3 < stem.length) {
+            val tail = stem.substring(dash + 3).trim()
+            if (tail.isNotEmpty() && tail != stem) stems.add(tail)
+        }
+        return stems
+    }
+
     private fun baseNameOf(name: String): String {
         val dot = name.lastIndexOf('.')
         return if (dot > 0) name.substring(0, dot) else name
@@ -647,6 +743,15 @@ class MainActivity : AudioServiceActivity() {
     private data class LyricDocument(
         val extension: String,
         val content: String,
+        /**
+         * Preference *within* one track, mirroring the Dart rule in
+         * `local_music_repository.dart`: `0` = a sidecar named after the audio file
+         * in its own directory, `1` = the same name inside a `lyrics/`
+         * subdirectory, `2`/`3` = the tagger shapes (`歌手 - 歌名.lrc` and its
+         * `lyrics/` sibling). It only ever orders candidates for one track, so it
+         * never competes with [lyricPreference] (the format order).
+         */
+        val rank: Int = 0,
     )
 
     private data class LocalAudioDocument(

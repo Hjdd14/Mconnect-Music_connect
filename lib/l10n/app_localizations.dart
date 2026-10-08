@@ -680,6 +680,54 @@ abstract class AppLocalizations {
   /// **'退出'**
   String get actionLogout;
 
+  /// No description provided for @commonRetry.
+  ///
+  /// In zh, this message translates to:
+  /// **'重试'**
+  String get commonRetry;
+
+  /// No description provided for @commonPlayNext.
+  ///
+  /// In zh, this message translates to:
+  /// **'下一首播放'**
+  String get commonPlayNext;
+
+  /// No description provided for @commonAddToPlaylist.
+  ///
+  /// In zh, this message translates to:
+  /// **'添加到歌单'**
+  String get commonAddToPlaylist;
+
+  /// No description provided for @commonDownload.
+  ///
+  /// In zh, this message translates to:
+  /// **'下载'**
+  String get commonDownload;
+
+  /// No description provided for @commonDownloaded.
+  ///
+  /// In zh, this message translates to:
+  /// **'已下载'**
+  String get commonDownloaded;
+
+  /// No description provided for @commonLike.
+  ///
+  /// In zh, this message translates to:
+  /// **'喜欢'**
+  String get commonLike;
+
+  /// No description provided for @commonUnlike.
+  ///
+  /// In zh, this message translates to:
+  /// **'取消喜欢'**
+  String get commonUnlike;
+
+  /// No description provided for @commonCopyLink.
+  ///
+  /// In zh, this message translates to:
+  /// **'复制链接'**
+  String get commonCopyLink;
+
   /// No description provided for @playerNowPlaying.
   ///
   /// In zh, this message translates to:

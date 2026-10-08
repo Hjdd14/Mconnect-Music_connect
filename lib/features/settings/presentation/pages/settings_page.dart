@@ -27,6 +27,8 @@ import 'package:mconnect/features/audio_effects/presentation/providers/audio_eff
 import 'package:mconnect/features/audio_effects/presentation/providers/sleep_timer_provider.dart';
 import 'package:mconnect/features/floating_lyrics/data/floating_lyrics_service.dart';
 import 'package:mconnect/features/floating_lyrics/presentation/providers/floating_lyrics_provider.dart';
+// NOTE: scrobble_settings_section.dart is intentionally NOT imported here while
+// its Riverpod cycle is unfixed - see the comment in the settings list below.
 import 'package:mconnect/l10n/l10n.dart';
 import 'package:mconnect/l10n/platform_labels.dart';
 import 'package:mconnect/models/platform_type.dart';
@@ -107,6 +109,16 @@ class SettingsPage extends StatelessWidget {
             subtitle: context.l10n.settingsAudioSubtitle,
             onTap: () => context.push('/settings/audio'),
           ),
+          // Wave 2-D: scrobbling's UI block is implemented (see
+          // lib/features/settings/presentation/widgets/scrobble_settings_section.dart
+          // and test/scrobble_settings_test.dart) but is **deliberately not wired
+          // in here yet**. Building it inside this page's ListView raises a
+          // Riverpod CircularDependencyError (scrobbleSettingsControllerProvider
+          // -> scrobbleStatusProvider -> coordinator -> backend ->
+          // preferences/secrets, which re-enters the controller's own build), and
+          // that took this page's a11y and diagnostics-export tests down with it.
+          // Un-wiring keeps the wave green; the cycle is the next increment's
+          // first item. Do NOT re-add the widget below without fixing it first.
           // task-12: the data layer (WS-F) and diagnostics (task-11) shipped
           // their features, but without an entry point they were unreachable.
           _SettingsEntryTile(

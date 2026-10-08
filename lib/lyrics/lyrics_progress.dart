@@ -21,6 +21,31 @@ Duration applyLyricsOffset(Duration position, Duration offset) {
   return shifted.isNegative ? Duration.zero : shifted;
 }
 
+/// Index of the lyric line playback is currently on, or -1 for no usable line.
+///
+/// The same rule the player page and the floating overlay use: the **last** line
+/// whose start is at or before [position], skipping lines with no visible text;
+/// before the first line starts, the first visible line counts as active. Shared
+/// so the share card highlights the same line the screen is showing.
+int currentLyricLineIndex(List<LyricsLine> lines, Duration position) {
+  var active = -1;
+  for (var i = 0; i < lines.length; i++) {
+    final line = lines[i];
+    if (!_hasVisibleText(line)) continue;
+    if (line.timestamp > position) break;
+    active = i;
+  }
+  if (active >= 0) return active;
+  for (var i = 0; i < lines.length; i++) {
+    if (_hasVisibleText(lines[i])) return i;
+  }
+  return -1;
+}
+
+bool _hasVisibleText(LyricsLine line) =>
+    line.text.trim().isNotEmpty ||
+    (line.translation?.trim().isNotEmpty ?? false);
+
 /// How many leading characters of [line] playback has already reached.
 ///
 /// Word-timed formats (QRC/KRC) accumulate whole words plus the elapsed part

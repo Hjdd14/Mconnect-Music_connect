@@ -5,11 +5,14 @@ import 'package:mconnect/core/share/share_service.dart';
 import 'package:mconnect/features/library/data/my_playlists_repository.dart';
 import 'package:mconnect/features/library/presentation/pages/platform_playlists_page.dart';
 import 'package:mconnect/features/library/presentation/providers/my_playlists_provider.dart';
+import 'package:mconnect/features/library/presentation/providers/platform_playlists_provider.dart';
 import 'package:mconnect/models/artist.dart';
 import 'package:mconnect/models/platform_type.dart';
 import 'package:mconnect/models/playlist.dart';
 import 'package:mconnect/models/song.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+
+import 'support/content_page_fakes.dart';
 
 /// W1-C increment 2: the playlist export entry.
 ///
@@ -185,16 +188,90 @@ void main() {
     expect(find.byType(QrImageView), findsNothing);
     expect(find.textContaining('二维码'), findsWidgets, reason: '必须说明为什么没有二维码');
   });
+  // A platform tab that failed used to render one bare line of red text with no
+  // way out. It now uses the shared error state, and nothing asserted that —
+  // which means the retry could be deleted without any test going red.
+  testWidgets('a failed platform tab offers a retry that really reloads', (
+    tester,
+  ) async {
+    var loads = 0;
+    final platform = _FailingPlaylistPlatform(() => loads++);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          myPlaylistsProvider.overrideWith(
+            (ref) => MyPlaylistsNotifier(
+              repository: _FakeMyPlaylistsRepository(),
+            ),
+          ),
+          platformPlaylistsProvider.overrideWith(
+            (ref) => PlatformPlaylistsNotifier(
+              supportedTypes: const [PlatformType.netease],
+              platformResolver: (_) => platform,
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: PlatformPlaylistsPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The page loads the platform in `initState`.
+    expect(loads, 1);
+
+    await tester.tap(find.text('网易云音乐'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('playlist boom'), findsOneWidget);
+    expect(find.widgetWithText(ElevatedButton, '重试'), findsOneWidget);
+
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+
+    expect(
+      loads,
+      2,
+      reason: '点重试必须真的再拉一次该平台的歌单，而不是只把错误清掉',
+    );
+  });
+}
+
+/// A logged-in platform whose playlist call always fails.
+class _FailingPlaylistPlatform extends FakeContentPlatform {
+  _FailingPlaylistPlatform(this.onLoad)
+    : super(type: PlatformType.netease, loggedIn: true);
+
+  final void Function() onLoad;
+
+  @override
+  Future<List<Playlist>> getUserPlaylists() async {
+    onLoad();
+    throw Exception('playlist boom');
+  }
 }
 
 class _RecordingChannel implements ShareChannel {
   final List<String> texts = <String>[];
   final List<String?> subjects = <String?>[];
+  final List<List<String>> fileBatches = <List<String>>[];
 
   @override
   Future<void> shareText(String text, {String? subject, Rect? origin}) async {
     texts.add(text);
     subjects.add(subject);
+  }
+
+  @override
+  // 连带实现：`ShareChannel` 新增 `shareFiles`（歌词分享图用）后，这个假 channel
+  // 必须跟上；它只需要记录调用，不需要真分享 —— 不是写漏了。
+  Future<void> shareFiles(
+    List<String> paths, {
+    String? subject,
+    String? text,
+    Rect? origin,
+  }) async {
+    fileBatches.add(List.of(paths));
   }
 }
 

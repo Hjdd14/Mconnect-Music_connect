@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/share/share_service.dart';
+import '../../../../lyrics/lyrics_display_settings.dart';
+import '../../../../lyrics/lyrics_progress.dart';
+import '../../../../lyrics/lyrics_share.dart';
 import '../../../../lyrics/widgets/lyrics_options_section.dart';
+import '../../../../lyrics/widgets/lyrics_share_card.dart';
 import '../providers/lyrics_offset_provider.dart';
 import '../providers/lyrics_provider.dart';
 import '../providers/player_provider.dart';
@@ -163,10 +168,61 @@ class PlaybackOptionsSheet extends ConsumerWidget {
               purge: purgeExpiredLyricsCache,
               cacheTtlDays: lyricsCacheTtl.inDays,
             ),
+            const Divider(height: 24),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                key: const Key('lyrics-share-card'),
+                onPressed: () => _shareLyricsCard(context, ref),
+                icon: const Icon(Icons.ios_share),
+                label: const Text('分享歌词图'),
+              ),
+            ),
           ],
         ),
       ),
     );
+  }
+
+  /// 截图当前歌词 → 临时 PNG → 系统分享面板。
+  ///
+  /// 所有 context 用法都在 await 之前（messenger 先取出来），失败只提示不抛。
+  Future<void> _shareLyricsCard(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final player = ref.read(playerProvider);
+    final song = player.currentSong;
+    final document = ref.read(lyricsProvider).valueOrNull;
+    if (song == null || document == null || document.lines.isEmpty) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('暂无可分享的歌词')));
+      return;
+    }
+
+    final path = await shareLyricsCard(
+      context,
+      card: LyricsShareCard(
+        title: song.name,
+        artists: song.artistNames,
+        source: document.source,
+        lines: document.lines,
+        activeIndex: currentLyricLineIndex(
+          document.lines,
+          applyLyricsOffset(player.position, ref.read(lyricsOffsetProvider)),
+        ),
+        mode: ref.read(lyricsDisplayModeProvider),
+      ),
+      shareService: ref.read(shareServiceProvider),
+      subject: song.name,
+      text: '${song.name} - ${song.artistNames}',
+    );
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(path == null ? '歌词分享图生成失败' : '歌词分享图已生成'),
+        ),
+      );
   }
 
   static String _formatDuration(Duration? value) {

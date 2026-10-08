@@ -18,6 +18,18 @@ abstract class ShareChannel {
   /// [origin] is required by iPadOS (`sharePositionOrigin`); on other platforms
   /// it is ignored. Callers pass the tapped widget's rect when they have one.
   Future<void> shareText(String text, {String? subject, Rect? origin});
+
+  /// Opens the system share sheet for local [paths] (a generated PNG, a log file).
+  ///
+  /// [text] is the optional body sent alongside the files — the lyrics card uses
+  /// it for the "歌名 - 歌手" line so a share target that drops attachments still
+  /// shows something useful.
+  Future<void> shareFiles(
+    List<String> paths, {
+    String? subject,
+    String? text,
+    Rect? origin,
+  });
 }
 
 class SharePlusChannel implements ShareChannel {
@@ -27,6 +39,24 @@ class SharePlusChannel implements ShareChannel {
   Future<void> shareText(String text, {String? subject, Rect? origin}) async {
     await SharePlus.instance.share(
       ShareParams(text: text, subject: subject, sharePositionOrigin: origin),
+    );
+  }
+
+  @override
+  Future<void> shareFiles(
+    List<String> paths, {
+    String? subject,
+    String? text,
+    Rect? origin,
+  }) async {
+    if (paths.isEmpty) return;
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [for (final path in paths) XFile(path)],
+        subject: subject,
+        text: text,
+        sharePositionOrigin: origin,
+      ),
     );
   }
 }
@@ -69,9 +99,9 @@ class ShareService {
   /// received.
   ///
   /// The payload is plain text: a `.m3u8` is a text file, so saving it under that
-  /// extension is the user's step. Sharing an actual file would need a new
-  /// [ShareChannel] method plus temporary-file I/O, which is deliberately not
-  /// part of this change.
+  /// extension is the user's step. Sharing it as an attachment is [shareFiles]'
+  /// job (used by the lyrics card), and this method deliberately stays text-only
+  /// so the text payloads above it keep working unchanged.
   Future<void> sharePlaylistExport({
     required String name,
     required String content,
@@ -81,6 +111,25 @@ class ShareService {
     return _channel.shareText(
       content,
       subject: '${playlistDisplayName(name)}（$formatLabel）',
+      origin: origin,
+    );
+  }
+
+  /// Shares generated **local files**, e.g. the lyrics card PNG.
+  ///
+  /// [paths] must already exist on disk — this layer does no file I/O. The caller
+  /// owns writing (and later cleaning up) the temporary file; see
+  /// `lib/lyrics/lyrics_share_card.dart`.
+  Future<void> shareFiles(
+    List<String> paths, {
+    String? subject,
+    String? text,
+    Rect? origin,
+  }) {
+    return _channel.shareFiles(
+      paths,
+      subject: subject,
+      text: text,
       origin: origin,
     );
   }
