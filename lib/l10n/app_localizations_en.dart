@@ -720,4 +720,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get libraryExportPlaylist => 'Export playlist';
+
+  @override
+  String libraryShareFailed(String error) {
+    return 'Couldn\'t share: $error';
+  }
 }

@@ -694,4 +694,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get libraryExportPlaylist => '导出歌单';
+
+  @override
+  String libraryShareFailed(String error) {
+    return '分享失败：$error';
+  }
 }

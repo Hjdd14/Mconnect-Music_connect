@@ -320,7 +320,7 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
       await run(ref.read(shareServiceProvider));
     } catch (error) {
       if (!mounted) return;
-      showErrorSnackBar(context, '分享失败：$error');
+      showErrorSnackBar(context, context.l10n.libraryShareFailed('$error'));
     }
   }
 

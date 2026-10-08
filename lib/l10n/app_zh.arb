@@ -415,5 +415,14 @@
     }
   },
   "libraryPlaylistActions": "歌单操作",
-  "libraryExportPlaylist": "导出歌单"
+  "libraryExportPlaylist": "导出歌单",
+
+  "libraryShareFailed": "分享失败：{error}",
+  "@libraryShareFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  }
 }

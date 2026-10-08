@@ -1363,6 +1363,12 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'导出歌单'**
   String get libraryExportPlaylist;
+
+  /// No description provided for @libraryShareFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'分享失败：{error}'**
+  String libraryShareFailed(String error);
 }
 
 class _AppLocalizationsDelegate

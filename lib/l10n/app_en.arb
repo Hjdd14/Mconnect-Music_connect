@@ -272,5 +272,7 @@
   "libraryMyPlaylistsEmpty": "No playlists yet — create one from the top right, or import a share link",
   "librarySongCount": "{count} songs",
   "libraryPlaylistActions": "Playlist actions",
-  "libraryExportPlaylist": "Export playlist"
+  "libraryExportPlaylist": "Export playlist",
+
+  "libraryShareFailed": "Couldn't share: {error}"
 }
