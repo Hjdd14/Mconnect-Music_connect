@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/platform/platform_utils.dart';
@@ -12,8 +13,10 @@ import '../../data/local_music_repository.dart';
 import '../../data/local_scan_root_store.dart';
 import '../../data/local_track_store.dart';
 import '../../data/online_library_snapshot.dart';
+import '../../data/track_ratings_store.dart';
 import '../../domain/local_library_dedupe.dart';
 import '../../domain/local_library_grouping.dart';
+import '../../domain/local_library_query.dart';
 
 /// Which grouping the local page is showing.
 enum LocalLibraryView { songs, albums, artists, folders }
@@ -166,6 +169,25 @@ class LocalMusicState {
 
   final LocalLibraryView view;
 
+  /// What the page is searching/sorting/filtering by.
+  ///
+  /// An immutable value object, so the filtered list is a pure function of
+  /// `(tracks, query, ratings, playCounts)` and can be asserted in a plain test.
+  final LocalLibraryQuery query;
+
+  /// `songKey` → rating; only **rated** songs are present.
+  final Map<String, int> ratings;
+
+  /// `songKey` → play count, aggregated from the play events (never a second
+  /// counter that could disagree with the statistics page).
+  final Map<String, int> playCounts;
+
+  /// Rows ticked in multi-select mode. Empty means "not selecting".
+  ///
+  /// Paths rather than `Song`s or indexes: a path is the primary key of the
+  /// local index, so a tick survives a re-sort or a rescan that reorders rows.
+  final Set<String> selectedPaths;
+
   const LocalMusicState({
     this.songs = const [],
     this.tracks = const [],
@@ -179,6 +201,10 @@ class LocalMusicState {
     this.onlineSongs = const [],
     this.mergeWithOnline = false,
     this.view = LocalLibraryView.songs,
+    this.query = LocalLibraryQuery.none,
+    this.ratings = const {},
+    this.playCounts = const {},
+    this.selectedPaths = const {},
   });
 
   LocalMusicState copyWith({
@@ -194,6 +220,10 @@ class LocalMusicState {
     List<Song>? onlineSongs,
     bool? mergeWithOnline,
     LocalLibraryView? view,
+    LocalLibraryQuery? query,
+    Map<String, int>? ratings,
+    Map<String, int>? playCounts,
+    Set<String>? selectedPaths,
   }) {
     return LocalMusicState(
       songs: songs ?? this.songs,
@@ -208,24 +238,71 @@ class LocalMusicState {
       onlineSongs: onlineSongs ?? this.onlineSongs,
       mergeWithOnline: mergeWithOnline ?? this.mergeWithOnline,
       view: view ?? this.view,
+      query: query ?? this.query,
+      ratings: ratings ?? this.ratings,
+      playCounts: playCounts ?? this.playCounts,
+      selectedPaths: selectedPaths ?? this.selectedPaths,
     );
   }
 
   String? lyricsFor(String songId) => lyricsBySongId[songId];
 
-  /// The song list actually rendered: with [mergeWithOnline] the local library
-  /// is merged with the cached online library on [Song.dedupeKey], local first,
-  /// so a song that exists in both places appears exactly once.
+  /// The local index after the query: keyword, then filters, then sort.
+  ///
+  /// Every view below derives from this one getter, so a filter cannot apply to
+  /// the song list but silently not to the album list.
+  List<LocalTrackEntry> get queriedTracks => query.apply(
+    tracks,
+    ratings: ratings,
+    playCounts: playCounts,
+  );
+
+  /// The local songs after the query.
+  ///
+  /// Preferred source is [tracks] — the index rows the query can actually filter
+  /// and sort. [songs] is the fallback for a state that was built without index
+  /// rows (a preview, or a test constructing `LocalMusicState` directly to check
+  /// the local/online merge): returning it unfiltered is strictly better than
+  /// dropping the local list, and every production path sets both fields, so the
+  /// two can never diverge in the app itself.
+  List<Song> get queriedSongs => tracks.isEmpty
+      ? songs
+      : [for (final track in queriedTracks) track.toSong()];
+
+  /// True when the user changed something, so the UI can offer "清除筛选".
+  bool get isQueryActive => !query.isDefault;
+
+  bool get isSelecting => selectedPaths.isNotEmpty;
+
+  int get selectedCount => selectedPaths.length;
+
+  /// The ticked rows, in library order (not in tap order) so a batch action
+  /// reports a stable, predictable list.
+  List<LocalTrackEntry> get selectedTracks => [
+    for (final track in tracks)
+      if (selectedPaths.contains(track.path)) track,
+  ];
+
+  /// The rating of one track, `0` when it was never rated.
+  int ratingOf(LocalTrackEntry track) =>
+      ratings[localTrackSongKey(track)] ?? 0;
+
+  /// The song list actually rendered: with [mergeWithOnline] the (queried) local
+  /// library is merged with the cached online library on [Song.dedupeKey], local
+  /// first, so a song that exists in both places appears exactly once.
   List<Song> get visibleSongs => mergeWithOnline
       ? LocalLibraryDedupe.mergeLocalWithOnline(
-          local: songs,
+          local: queriedSongs,
           online: onlineSongs,
         )
-      : songs;
+      : queriedSongs;
 
-  List<LocalTrackGroup> get albumGroups => LocalLibraryGrouping.byAlbum(tracks);
-  List<LocalTrackGroup> get artistGroups => LocalLibraryGrouping.byArtist(tracks);
-  List<LocalTrackGroup> get folderGroups => LocalLibraryGrouping.byFolder(tracks);
+  List<LocalTrackGroup> get albumGroups =>
+      LocalLibraryGrouping.byAlbum(queriedTracks);
+  List<LocalTrackGroup> get artistGroups =>
+      LocalLibraryGrouping.byArtist(queriedTracks);
+  List<LocalTrackGroup> get folderGroups =>
+      LocalLibraryGrouping.byFolder(queriedTracks);
 
   /// Dedupe keys of the cached online library, computed once per call.
   ///
@@ -247,6 +324,7 @@ class LocalMusicNotifier extends StateNotifier<LocalMusicState> {
   final LocalLyricsStore _lyricsStore;
   final LocalScanRootStore _rootStore;
   final OnlineLibrarySnapshot _onlineSnapshot;
+  final TrackRatingsStore _ratingsStore;
 
   LocalMusicNotifier({
     LocalMusicRepository? repository,
@@ -256,6 +334,7 @@ class LocalMusicNotifier extends StateNotifier<LocalMusicState> {
     LocalLyricsStore? lyricsStore,
     LocalScanRootStore? rootStore,
     OnlineLibrarySnapshot? onlineSnapshot,
+    TrackRatingsStore? ratingsStore,
   }) : this._(
          scanner ?? repository ?? LocalMusicRepository(),
          picker,
@@ -263,6 +342,7 @@ class LocalMusicNotifier extends StateNotifier<LocalMusicState> {
          lyricsStore ?? DriftLocalLyricsStore(),
          rootStore ?? HiveLocalScanRootStore(),
          onlineSnapshot ?? DriftOnlineLibrarySnapshot(),
+         ratingsStore ?? defaultTrackRatingsStore(),
        );
 
   LocalMusicNotifier._(
@@ -272,6 +352,7 @@ class LocalMusicNotifier extends StateNotifier<LocalMusicState> {
     this._lyricsStore,
     this._rootStore,
     this._onlineSnapshot,
+    this._ratingsStore,
   ) : _picker =
           picker ??
           defaultLocalMusicPicker(
@@ -293,6 +374,17 @@ class LocalMusicNotifier extends StateNotifier<LocalMusicState> {
     try {
       final tracks = await _trackStore.loadAll();
       final storedLyrics = await _lyricsStore.loadAll();
+      // A ratings read must never take the library down with it: the tracks are
+      // the feature, the stars are decoration. An empty map simply means "nothing
+      // rated yet", which is also what a fresh install looks like.
+      var ratings = const <String, int>{};
+      var playCounts = const <String, int>{};
+      try {
+        ratings = await _ratingsStore.loadRatings();
+        playCounts = await _ratingsStore.loadPlayCounts();
+      } catch (e) {
+        debugPrint('local ratings unavailable: $e');
+      }
       final rememberedRoot = state.selectedDirectory ?? await _rootStore.read();
       if (!mounted) return;
       tracks.sort(
@@ -304,6 +396,8 @@ class LocalMusicNotifier extends StateNotifier<LocalMusicState> {
         tracks: tracks,
         songs: [for (final track in tracks) track.toSong()],
         lyricsBySongId: storedLyrics,
+        ratings: ratings,
+        playCounts: playCounts,
         isLoading: false,
         selectedDirectory: rememberedRoot,
         error: () => null,
@@ -312,6 +406,133 @@ class LocalMusicNotifier extends StateNotifier<LocalMusicState> {
       if (!mounted) return;
       state = state.copyWith(isLoading: false, error: () => '读取本地曲库失败：$e');
     }
+  }
+
+  // --- Search / sort / filter ------------------------------------------------
+
+  /// Replaces the keyword. The filtered list is derived, so only the query is
+  /// stored — no second list to keep in sync.
+  void setKeyword(String keyword) {
+    state = state.copyWith(query: state.query.copyWith(keyword: keyword));
+  }
+
+  void setSort(LocalSortField sort) {
+    state = state.copyWith(query: state.query.copyWith(sort: sort));
+  }
+
+  void setSortDescending(bool descending) {
+    state = state.copyWith(
+      query: state.query.copyWith(descending: descending),
+    );
+  }
+
+  void toggleSortDirection() {
+    setSortDescending(!state.query.descending);
+  }
+
+  void toggleFilter(LocalTrackFilter filter, bool enabled) {
+    state = state.copyWith(
+      query: state.query.withFilter(filter, enabled),
+    );
+  }
+
+  void clearQuery() {
+    state = state.copyWith(query: LocalLibraryQuery.none);
+  }
+
+  // --- Ratings ---------------------------------------------------------------
+
+  /// Sets the rating for one local track and remembers it.
+  ///
+  /// The write is optimistic: the star must not lag behind the tap. A write that
+  /// fails leaves the stored map as the truth, so the value comes back on the
+  /// next load rather than being silently claimed as saved.
+  Future<void> setRating(LocalTrackEntry track, int rating) async {
+    final key = localTrackSongKey(track);
+    final next = {...state.ratings};
+    if (rating <= 0) {
+      next.remove(key);
+    } else {
+      next[key] = rating.clamp(1, 5);
+    }
+    state = state.copyWith(ratings: next);
+    try {
+      await _ratingsStore.setRating(key, rating);
+    } catch (e) {
+      // Re-reading is the honest recovery: the UI must not keep showing a rating
+      // the database refused.
+      final stored = await _ratingsStore.loadRatings();
+      if (!mounted) return;
+      state = state.copyWith(ratings: stored, error: () => '保存评分失败：$e');
+    }
+  }
+
+  /// Re-reads ratings and play counts (after a scan, and when the statistics
+  /// page has recorded new plays).
+  Future<void> refreshRatings() async {
+    final ratings = await _ratingsStore.loadRatings();
+    final playCounts = await _ratingsStore.loadPlayCounts();
+    if (!mounted) return;
+    state = state.copyWith(ratings: ratings, playCounts: playCounts);
+  }
+
+  /// Recomputes the materialised play aggregate. Cheap enough for a scan
+  /// boundary, too expensive for a rebuild, which is why nothing else calls it.
+  Future<void> syncPlayStats() async {
+    await _ratingsStore.syncPlayStats();
+    await refreshRatings();
+  }
+
+  // --- Multi-select and batch actions ---------------------------------------
+
+  void toggleSelected(String path) {
+    final next = {...state.selectedPaths};
+    if (!next.remove(path)) next.add(path);
+    state = state.copyWith(selectedPaths: next);
+  }
+
+  /// Ticks every row currently visible (i.e. after the query), so "全选" means
+  /// "all of what the user is looking at".
+  void selectAllVisible() {
+    state = state.copyWith(
+      selectedPaths: {for (final track in state.queriedTracks) track.path},
+    );
+  }
+
+  void clearSelection() {
+    if (state.selectedPaths.isEmpty) return;
+    state = state.copyWith(selectedPaths: const {});
+  }
+
+  /// Removes the ticked rows **from the library index only**.
+  ///
+  /// This is the one destructive batch action, and it deliberately cannot touch
+  /// the user's audio: it deletes `local_tracks` rows (and their cached lyrics)
+  /// and nothing else — no `File.delete`, no SAF delete, no path is ever handed
+  /// to the filesystem. A removed row comes back on the next scan, which is the
+  /// property that makes this safe to offer without a confirmation dialog that
+  /// explains what "delete" means.
+  ///
+  /// Returns how many rows went away.
+  Future<int> removeSelected() async {
+    final paths = [for (final track in state.selectedTracks) track.path];
+    if (paths.isEmpty) return 0;
+    await _trackStore.removePaths(paths);
+    // The lyrics cache is keyed by song id, which for a local track is its path.
+    await _lyricsStore.removePaths(paths);
+    if (!mounted) return paths.length;
+
+    final removed = paths.toSet();
+    final remaining = [
+      for (final track in state.tracks)
+        if (!removed.contains(track.path)) track,
+    ];
+    state = state.copyWith(
+      tracks: remaining,
+      songs: [for (final track in remaining) track.toSong()],
+      selectedPaths: const {},
+    );
+    return paths.length;
   }
 
   /// Startup path used by the page: show the persisted library, then refresh it
@@ -427,6 +648,13 @@ class LocalMusicNotifier extends StateNotifier<LocalMusicState> {
       lastScan: result,
       error: () => null,
     );
+    // A scan is the one moment where recomputing the materialised play aggregate
+    // is worth its cost (one indexed `GROUP BY`): the counts are derived from the
+    // play events, and this is when the library they belong to was just rebuilt.
+    // Deliberately **not** awaited and deliberately not called from anywhere else:
+    // a rebuild or a progress update would recompute a whole aggregate per frame.
+    // Nothing depends on it having finished — the sort reads the live aggregate.
+    unawaited(syncPlayStats());
   }
 }
 

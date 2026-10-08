@@ -9,12 +9,46 @@ name: CI
 # It also builds the release APKs **split per ABI**, which is a hard rule in
 # AGENTS.md §1: the universal APK wasted ~50 MB on a modern arm64 phone
 # (76.1 MB of its 80.5 MB was lib/ for three architectures at once).
+#
+# v1.5 additions (all of them were audited gaps before):
+#   * a `concurrency` group, so a burst of pushes to one branch stops launching
+#     several 10-minute APK builds in parallel;
+#   * `dart format --set-exit-if-changed`, because formatting drift was invisible;
+#   * coverage, measured and floored (see COVERAGE_FLOOR) instead of not measured
+#     at all - note the floor is a *ratchet*: raise it when coverage rises, never
+#     lower it to unblock a PR;
+#   * a Windows build job. It runs on `workflow_dispatch` and on tags only: a
+#     Windows runner is slow, and the desktop port's real gate is "does it still
+#     compile", which does not need to run on every docs-only push. It is NOT
+#     skippable for a release - `scripts/release.ps1` builds it locally too;
+#   * the toolchain is pinned. `channel: stable` meant a Flutter release could
+#     turn CI red with no repo change at all.
 
 on:
   push:
     branches: [main, master]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
+
+# One in-flight run per ref. `cancel-in-progress: false` on main/tags keeps a
+# release build from being cancelled by the next push; PRs are cancelled freely.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Pinned deliberately. pubspec.yaml requires `sdk: ^3.13.0`; 3.47.5 ships Dart
+  # 3.13.4 and is the version this repository is developed against. Bumping it is
+  # a deliberate change (see docs/mconnect-improvement-plan.md phase 0), not
+  # something CI should do on its own overnight.
+  FLUTTER_VERSION: '3.47.5'
+  # Ratchet, not a target. Measured on the v1.5 baseline (after Wave 0): 66.2% of
+  # 24666 instrumented lines (16323 hit). The floor sits ~6 points below that, so
+  # it tolerates a wave that adds a large untested surface while still catching a
+  # real drop. Raise it when coverage rises; never lower it to make a red run
+  # green - that is the whole reason it is a number in this file.
+  COVERAGE_FLOOR: '60'
 
 jobs:
   analyze-and-test:
@@ -25,17 +59,24 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          # pubspec.yaml pins `sdk: ^3.13.0`, so anything below Dart 3.13 fails
-          # to resolve. Track stable rather than a hard-coded version so the
-          # workflow does not silently rot.
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
 
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Report the toolchain
+        run: flutter --version
+
       - name: Analyze (must be 0 issues)
         run: flutter analyze --no-pub
+
+      - name: Formatting is canonical
+        # `--set-exit-if-changed` covers lib/ and test/ (the analyzer's own
+        # excludes for build/ and scripts/ do not apply here). A formatting-only
+        # failure is trivial to fix and impossible to argue with.
+        run: dart format --output=none --set-exit-if-changed lib test
 
       - name: No source file is hidden by .gitignore
         # A `.gitignore` pattern without a leading slash matches at any depth.
@@ -51,10 +92,43 @@ jobs:
             exit 1
           fi
 
-      - name: Test
+      - name: Version sync (the seven points in AGENTS.md §2)
+        # pubspec, the app constant, the settings-page test literal, Inno Setup,
+        # both literals in Runner.rc, and the two gitignored docs when present.
+        run: flutter test --no-pub -j 1 test/version_sync_test.dart
+
+      - name: Test with coverage
         # -j 1 keeps the output readable and avoids the framework-level stall
         # observed locally when many suites load files concurrently.
-        run: flutter test --no-pub -j 1
+        run: flutter test --coverage --no-pub -j 1
+
+      - name: Coverage floor
+        run: |
+          python3 - <<'PY'
+          import os, sys
+          floor = float(os.environ['COVERAGE_FLOOR'])
+          lf = lh = 0
+          with open('coverage/lcov.info') as fh:
+              for line in fh:
+                  if line.startswith('LF:'):
+                      lf += int(line[3:])
+                  elif line.startswith('LH:'):
+                      lh += int(line[3:])
+          if lf == 0:
+              sys.exit('::error::lcov.info reported no lines; did the tests run?')
+          pct = 100.0 * lh / lf
+          print(f'line coverage: {lh}/{lf} = {pct:.1f}% (floor {floor}%)')
+          if pct < floor:
+              sys.exit(f'::error::coverage {pct:.1f}% is below the floor {floor}%')
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-lcov
+          path: coverage/lcov.info
+          if-no-files-found: warn
+          retention-days: 14
 
   android-release:
     name: split-per-abi release APKs
@@ -70,6 +144,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
 
@@ -91,7 +166,34 @@ jobs:
         with:
           name: mconnect-release-apks
           if-no-files-found: error
+          retention-days: 14
           path: |
             build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
             build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
             build/app/outputs/flutter-apk/app-x86_64-release.apk
+
+  windows-build:
+    name: windows debug build
+    # Runs for releases (tags / manual) rather than on every PR: the desktop port
+    # must keep compiling, and this is where that gets checked by a machine. It is
+    # gated on the same analyze+test job so a broken tree fails fast.
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    needs: analyze-and-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Windows (debug)
+        # Debug, not release: the question this job answers is "does the runner
+        # and the self-written Win32 floating-lyrics window still compile",
+        # which is what AGENTS.md §"Windows 兼容性专项约束" cares about.
+        run: flutter build windows --debug --no-pub

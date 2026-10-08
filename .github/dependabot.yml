@@ -1,0 +1,47 @@
+version: 2
+
+# The repository had no dependency automation at all, which is how
+# `proguard-rules.pro` kept a `-keep class com.tobsef.**` rule for a package that
+# does not exist in the dependency graph (found by hand in v1.5). Dependabot does
+# not find that class of problem, but it does keep the two things this project
+# cannot afford to let rot:
+#   * the Flutter/Dart package set, where a transitive package can change the
+#     analysis surface overnight (the analyzer language-version warning this repo
+#     prints on every build is exactly that);
+#   * the GitHub Actions versions, pinned by tag today.
+
+updates:
+  - package-ecosystem: pub
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    # Group the noise: a weekly PR per package would bury the interesting ones.
+    groups:
+      flutter-packages:
+        patterns: ['*']
+    # The toolchain is pinned in .github/workflows/ci.yml and AGENTS.md §2 ties
+    # the version number to seven files; a major bump of the framework, the
+    # audio engine or the database must be a deliberate, reviewed step rather
+    # than an auto-PR.
+    ignore:
+      - dependency-name: just_audio
+        update-types: [version-update:semver-major]
+      - dependency-name: media_kit
+        update-types: [version-update:semver-major]
+      - dependency-name: drift
+        update-types: [version-update:semver-major]
+      - dependency-name: drift_dev
+        update-types: [version-update:semver-major]
+      - dependency-name: flutter_riverpod
+        update-types: [version-update:semver-major]
+      - dependency-name: go_router
+        update-types: [version-update:semver-major]
+      - dependency-name: audio_service
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

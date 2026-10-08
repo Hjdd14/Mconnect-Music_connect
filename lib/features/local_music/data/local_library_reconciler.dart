@@ -81,11 +81,12 @@ class LocalLibraryReconciler {
       final sidecarStamps = _sidecarStamps(file.lyricCandidates);
       final recordedMtime = knownEntry?.lyricsMtime;
       final recordedSize = knownEntry?.lyricsSize;
+      final freshlyRead = resolvedLyrics[file.path];
 
       // Reusable when a sidecar we already read is still stamped the same, or
-      // when there is nothing to compare against at all: a `content://` sidecar
-      // (Android, opaque to `dart:io`) and a sidecar that was deleted both keep
-      // the stored row, which is the pre-v3 behaviour and never loses lyrics.
+      // when there is nothing to compare against at all: a sidecar that was
+      // deleted keeps the stored row, which is the pre-v3 behaviour and never
+      // loses lyrics.
       final stampMatches = hasStoredLyrics &&
           recordedMtime != null &&
           sidecarStamps.any(
@@ -94,18 +95,41 @@ class LocalLibraryReconciler {
           );
       final nothingToCompare = hasStoredLyrics && sidecarStamps.isEmpty;
 
-      String? lyrics = (stampMatches || nothingToCompare)
-          ? storedLyricsForFile
-          : null;
+      // A caller-supplied read (Android SAF) is the one case where "nothing to
+      // compare" does **not** mean "nothing changed".
+      //
+      // A `content://` sidecar is opaque to `dart:io`, so it never produces a
+      // stamp, and SAF exposes no usable mtime either — which is why
+      // `MainActivity` hands the *content* over instead. Letting
+      // `nothingToCompare` short-circuit here made replacing a same-named `.lrc`
+      // on the phone invisible forever: the freshly decoded text was dropped, and
+      // the only branch that ever consults it is `lyrics == null` below.
+      // Comparing the content is the honest equivalent of the desktop path's
+      // stamp check, and it costs nothing — both strings are already in memory.
+      final suppliedMatchesStored =
+          freshlyRead != null &&
+          hasStoredLyrics &&
+          freshlyRead.content == storedLyricsForFile;
+
+      final bool reusable;
+      if (freshlyRead != null) {
+        // The caller read the file on this scan, so its content is the only
+        // evidence that counts.
+        reusable = suppliedMatchesStored;
+      } else {
+        reusable = stampMatches || nothingToCompare;
+      }
+
+      String? lyrics = reusable ? storedLyricsForFile : null;
       var stampMtime = recordedMtime;
       var stampSize = recordedSize;
 
       if (lyrics == null) {
         // Android: `MainActivity` already read the sidecar file (a `content://`
-        // URI that `dart:io` cannot open) and the caller decoded it. There is no
-        // stamp to record, so the next scan reuses the stored row via
-        // `nothingToCompare`.
-        final preResolved = resolvedLyrics[file.path];
+        // URI that `dart:io` cannot open) and the caller decoded it. The row keeps
+        // no stamp because there is no mtime to record — the next scan decides by
+        // comparing the content again, exactly as this one did.
+        final preResolved = freshlyRead;
         if (preResolved != null) {
           lyrics = preResolved.content;
           await lyricsStore.save(

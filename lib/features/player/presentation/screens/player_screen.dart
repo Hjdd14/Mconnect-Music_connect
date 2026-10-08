@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../core/diagnostics/diagnostics_service.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../models/platform_type.dart';
 import '../../../../models/song.dart';
 import '../../../download/presentation/widgets/download_button.dart';
 import '../../../library/presentation/providers/likes_provider.dart';
@@ -178,6 +179,10 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     final isTransitioning = ref.watch(
       playerProvider.select((s) => s.isTransitioning),
     );
+    // 跨源换源生效时才有值（Wave 1-A 来源角标）。
+    final sourcePlatform = ref.watch(
+      playerProvider.select((s) => s.sourcePlatform),
+    );
     final likedSongs = ref.watch(likesProvider.select((s) => s.songs));
     final notifier = ref.read(playerProvider.notifier);
     final position = _position;
@@ -258,9 +263,22 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                   case 'playback_options':
                     PlaybackOptionsSheet.show(context);
                     break;
+                  case 'play_queue':
+                    // Wave 1-A：只加这一处入口，`/queue` 页面由 W1-D 新建。
+                    context.push('/queue');
+                    break;
                 }
               },
               itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: 'play_queue',
+                  child: ListTile(
+                    leading: const Icon(Icons.queue_music),
+                    title: const Text('播放队列'),
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
                 PopupMenuItem(
                   value: 'playback_options',
                   child: ListTile(
@@ -453,6 +471,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                 textAlign: TextAlign.center,
                               ),
                             ),
+                            if (sourcePlatform != null &&
+                                sourcePlatform != song.platform) ...[
+                              const SizedBox(height: 8),
+                              _SourceBadge(platform: sourcePlatform),
+                            ],
                             const SizedBox(height: 12),
                             // Quality badge
                             GestureDetector(
@@ -669,5 +692,32 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     } else if (ok == false) {
       showErrorSnackBar(context, context.l10n.playerAddToPlaylistFailed);
     }
+  }
+}
+
+/// 「已换源 · 来自 QQ音乐」来源角标（Wave 1-A）。
+///
+/// 只在**换源真的生效**时出现（`state.sourcePlatform` 非空且不同于当前曲目的
+/// 平台）——降档重试仍然算原平台，不显示角标。
+class _SourceBadge extends StatelessWidget {
+  const _SourceBadge({required this.platform});
+
+  final PlatformType platform;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      key: const ValueKey('player_source_badge'),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: scheme.tertiaryContainer.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        '已换源 · 来自 ${platform.displayName}',
+        style: TextStyle(fontSize: 12, color: scheme.onTertiaryContainer),
+      ),
+    );
   }
 }

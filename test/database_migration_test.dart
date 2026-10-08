@@ -8,7 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mconnect/core/database/app_database.dart';
 import 'package:path/path.dart' as p;
 
-/// Guards the schema upgrade path: v1 → v2 → v3.
+/// Guards the schema upgrade path: v1 → v2 → v3 → v4.
 ///
 /// Before v2 the database shipped with `onCreate` only. drift raises
 /// `UnsupportedError` for an unhandled version bump (it does **not** silently
@@ -93,6 +93,16 @@ void main() {
         containsAll(_v3IndexNames),
         reason: 'the v1 → v3 jump must create the v3 indexes as well',
       );
+      expect(
+        await indexNames(db),
+        containsAll(_v4IndexNames),
+        reason: 'the v1 → v4 jump must create the v4 indexes as well',
+      );
+      expect(
+        await indexNames(db),
+        isNot(contains(_droppedIndexName)),
+        reason: 'a v1 database never had it, and must not gain it on the way up',
+      );
 
       // --- The dead v1 table is gone. ---
       final playlistsTable = await db
@@ -104,7 +114,7 @@ void main() {
       expect(playlistsTable, isEmpty, reason: 'dead v1 table must be dropped');
 
       // --- A brand new install still reports the current schema. ---
-      expect(db.schemaVersion, 3);
+      expect(db.schemaVersion, 4);
     });
 
     test('the v2 tables are usable through their DAOs after a v1 upgrade', () async {
@@ -230,6 +240,15 @@ void main() {
         containsAll(_v3IndexNames),
         reason: 'a v2 database must gain every v3 index on upgrade',
       );
+      expect(
+        await indexNames(db),
+        containsAll(_v4IndexNames),
+        reason: 'a v2 database must gain every v4 index on upgrade',
+      );
+      expect(
+        await indexNames(db),
+        isNot(contains(_droppedIndexName)),
+      );
     });
 
     test('the v3 columns are writable and the v3 DAOs work after an upgrade', () async {
@@ -280,8 +299,150 @@ void main() {
     });
   });
 
+  group('v3 → v4', () {
+    test('a v3 database gains the v4 tables and loses the redundant index',
+        () async {
+      final db = AppDatabase.forTesting(
+        NativeDatabase(
+          dbFile,
+          setup: (raw) {
+            _createV3Schema(raw.execute);
+            _seedV2Rows(raw.execute);
+            raw.execute('PRAGMA user_version = 3');
+          },
+        ),
+      );
+      addTearDown(db.close);
+
+      // --- Existing data survives untouched. ---
+      expect((await db.songsDao.getSong('s1', 'netease'))!.name, '旧歌');
+      expect(await db.likesDao.isLiked('s1', 'netease'), isTrue);
+      expect(await db.historyDao.countHistory(), 1);
+      expect(await db.statsDao.countPlayEvents(), 2);
+      final track = await db.localTracksDao.byPath('C:/music/old.mp3');
+      expect(track, isNotNull);
+      expect(track!.title, '旧曲');
+      expect(track.lyricsMtime, isNull);
+      expect((await db.toplistsCacheDao.byPlatform('qq')).single.name, '热歌榜');
+      expect(await db.lyricsOffsetDao.get('netease:s1'), Duration.zero);
+
+      // --- The v4 tables exist and are empty. ---
+      expect(await db.select(db.trackRatings).get(), isEmpty);
+      expect(await db.select(db.scrobbleQueue).get(), isEmpty);
+
+      // --- The index v4 removes is really gone from an upgraded database. ---
+      // This is the assertion a removed `@TableIndex` annotation alone cannot
+      // satisfy: the published v3 schema created it, so only an explicit
+      // `DROP INDEX` in the v4 branch gets it out of an upgraded install.
+      final indexes = await indexNames(db);
+      expect(
+        indexes,
+        isNot(contains(_droppedIndexName)),
+        reason: 'v4 must drop the redundant local_tracks_path index on upgrade',
+      );
+      expect(indexes, containsAll(_v3IndexNames));
+      expect(indexes, containsAll(_v4IndexNames));
+
+      expect(db.schemaVersion, 4);
+    });
+
+    test('the v4 DAOs work on a database that was upgraded from v3', () async {
+      // An upgrade that created a table with the wrong columns shows up here and
+      // nowhere else: the DDL above only proves the tables exist.
+      final db = AppDatabase.forTesting(
+        NativeDatabase(
+          dbFile,
+          setup: (raw) {
+            _createV3Schema(raw.execute);
+            _seedV2Rows(raw.execute);
+            raw.execute('PRAGMA user_version = 3');
+          },
+        ),
+      );
+      addTearDown(db.close);
+
+      // Ratings.
+      expect(await db.trackRatingsDao.ratingOf('local:C:/music/old.mp3'), 0);
+      await db.trackRatingsDao.setRating('local:C:/music/old.mp3', 4);
+      expect(await db.trackRatingsDao.ratingOf('local:C:/music/old.mp3'), 4);
+      expect(await db.trackRatingsDao.allRatings(), {
+        'local:C:/music/old.mp3': 4,
+      });
+      // A rating must survive `syncPlayStats`, which rewrites the same row.
+      await db.trackRatingsDao.setRating('local:C:/music/old.mp3', 5);
+      await db.trackRatingsDao.syncPlayStats();
+      expect(await db.trackRatingsDao.ratingOf('local:C:/music/old.mp3'), 5);
+
+      // Clearing a rating keeps the row while it still carries an aggregate.
+      await db.trackRatingsDao.syncPlayStats();
+      await db.trackRatingsDao.setRating('netease:s1', 3);
+      expect(await db.trackRatingsDao.ratingOf('netease:s1'), 3);
+      await db.trackRatingsDao.setRating('netease:s1', 0);
+      expect(await db.trackRatingsDao.ratingOf('netease:s1'), 0);
+
+      // The cached aggregate is recomputed from the events — never incremented —
+      // so after a sync the column must agree with the authoritative aggregate.
+      await db.trackRatingsDao.syncPlayStats();
+      expect(
+        await db.trackRatingsDao.playCountFromEvents('netease:s1'),
+        2,
+        reason: 'the v2 fixture seeds exactly two plays',
+      );
+      expect(
+        (await db.trackRatingsDao.row('netease:s1'))!.playCount,
+        2,
+        reason: '物化列必须等于 play_events 的聚合值',
+      );
+      expect(
+        (await db.trackRatingsDao.row('netease:s1'))!.lastPlayedAt,
+        await db.trackRatingsDao.lastPlayedAtFromEvents('netease:s1'),
+      );
+      expect(
+        await db.trackRatingsDao.syncPlayStats(),
+        0,
+        reason: '第二次 sync 无事可做：它是重算而不是累加',
+      );
+
+      // The scrobble outbox.
+      final inserted = await db.scrobbleQueueDao.enqueue(
+        eventId: 1,
+        service: 'lastfm',
+        songKey: 'netease:s1',
+        title: '旧歌',
+        artist: '旧歌手',
+        playedAt: 1767000000000,
+      );
+      expect(inserted, isTrue);
+      expect(
+        await db.scrobbleQueueDao.enqueue(
+          eventId: 1,
+          service: 'lastfm',
+          songKey: 'netease:s1',
+          title: '旧歌',
+          artist: '旧歌手',
+          playedAt: 1767000000000,
+        ),
+        isFalse,
+        reason: 'the same play must not be queued twice',
+      );
+      final claimed = await db.scrobbleQueueDao.claimNext(
+        service: 'lastfm',
+        lease: const Duration(minutes: 5),
+        now: DateTime(2026, 5, 30),
+      );
+      expect(claimed, isNotNull);
+      expect(claimed!.attempts, 1);
+      await db.scrobbleQueueDao.markSent(claimed.id, at: DateTime(2026, 5, 30));
+      expect(
+        await db.scrobbleQueueDao.countByStatus('lastfm', ScrobbleStatus.sent),
+        1,
+      );
+    });
+  });
+
   group('schema parity', () {
-    test('a fresh v3 database and an upgraded v2 one are the same schema', () async {
+    test('a fresh v4 database and an upgraded v2 one are the same schema',
+        () async {
       // The upgrade path and `onCreate` are two independent code paths that must
       // agree. Without this test, a column or index added to the table definition
       // alone leaves upgraded installs quietly different from new ones forever.
@@ -308,6 +469,8 @@ void main() {
         'play_events',
         'lyrics_offsets',
         'source_match_caches',
+        'track_ratings',
+        'scrobble_queue',
       ]) {
         expect(
           await columnsOf(upgraded, table),
@@ -317,7 +480,82 @@ void main() {
       }
     });
 
-    test('a fresh database is created at v3 with every table', () async {
+    test('a fresh v4 database and an upgraded v1 one are the same schema',
+        () async {
+      // `containsAll` (asserted in the v1 group above) cannot see an **extra**
+      // column or index, and cannot see a missing table at all — only the
+      // equality comparison can. The v1 path is the longest jump (four branches
+      // run in sequence), so it is the one most worth pinning.
+      final fresh = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(fresh.close);
+
+      final upgraded = AppDatabase.forTesting(
+        NativeDatabase(
+          dbFile,
+          setup: (raw) {
+            _createV1Schema(raw.execute);
+            raw.execute('PRAGMA user_version = 1');
+          },
+        ),
+      );
+      addTearDown(upgraded.close);
+
+      expect(await indexNames(upgraded), await indexNames(fresh));
+      expect(await _tableNames(upgraded), await _tableNames(fresh));
+      for (final table in const [
+        'songs',
+        'listening_history',
+        'local_tracks',
+        'play_events',
+        'lyrics_offsets',
+        'source_match_caches',
+        'track_ratings',
+        'scrobble_queue',
+      ]) {
+        expect(
+          await columnsOf(upgraded, table),
+          await columnsOf(fresh, table),
+          reason: '$table must have the same columns on both paths',
+        );
+      }
+    });
+
+    test('a fresh v4 database and an upgraded v3 one are the same schema',
+        () async {
+      // The v2 → v4 test above cannot see an index that v3 created and v4 drops,
+      // because the v2 path never creates it in the first place. This pairing is
+      // what covers the `DROP INDEX` branch.
+      final fresh = AppDatabase.forTesting(NativeDatabase.memory());
+      addTearDown(fresh.close);
+
+      final upgraded = AppDatabase.forTesting(
+        NativeDatabase(
+          dbFile,
+          setup: (raw) {
+            _createV3Schema(raw.execute);
+            raw.execute('PRAGMA user_version = 3');
+          },
+        ),
+      );
+      addTearDown(upgraded.close);
+
+      expect(await indexNames(upgraded), await indexNames(fresh));
+      expect(await _tableNames(upgraded), await _tableNames(fresh));
+      expect(
+        await indexNames(fresh),
+        isNot(contains(_droppedIndexName)),
+        reason: 'a fresh v4 install must not create the dropped index',
+      );
+      for (final table in const ['track_ratings', 'scrobble_queue']) {
+        expect(
+          await columnsOf(upgraded, table),
+          await columnsOf(fresh, table),
+          reason: '$table must have the same columns on both paths',
+        );
+      }
+    });
+
+    test('a fresh database is created at v4 with every table', () async {
       final db = AppDatabase.forTesting(NativeDatabase.memory());
       addTearDown(db.close);
 
@@ -336,20 +574,38 @@ void main() {
       expect(await db.select(db.localTracks).get(), isEmpty);
       expect(await db.select(db.lyricsOffsets).get(), isEmpty);
       expect(await db.select(db.sourceMatchCaches).get(), isEmpty);
+      expect(await db.select(db.trackRatings).get(), isEmpty);
+      expect(await db.select(db.scrobbleQueue).get(), isEmpty);
       expect(await indexNames(db), containsAll(_v3IndexNames));
-      expect(db.schemaVersion, 3);
+      expect(await indexNames(db), containsAll(_v4IndexNames));
+      expect(await indexNames(db), isNot(contains(_droppedIndexName)));
+      expect(db.schemaVersion, 4);
     });
   });
 }
 
-/// The indexes schema v3 introduces, exactly as the `@TableIndex` annotations
-/// name them.
+/// The indexes that schema v3 introduced **and v4 keeps**, exactly as the
+/// `@TableIndex` annotations name them.
+///
+/// `local_tracks_path` is deliberately absent: v4 removes it (see
+/// [_droppedIndexName]). The v1/v2 upgrade paths take their index set from
+/// `_v3IndexStatements`, which no longer creates it either, so the parity test
+/// below is what proves a fresh install and every upgrade path agree.
 const List<String> _v3IndexNames = [
   'listening_history_listened_at',
   'play_events_song_platform',
   'play_events_started_at',
-  'local_tracks_path',
 ];
+
+/// The indexes schema v4 adds.
+const List<String> _v4IndexNames = [
+  'scrobble_queue_status',
+  'scrobble_queue_service_event',
+];
+
+/// The index v4 drops, and the reason it needs a `DROP` rather than just a
+/// removed annotation: every database already at v3 keeps it forever otherwise.
+const String _droppedIndexName = 'local_tracks_path';
 
 /// Non-SQLite-owned index names, sorted.
 Future<List<String>> indexNames(AppDatabase db) async {
@@ -574,6 +830,54 @@ void _createV2Schema(void Function(String sql) execute) {
       PRIMARY KEY (rule_id)
     );
   ''');
+}
+
+/// The v3 schema exactly as a shipped v3 build created it: the v2 shape plus the
+/// two lyrics-stamp columns, the two per-song caches, and the four indexes —
+/// **including `local_tracks_path`**, which is the one v4 has to drop.
+///
+/// The indexes are spelled out because they are what the v3 → v4 test is really
+/// about: `Migrator.createTable` never creates them, so a hand-built v3 database
+/// without them would make the test pass while proving nothing.
+void _createV3Schema(void Function(String sql) execute) {
+  _createV2Schema(execute);
+  execute('ALTER TABLE local_tracks ADD COLUMN lyrics_mtime INTEGER');
+  execute('ALTER TABLE local_tracks ADD COLUMN lyrics_size INTEGER');
+  execute('''
+    CREATE TABLE lyrics_offsets (
+      song_key TEXT NOT NULL,
+      offset_ms INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (song_key)
+    );
+  ''');
+  execute('''
+    CREATE TABLE source_match_caches (
+      song_key TEXT NOT NULL,
+      target_platform TEXT NOT NULL,
+      target_song_id TEXT NOT NULL,
+      url TEXT,
+      url_fetched_at INTEGER,
+      score REAL NOT NULL DEFAULT 0,
+      expires_at INTEGER NOT NULL,
+      PRIMARY KEY (song_key, target_platform)
+    );
+  ''');
+  execute(
+    'CREATE INDEX IF NOT EXISTS listening_history_listened_at '
+    'ON listening_history (listened_at)',
+  );
+  execute(
+    'CREATE INDEX IF NOT EXISTS play_events_song_platform '
+    'ON play_events (song_id, platform)',
+  );
+  execute(
+    'CREATE INDEX IF NOT EXISTS play_events_started_at '
+    'ON play_events (started_at)',
+  );
+  execute(
+    'CREATE INDEX IF NOT EXISTS local_tracks_path ON local_tracks (path)',
+  );
 }
 
 void _seedV2Rows(void Function(String sql) execute) {

@@ -4,11 +4,13 @@ import 'dart:io';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mconnect/core/database/app_database.dart';
+import 'package:mconnect/features/local_music/data/android_local_music_service.dart';
 import 'package:mconnect/features/local_music/data/local_library_reconciler.dart';
 import 'package:mconnect/features/local_music/data/local_lyrics_loader.dart';
 import 'package:mconnect/features/local_music/data/local_lyrics_store.dart';
 import 'package:mconnect/features/local_music/data/local_metadata_reader.dart';
 import 'package:mconnect/features/local_music/data/local_music_repository.dart';
+import 'package:mconnect/features/local_music/data/local_scan_snapshot.dart';
 import 'package:mconnect/features/local_music/data/local_track_store.dart';
 import 'package:mconnect/models/platform_type.dart';
 import 'package:path/path.dart' as p;
@@ -45,6 +47,134 @@ void main() {
     );
   }
 
+  group('Android SAF lyrics freshness', () {
+    // Android cannot produce a `(mtime, size)` stamp: the sidecar is a
+    // `content://` URI that `dart:io` cannot stat, so `MainActivity` hands over
+    // the *content* instead and the reconciler has to compare that. Before W2-C
+    // it short-circuited on "nothing to compare" (`no candidates` + stored lyrics)
+    // and kept the stored row, so the freshly decoded text was thrown away and
+    // replacing a same-named `.lrc` on the phone never refreshed anything.
+    //
+    // These tests drive the **real Android chain**, not a hand-built Dart record:
+    // Kotlin's `{extension, content}` maps → `LocalScannedFile.fromMap` →
+    // `AndroidLocalMusicScanPayload.decodeLyrics()` → `reconcile(resolvedLyrics:)`.
+
+    const path = 'content://tree/primary%3AMusic/song.flac';
+    const stored = '[00:01.00]旧词';
+    const refreshed = '[00:01.00]新词';
+
+    /// The record shape Kotlin sends for one track.
+    Map<Object?, Object?> androidRecord({String? lyricContent}) => {
+      'path': path,
+      'mtime': 20,
+      'size': 100,
+      'changed': false,
+      'title': '歌',
+      if (lyricContent != null)
+        'lyrics': [
+          {'extension': '.lrc', 'content': lyricContent},
+        ],
+    };
+
+    Future<(MemoryLocalTrackStore, MemoryLocalLyricsStore)>
+    seededStores() async {
+      final tracks = MemoryLocalTrackStore();
+      final lyrics = MemoryLocalLyricsStore();
+      await lyrics.save(path, stored, 'lrc');
+      await tracks.upsertAll([
+        LocalTrackEntry(path: path, mtime: 10, size: 100, title: '歌'),
+      ]);
+      return (tracks, lyrics);
+    }
+
+    /// What the app does with a scan payload: decode the raw lyric maps, then
+    /// hand the decoded payloads to the reconciler.
+    ({List<LocalScannedFile> files, Map<String, LocalLyricsPayload> resolved})
+    androidScan(String? lyricContent) {
+      final payload = AndroidLocalMusicScanPayload(
+        selectedDirectory: 'content://tree/primary%3AMusic',
+        files: [LocalScannedFile.fromMap(androidRecord(lyricContent: lyricContent))],
+        rawLyrics: lyricContent == null
+            ? const {}
+            : {
+                path: [
+                  AndroidRawLyrics(content: lyricContent, extension: '.lrc'),
+                ],
+              },
+      );
+      return (files: payload.files, resolved: payload.decodeLyrics().resolved);
+    }
+
+    test('the map form really is the shape that produced the gap', () {
+      // Pins the premise: the `{extension, content}` map never becomes a candidate
+      // path, which is why "nothing to compare" was always true on Android and the
+      // content comparison below is the only way the new text can win.
+      final record = LocalScannedFile.fromMap(
+        androidRecord(lyricContent: refreshed),
+      );
+
+      expect(record.lyricCandidates, isEmpty);
+      expect(record.embeddedLyrics, isNull);
+    });
+
+    test('different content from the phone replaces the stored lyrics',
+        () async {
+      final (tracks, lyrics) = await seededStores();
+      final reconciler = LocalLibraryReconciler(
+        trackStore: tracks,
+        lyricsStore: lyrics,
+      );
+
+      final scan = androidScan(refreshed);
+      final result = await reconciler.reconcile(
+        rootPath: 'content://tree/primary%3AMusic',
+        files: scan.files,
+        resolvedLyrics: scan.resolved,
+      );
+
+      expect(
+        result.lyricsBySongId[path],
+        refreshed,
+        reason: 'SAF 下换掉同名 .lrc 必须采纳新内容，否则 Android 永远不刷新歌词',
+      );
+      expect(await lyrics.loadAll(), containsPair(path, refreshed));
+    });
+
+    test('identical content from the phone keeps the stored row', () async {
+      final (tracks, lyrics) = await seededStores();
+      final reconciler = LocalLibraryReconciler(
+        trackStore: tracks,
+        lyricsStore: lyrics,
+      );
+
+      final scan = androidScan(stored);
+      final result = await reconciler.reconcile(
+        rootPath: 'content://tree/primary%3AMusic',
+        files: scan.files,
+        resolvedLyrics: scan.resolved,
+      );
+
+      expect(result.lyricsBySongId[path], stored);
+    });
+
+    test('a deleted sidecar still keeps the stored lyrics', () async {
+      // The desktop contract that must not regress while fixing the Android one:
+      // no candidates and nothing freshly read means "keep what we have".
+      final (tracks, lyrics) = await seededStores();
+      final reconciler = LocalLibraryReconciler(
+        trackStore: tracks,
+        lyricsStore: lyrics,
+      );
+
+      final result = await reconciler.reconcile(
+        rootPath: 'content://tree/primary%3AMusic',
+        files: [LocalScannedFile.fromMap(androidRecord())],
+      );
+
+      expect(result.lyricsBySongId[path], stored);
+    });
+  });
+
   test('scans mainstream audio files and matches same-name timed lyrics', () async {
     final songFile = File(p.join(root.path, 'Track One.mp3'));
     final flacFile = File(p.join(root.path, 'Track Two.flac'));
@@ -74,6 +204,47 @@ void main() {
     );
     expect(result.lyricsBySongId[songFile.path], '[00:01.00]Hello');
     expect(result.lyricsBySongId[flacFile.path], contains('World'));
+  });
+
+  test('finds a tagger-named sidecar when the file name differs', () async {
+    // The shape most taggers write: the audio file is numbered, the lyric file is
+    // named after the tags. The exact-basename lookup cannot see this pair.
+    final songFile = File(p.join(root.path, '01. 稻香.mp3'));
+    await songFile.writeAsString('not real audio');
+    await File(p.join(root.path, '周杰伦 - 稻香.lrc')).writeAsString(
+      '[00:01.00]稻香词',
+    );
+
+    final result = await repository().scanDirectory(root.path);
+
+    expect(result.lyricsBySongId[songFile.path], '[00:01.00]稻香词');
+  });
+
+  test('finds a fuzzy sidecar inside a lyrics/ subdirectory too', () async {
+    final songFile = File(p.join(root.path, '01. 稻香.mp3'));
+    await songFile.writeAsString('not real audio');
+    final lyricsDir = Directory(p.join(root.path, 'lyrics'));
+    await lyricsDir.create();
+    await File(p.join(lyricsDir.path, '周杰伦 - 稻香.lrc')).writeAsString(
+      '[00:01.00]子目录词',
+    );
+
+    final result = await repository().scanDirectory(root.path);
+
+    expect(result.lyricsBySongId[songFile.path], '[00:01.00]子目录词');
+  });
+
+  test('an exactly-named sidecar still beats a fuzzy one', () async {
+    // Priority: the sidecar named after the audio file is what the user put
+    // there on purpose, so it must win even when a tagger-named one exists.
+    final songFile = File(p.join(root.path, '01. 稻香.mp3'));
+    await songFile.writeAsString('not real audio');
+    await File(p.join(root.path, '01. 稻香.lrc')).writeAsString('[00:01.00]精确');
+    await File(p.join(root.path, '周杰伦 - 稻香.lrc')).writeAsString('[00:01.00]模糊');
+
+    final result = await repository().scanDirectory(root.path);
+
+    expect(result.lyricsBySongId[songFile.path], '[00:01.00]精确');
   });
 
   test('reads real tags, duration, track number and cover art', () async {

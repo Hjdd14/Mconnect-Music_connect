@@ -24,6 +24,7 @@ import '../../features/library/presentation/pages/platform_playlists_page.dart';
 import '../../features/library/presentation/pages/playlist_detail_page.dart';
 import '../../features/local_music/presentation/pages/local_music_page.dart';
 import '../../features/offline_cache/presentation/pages/offline_cache_page.dart';
+import '../../features/player/presentation/pages/queue_page.dart';
 import '../../features/player/presentation/screens/player_screen.dart';
 import '../../features/settings/presentation/pages/settings_page.dart';
 import '../../features/stats/presentation/pages/listening_stats_page.dart';
@@ -61,6 +62,17 @@ final appRouter = GoRouter(
           path: '/',
           pageBuilder: (context, state) =>
               _appLeafPage(state, const HomeScreen()),
+        ),
+        // 播放队列页（W1-D）。**必须在 ShellRoute 内**：迷你播放器与底部胶囊由
+        // shell 渲染，队列页是"边听边整理"的页面，出了 shell 就会丢掉播放器，
+        // 返回栈也会落到错误的 navigator 上。`test/app_router_routes_test.dart`
+        // 用 `ShellRouteMatch` + 与 `/likes` 同构 + `/player` 反例把这一点钉住。
+        //
+        // 入口由 W1-A 在 `player_screen.dart` 里加（`context.push('/queue')`）。
+        GoRoute(
+          path: '/queue',
+          pageBuilder: (context, state) =>
+              _appLeafPage(state, const QueuePage()),
         ),
         GoRoute(
           path: '/recommendations',

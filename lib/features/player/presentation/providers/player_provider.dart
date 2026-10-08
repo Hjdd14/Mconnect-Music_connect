@@ -4,9 +4,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart' show AudioPlayer, ProcessingState;
+import '../../../../core/database/app_database.dart';
 import '../../../../core/diagnostics/diagnostics_service.dart';
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/network/platform_http.dart';
+import '../../../../core/source_matching/drift_source_match_cache_store.dart';
+import '../../../../core/source_matching/source_match_service.dart';
+import '../../../../core/source_matching/source_match_settings.dart';
 import '../../../../core/platform/platform_utils.dart';
 import '../../../audio_effects/presentation/providers/audio_effects_provider.dart';
 import '../../../floating_lyrics/presentation/providers/floating_lyrics_provider.dart';
@@ -19,6 +23,7 @@ import '../../../library/presentation/providers/likes_provider.dart';
 import '../../../download/presentation/providers/download_provider.dart';
 import '../../../offline_cache/presentation/providers/offline_cache_provider.dart';
 import '../../data/media_kit_windows_audio_controller.dart';
+import '../../data/next_track_prefetcher.dart';
 import '../../data/player_audio_controller.dart';
 import '../../data/player_playback_memory_store.dart';
 import '../../data/playback_keep_alive_service.dart';
@@ -352,6 +357,9 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   /// 跨平台换源接缝；`null` 时失败链只有「降档 → 跳曲」（Wave 0-A / item 2）。
   final CrossSourceResolver? _crossSourceResolver;
 
+  /// 下一首预解析（Wave 1-A 步骤 3）；`null` 时不做任何预取。
+  final NextTrackPrefetcher? _prefetcher;
+
   /// 失败链最多连续跳几首，防止"整张队列都取不到流"时无限跳（见 [_failureChainSkips]）。
   final int _maxFailureChainSkips;
 
@@ -381,6 +389,9 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   /// 没有它，`repeat: all` + 整张队列都取不到流时，每次失败都 skip 到下一首、
   /// 下一首又失败……把一个"错误提示"变成一台无限重试机器。任何一次成功播放清零。
   int _failureChainSkips = 0;
+
+  /// 上一次已排入预解析的 `(playlist, index, quality)` key（Wave 1-A 步骤 3）。
+  String? _lastPrefetchKey;
 
   /// 喜欢歌曲的 key 集合，由 [updateLikedSongs] 增量维护（P-1）。
   final Set<String> _likedSongKeys = {};
@@ -436,6 +447,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     this._toggleSongLike,
     this._offlineFilePathResolver,
     this._crossSourceResolver,
+    this._prefetcher,
     this._maxFailureChainSkips = 3,
     bool Function()? isOfflineModeEnabled,
     this._toggleFloatingLyrics,
@@ -501,6 +513,31 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     _markTransportProgress();
     _syncNotificationState();
     unawaited(_syncPlaybackKeepAlive(nextState.isPlaying));
+    _maybeScheduleNextTrackPrefetch(nextState);
+  }
+
+  /// 队列/下标/音质真的变了才重新预解析（Wave 1-A 步骤 3）。
+  ///
+  /// `_setState` 每秒都会被位置 tick 走到，所以这里必须便宜且**幂等**：用
+  /// `(playlist 实例, 下标, 档位)` 组成 key，位置 tick 不会改变它们 → 直接返回。
+  void _maybeScheduleNextTrackPrefetch(PlayerState nextState) {
+    final prefetcher = _prefetcher;
+    if (prefetcher == null) return;
+    final key =
+        '${identityHashCode(nextState.playlist)}'
+        ':${nextState.currentIndex}'
+        ':${nextState.currentQuality.name}';
+    if (key == _lastPrefetchKey) return;
+    _lastPrefetchKey = key;
+    if (nextState.currentSong == null) {
+      prefetcher.cancel();
+      return;
+    }
+    prefetcher.schedule(
+      playlist: nextState.playlist,
+      currentIndex: nextState.currentIndex,
+      quality: nextState.currentQuality,
+    );
   }
 
   /// Records that the transport did something observable.
@@ -2059,12 +2096,43 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 final playerProvider = StateNotifierProvider<PlayerNotifier, PlayerState>((
   ref,
 ) {
+  // Wave 1-A 跨源换源的装配点。
+  //
+  // * 只在内置三平台之间找源（服务内部从 PlatformRegistry.all 里排除主平台与
+  //   local，并要求 isLoggedIn）；
+  // * 「自动换源」开关（设置页 D-2，默认开）与离线模式在这里注入：关掉开关或
+  //   离线时 resolveDetailed 直接返回 disabled/offlineMode，失败链退化为
+  //   「降档 → skipToNext」；
+  // * 缓存用 W0-D 的 SourceMatchCache（DAO 惰性取，装配时不碰数据库）。
+  final sourceMatchService = SourceMatchService(
+    cache: DriftSourceMatchCacheStore(() => database.sourceMatchCacheDao),
+    isAutoSwitchEnabled: () => ref.read(autoSourceSwitchProvider).enabled,
+    isOfflineModeEnabled: () =>
+        ref.read(offlineCacheSettingsProvider).offlineMode,
+  );
+  final prefetcher = NextTrackPrefetcher(
+    service: sourceMatchService,
+    isOfflineModeEnabled: () =>
+        ref.read(offlineCacheSettingsProvider).offlineMode,
+  );
   final notifier = PlayerNotifier(
     playbackMemoryStore: HivePlayerPlaybackMemoryStore(),
+    prefetcher: prefetcher,
+    crossSourceResolver: (song, quality) async {
+      final resolution = await sourceMatchService.resolveDetailed(
+        song,
+        quality,
+      );
+      final url = resolution.url;
+      if (url == null) return null;
+      return CrossSourceResult(
+        url: url,
+        platform: resolution.platform,
+        fromCache: resolution.fromCache,
+      );
+    },
     // P-1：喜欢状态不再走"每秒问一遍 likesProvider.songs.any(...)"的回调（最多
     // 500 首 × 每秒一次，Windows 也一样），改成下面 seed + 增量推送 key 集合。
-    // 本波也不传 crossSourceResolver：默认 null，失败链就是「降档 → skipToNext」，
-    // W1 再把真实换源接进来。
     toggleSongLike: (song) =>
         ref.read(likesProvider.notifier).toggleLike(song).then((_) {}),
     toggleFloatingLyrics: () =>

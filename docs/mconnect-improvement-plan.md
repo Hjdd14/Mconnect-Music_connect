@@ -3223,3 +3223,100 @@ i18n 需要两个 **Lead 冻结文件**里的一行，队友无法自行加：
 3. **没有执行权限的队友依然能产出高质量证据**：内存 SQLite 预验证 SQL 与分桶数学、读 Flutter SDK 源码定位 `SnackBar` 计时器与 `CustomScrollView` 签名、读包源码否定我的 MPEG 猜测 —— 这些都是**可复核的硬证据**，比"我觉得"有价值得多。**允许并鼓励队友做这类"等价引擎/源码级"验证，但当它不能覆盖 drift 运行期语义时要让队友自己划清边界。**
 4. **共享契约要在并行开始前冻结，并配自己的契约测试。** `AsyncStateView` 是这一波唯一没有出现"两人各写一份"的地方，正是因为先冻结 + 9 条契约断言 + 明确"不要改签名"。
 5. **沙箱/工具链问题应第一时间上报给用户，而不是各队友各写一堆探针文件。** 本轮队友写了 `_probe_flutter.txt` / `test_run_probe.txt`，最后都要清理；正确动作是**一次**诊断 + 升级权限。
+
+### 31.12 独立复核（阶段 v1.5-W0-V，`lyrics-metadata`，只读）——结论与增补
+
+**复核结论：有条件完成（Conditional Pass）**。复核者独立读源码 + `git show/grep`，确认**没有阻断级问题**，并独立验证通过了两项我原以为只有"构造保证"的性质：
+- **数据安全（W0-C）**：全仓 `git grep rename` 无任何自动改名；启动恢复保留老路径；重复路径**纯上报**不删不改；`cancelDownload` 仅从 Active Tab 可达（Completed Tab 传的是 `onRemove`）；续传仅当"盘上长度 == 记录水位"才复用。
+- **迁移一致性（W0-D）**：`Migrator.createTable` 输出当前表定义 + `if (from >= 2)` 守卫 ⇒ v1→v3 不会重复加列；`@TableIndex` 名与手写 DDL 逐字相同；`app_database.g.dart` 的 4 条 `Index` 名字相同 ⇒ fresh 与 upgraded 索引集由构造成立。**它同时确认 `local_tracks_path` 的冗余只影响写成本、不影响一致性**。
+
+**它推翻/削弱了我此前的 3 个说法（我照实更正，不改原文）：**
+1. **C1（我 §31.7 的"15 个页面全部迁移并受契约守护"过强）**：代码侧确实 15/15 采用 `AsyncStateView`（零遗漏），但**测试采用有缺口**——`platform_playlists_page`、`recommendations_page`、`listening_stats_page` **没有任何页面级 widget 用例**（对应测试文件只测 provider），`playlist_detail_page`、`login_page` 有页面测试但**本波未加任何新断言**。其中 `platform_playlists` 平台 Tab 与 `recommendations` 每平台 Tab 是**行为变更**（原本只有一行裸 Text、无重试）。⇒ **"改了行为、没有断言能判别"**，这正是本文档反复记录的毛病。**处置**：列为 W3-B 的硬性交付（那波本来就要动这几页），并在下面 C1 项里保留原文，不粉饰。
+2. **C2（基线数字打架）**：任务描述写 1098（那是 `git grep` 的**声明条数**近似），commit 与 §31.1 写 1093（`flutter test` 的**实际 passed 数**），复核者静态计数 1091（正则漏掉跨行声明）。**权威口径 = 运行期输出**：改前 **1093 passed / 10 skipped**（v1.4.4 的 CHANGELOG 记录），改后 **1193 passed / 10 skipped**，**净增 +100**。1098 作废。
+3. **C4（3 个文件不在任何 write_scopes 内）**：`local_music_repository.dart`（+4：`record['embeddedLyrics']`）、`local_scan_snapshot.dart`（+13：`LocalScannedFile.embeddedLyrics`）、`windows/runner/floating_lyrics_window.h`（+32/−8：签名变更的必然连带）。**追认**：前两个划给 **W0-D**（`LocalScannedFile` 是扫描记录模型、消费者也在他手里），第三个划给 **W0-B**（.cpp 签名变更的伴生）。
+
+**C5（记账纠正）**：task-8 要求 owner 跑 `flutter build windows --debug`，但**owner 无执行权限**，实际由 **Lead 代跑**（§31.2-1 的权限模型）。⇒ 交付摘要里不得写成"W0-B owner 验证了 Windows"。同理，Windows 能编过依赖 **Lead 的 `/utf-8` CMakeLists 修复**（一个不在任何队友 scope 内的前置）。
+
+**另一个真发现（复核者独立发现，我确认为真，且直接削弱 §31.6 的一句话）**：
+`local_library_reconciler.dart` 的 `(mtime,size)` 重读判据**在 Android 上恒为"无需重读"**——`local_scan_snapshot.dart:101-109` 的 `_asStringList` 只接受纯字符串，而 Android 在同一个 `lyrics` 键下放的是 `{extension, content}` **映射** ⇒ `lyricCandidates` 永远为空 ⇒ `sidecarStamps` 为空 ⇒ `nothingToCompare = true` ⇒ 复用 DB 旧行，**Kotlin 新读到的 `resolvedLyrics` 被丢弃**。
+⇒ **§31.6 的"替换 `.lrc` 后会重读"只在桌面/Dart 扫描路径成立；Android SAF 上换 `.lrc` 仍然永不生效**（不是回归——旧代码同样复用 stored——但这正是 T3 报的"本地歌词文件永不重读"**未被修掉的那一半**）。已作为显式条目加进 W2-C（task-17），因为那一波拥有 `lib/features/local_music/**`。
+
+**其余建议（已记账，不必本波处理）**：
+- **C3**：`schema parity` 等式断言只覆盖 v2→v3；v1→v3 只有 `containsAll`（抓不到"多一列/多一个索引"）。**已加进 W2-C**（把 `:284-318` 的断言体复制给 `_createV1Schema`，成本极低）。
+- 两处弱断言：`test/lyrics_provider_test.dart:134` 的"真 KRC"其实是**单行、无 KRC 头**的 fixture（证明不了"带真实头的 KRC 不被降级"）；`test/lyrics_encoding_test.dart:40-45` 只断"不抛"不断结果。记入 W2-A。
+- `cancelDownload` 缺 status 守卫（目前安全全靠 UI 可达性）→ 记入 W3。
+- `async_state_view.dart:107` 空态**图标**用 `outlineVariant` 是刻意的（图标非正文），但易被误读为违反"不用 outline 家族"→ 已在契约注释里点明"仅正文"。
+- `test/download_page_test.dart` 同时出现在 task-9 与 task-12 的 scope 里（advisory overlap，本轮未冲突）→ 下一波消歧。
+- `lyrics_line.dart` 的**负 offset 未 clamp**：目前无害（position 恒 ≥ 0），但 W2 引入"按歌偏移"后会出现更大负值 → 那时加 clamp。
+
+---
+
+## 32. 阶段 v1.5-W1 · Wave 1：跨源换源 + 歌单搬运 + 播放队列页（已完成）
+
+> 本轮同时**提前落了一部分 Wave 2**（W2-C 的 schema v4 与本地库查询层，因为它与 Wave 1 的写作用域完全不相交，且我需要它把 W0-V 发现的两个缺口修掉）。所以 §32.1 的门禁覆盖 **W1 全部 + W2-C 的大部分**。
+
+### 32.1 门禁（Lead 实跑）
+
+- `flutter analyze --no-pub` → **`No issues found!`**
+- `flutter test --no-pub -j 1` → **`+1315 ~10: All tests passed!`**（1315 passed / 10 skipped / 0 failed；Wave 0 收口时是 1193 ⇒ **本轮净增 +122 条**）
+- 覆盖率基线（首次测量）：**66.2%**（16323/24666 instrumented lines）→ 已写进 CI 作为**棘轮门限 60%**
+
+### 32.2 派工
+
+| 任务 | owner | 内容 |
+|---|---|---|
+| W1-A | `fix-playback` | 播放层拆分（已单独提交 `936c0e3`）+ **跨源换源服务** + 下一首预解析 + 来源角标 + 「自动换源」开关 |
+| W1-C | `ux-parity` | 歌单导入/导出纯逻辑层（m3u8 / 文本 / JSON / 二维码 + 匹配报告 + 搬运 runner） |
+| W1-D | `feature-inventory` | `/queue` 播放队列页（重排/删除/清空/跳播/高亮/空态） |
+| W2-C | `eng-health` | drift v4 + 本地库查询层 + 评分 + 本地歌词候选发现 + Android 歌词新鲜度 |
+| W0-V | `lyrics-metadata` | 对 Wave 0 的独立复核（见 §31.12） |
+| 调研 | `external-research` | scrobble / Android 小组件 / Auto 的"可照抄规格"（为 W2-D、W3-A 备料） |
+
+### 32.3 W1-A：跨源换源（本轮的"护城河"）
+
+**合规边界（用户硬要求）**：换源候选**只在内置三平台之间**——`PlatformRegistry.all` 里排除主平台与 local，且要求 `isLoggedIn`；没有任何外部音源入口。**这条在验收时逐行核对过。**
+
+实现要点：
+- `lib/core/source_matching/`：`TrackIdentity`（括号/版本词/feat 尾段的归一化）、`SourceMatchService`（打分 = 0.5×标题 + 0.3×主艺人 + 0.2×时长；**时长差 > ±3s 直接 0 分**；阈值 0.8）、`SourceMatchCacheStore` + `DriftSourceMatchCacheStore`（包 W0-D 的 `sourceMatchCacheDao`）。
+- **串行 + 指数退避（0.3s→0.6s，每平台最多 3 次）**，而不是任务描述里那句"并行查两平台"——owner 主动改了设计并说明理由（**防风控**），我采纳：一个聚合器最怕的就是被平台限流。
+- **URL 必须带 TTL**，且只有一处判定：查缓存时把 `now` 往后挪 60s 安全余量（"马上过期的签名直链"当过期处理），写缓存 `expiresAt = now + 20min`。
+- 接到 W0-A 留的接缝：`CrossSourceResolver → Future<CrossSourceResult?>`（带平台来源），失败链保持「降档 → 换源 → skip」；`PlayerState.sourcePlatform` 驱动播放页来源角标「已换源 · 来自 QQ音乐」。离线与「自动换源」关闭两道门禁都接在装配点。
+- 下一首预解析：只预解析 URL 入缓存（不做边下边播），用 `(playlist 实例, 下标, 档位)` 做幂等 key，**位置 tick 不会触发**。
+
+**两个由 owner 主动纠正的判断（都写进注释）**：
+1. **`PlayerState.==` 不能排除 `position`**：`StateNotifier` 只在 `!=` 时通知，排除 position 会把所有进度更新静默吸收（进度条/胶囊环彻底不动）。`==` 的真实收益是吸收**内容相同**的重复更新，不是省掉位置 tick。
+2. `setEnabled` 的写盘路径必须与 `_load` 的读路径**容错对称**：见 §32.7 的教训。
+
+### 32.4 W1-C：歌单导入/导出（纯逻辑层）
+
+9 个新文件（`lib/core/transfer/`）+ **40 条用例**：
+- **m3u8**（`#EXTM3U`/`#PLAYLIST`/`#EXTINF`，支持绝对路径或可配置前缀；第三方 m3u8 无身份也不丢行）、**`歌名 - 歌手` 文本**（并支持 `歌手 - 歌名` 备用读法）、**自有 JSON**（键集与既有分享链接载荷逐字一致）、**二维码**（超长/空白返回 null）。
+- **结构探测**：m3u8 优先于纯文本（否则指令行会被当成歌名）。
+- **匹配报告**：三桶（可入 / 待确认 / 无）+ `resumeToken` 断点续传；**串行（并发峰值 = 1）**、线性退避（`[base, 2×base]`）、精确身份**不发请求**、matcher 抛异常时**只该行归"无"、其余行照常**。
+- 打分/阈值/归一化/退避**全部来自 W1-A**（tear-off + 字段注入），适配层只做翻译。owner 主动交代了自己唯一写的那处（"遍历已登录平台搜候选"），并解释了形状不匹配的原因（W1-A 的公开入口要求"已知 platform+id 的 Song"并返回直链，而导入行是反方向）。**合并方案（把候选搜索提成服务公开能力）已记为 W4 收口项**，不在本轮扩张公开面。
+
+### 32.5 W1-D：播放队列页
+
+`queue_page.dart`（226 行）+ `app_router.dart` 的 ShellRoute 内一条 `/queue`（+12/−0，其余路由一字未动）+ 10 条用例（重排/删除单曲/删除当前曲由接手那首继续/点击跳播/清空二次确认/空态/路由挂在 shell 内）。**只调用 W0-A 落地的四个队列 API，零队列语义重实现**；三态只用 `AsyncStateView.empty`（队列是同步数据，加 loading 就是死代码——这一点 owner 主动说明并在文件头注释）。
+实现期靠 SDK 源码核对抓到的三个 API 细节：`onReorderItem` 的 `newIndex` **已被框架修正**（不再 −1）、默认 `proxyDecorator` 自带 `Material`、以及 `CustomScrollView` 无 `padding`（W0-E 的教训被复用）。
+
+### 32.6 W2-C（提前落地部分）
+
+drift **v3 → v4**：新表 `track_ratings`（评分，**无索引**：只有 5 个取值，加索引就是低选择性负担）、`scrobble_queue`（5 态状态机 + `(service,event_id)` 幂等索引）；**删掉 W0-D 自己指出的冗余索引 `local_tracks_path`**（三处同改 + v4 分支 `DROP INDEX IF EXISTS`，避免"新装无、升级有"分叉）；`onCreate` 与 `onUpgrade` **字面同构**；**10 条迁移/parity 用例**，其中 **v1→v4 / v2→v4 / v3→v4 / fresh 四条等式 parity**（8 张表逐列比对）——这正是 W0-V 要求的 C3 修复。
+本地库查询层：多 token AND 关键字、6 种排序 + 3 个筛选（AND）、**total order 防 Dart 不稳定排序抖动**；评分写 `track_ratings`；**播放次数由 `play_events` 实时聚合**（`playCountsFromEvents`），物化列 `play_count` 只是缓存、**唯一写入者 `syncPlayStats()` 只重算不自增**（"第二次 sync 返回 0"这条断言证明它不是累加），排序路径**永不读陈旧缓存**（有专门用例）；多选批量**只删索引记录与缓存歌词，绝不碰音频文件**（负向断言）。
+**W0-V 发现的两个缺口都已真修**：
+- **Android 歌词永不刷新** → 根因是 `_asStringList` 只认纯字符串、Android 放的是 `{extension, content}` 映射 ⇒ `nothingToCompare` 恒真。修法不是造戳记（SAF 拿不到 mtime），而是**内容比对**：调用方本次已读 → 只有内容说了算；没读（桌面）→ 保持原戳记逻辑（**"sidecar 被删仍保留已存歌词"这条桌面契约不回退**，有守护用例）。4 条用例走**真实 Android 链路**（Kotlin 映射 → `fromMap` → `decodeLyrics` → `reconcile`），并加一条**前提钉死用例**（断言 `lyricCandidates` 为空）防止将来有人改了 `_asStringList` 让这条变成假绿。
+- **歌词候选发现**：补 `lyrics/` 子目录 + `歌手 - 歌名.lrc` 尾巴匹配，**精确始终优先**；用**一次 O(N) 词干索引**避免 1000 首退化成 O(N²)（owner 主动挡的坑），冲突时取字典序更小者以免结果依赖文件系统列举顺序。
+
+### 32.7 工程护栏（Lead 侧，本轮提前做）
+
+- `test/version_sync_test.dart`（6 条）+ `scripts/release.ps1`（一键发布，已提交 `c65fa94`）。
+- **CI 硬化**（本轮）：`concurrency` 组（避免同分支连续 push 并行拉起多个 10 分钟构建，PR 可取消、main/tag 不可）、`dart format --set-exit-if-changed`、**覆盖率测量 + 棘轮门限 60%**（实测基线 66.2%）、**Windows debug 构建 job**（仅 tag/manual，桌面端口"还能编译"由机器守）、`retention-days`、**钉死 Flutter 3.47.5**（原先 `channel: stable` 意味着一次框架发布就能把 CI 变红而仓库零改动）、`.github/dependabot.yml`（pub + actions；**对 7 个主干依赖禁止 major 自动升级**）、`.github/pull_request_template.md`（schema / i18n / 版本 / 断言 / Windows / scope 六项勾选）。
+- 两个 YAML 都通过了 `yaml.safe_load` 校验。
+
+### 32.8 本轮教训
+
+1. **"红了"必须读原始失败类型，不能从日志片段推断根因。** 我在 `source_match_test` 那条上犯了错：看到 `load failed: HiveError`（那其实只是 owner 的 `debugPrint`）就断定"读失败把默认值落成了 false"，并据此让他改 `_load`。**owner 拒绝接受这个结论并要求我贴原始断言块** —— 结果实测日志里**根本没有 `Expected/Actual`**，真因是 `setEnabled`（写盘路径）把 `HiveError` 逃逸到了测试帧。他改对了，我错了一轮。**教训：报根因前先确认失败类别（compile / setup 异常 / 断言），"debugPrint 的栈"不是失败原因。**
+2. **写路径的容错必须与读路径对称。** `_load` 有 try/catch、`setEnabled` 没有同等保护 → "读失败只降级、写失败上抛"。最终修法比补 catch 更彻底：`setEnabled` 改**同步 void**，`Hive.box(...)` 同步取（未打开则同步抛、同步吃掉），`put` fire-and-forget，**一个 Future 都不创建**，物理消除"未处理 zone 错误"。
+3. **`ReorderableListView` 的合成手势不能用"拖几行 = 位移几行"的直觉来写**（这条建议由 W1-D 提出、我批准记入本文档）：`_insertIndex` 是**空隙下标**（`_handleReorderItem` 会 `newIndex > oldIndex → newIndex -= 1`）、**多事件会累积推高下标**、且 `d ∈ [1h, 1.5h]` 是一个"**不换位**"的洞。正确写法：**一个 move 事件、位移 0.75×行高**（落在 `[0.5h, 1h)` 正中），且**放手后必须 `pumpAndSettle()`**（`onReorder` 由 250ms 落位动画的 status listener 在 `isDismissed` 时触发，`pump()` 一帧不够）。本仓 `playlist_detail_page` 的既有重排实现与本页同源，将来写同类用例直接照这条。
+4. **`part of` + `extension` 的拆分有硬性上限**：`StateNotifier.state` 是 `@protected` + `@visibleForTesting`，extension 访问它会产生两倍警告（0-issue 门禁直接不可达）；Dart 的 extension **不能声明 static**。所以"行为搬出去、状态留在 facade"这个形态需要 ①facade 加一个私有访问器（`_s`）②静态成员留在 facade 并限定调用 ③`part` 路径相对 part 所在目录**从 facade 起算要多一级**。这三条与"逐字节纯移动"是矛盾的，commit message 与 §31 已如实写成"机械移动 + 3 处可解释重命名"。

@@ -132,6 +132,33 @@ class SourceMatchCacheDaoManager {
       );
 }
 
+mixin _$TrackRatingsDaoMixin on DatabaseAccessor<AppDatabase> {
+  $TrackRatingsTable get trackRatings => attachedDatabase.trackRatings;
+  $PlayEventsTable get playEvents => attachedDatabase.playEvents;
+  TrackRatingsDaoManager get managers => TrackRatingsDaoManager(this);
+}
+
+class TrackRatingsDaoManager {
+  final _$TrackRatingsDaoMixin _db;
+  TrackRatingsDaoManager(this._db);
+  $$TrackRatingsTableTableManager get trackRatings =>
+      $$TrackRatingsTableTableManager(_db.attachedDatabase, _db.trackRatings);
+  $$PlayEventsTableTableManager get playEvents =>
+      $$PlayEventsTableTableManager(_db.attachedDatabase, _db.playEvents);
+}
+
+mixin _$ScrobbleQueueDaoMixin on DatabaseAccessor<AppDatabase> {
+  $ScrobbleQueueTable get scrobbleQueue => attachedDatabase.scrobbleQueue;
+  ScrobbleQueueDaoManager get managers => ScrobbleQueueDaoManager(this);
+}
+
+class ScrobbleQueueDaoManager {
+  final _$ScrobbleQueueDaoMixin _db;
+  ScrobbleQueueDaoManager(this._db);
+  $$ScrobbleQueueTableTableManager get scrobbleQueue =>
+      $$ScrobbleQueueTableTableManager(_db.attachedDatabase, _db.scrobbleQueue);
+}
+
 mixin _$ToplistsCacheDaoMixin on DatabaseAccessor<AppDatabase> {
   $ToplistsCacheTable get toplistsCache => attachedDatabase.toplistsCache;
   ToplistsCacheDaoManager get managers => ToplistsCacheDaoManager(this);
@@ -5110,6 +5137,1236 @@ class SourceMatchCachesCompanion extends UpdateCompanion<SourceMatchCacheRow> {
   }
 }
 
+class $TrackRatingsTable extends TrackRatings
+    with TableInfo<$TrackRatingsTable, TrackRatingRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $TrackRatingsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _songKeyMeta = const VerificationMeta(
+    'songKey',
+  );
+  @override
+  late final GeneratedColumn<String> songKey = GeneratedColumn<String>(
+    'song_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _ratingMeta = const VerificationMeta('rating');
+  @override
+  late final GeneratedColumn<int> rating = GeneratedColumn<int>(
+    'rating',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _playCountMeta = const VerificationMeta(
+    'playCount',
+  );
+  @override
+  late final GeneratedColumn<int> playCount = GeneratedColumn<int>(
+    'play_count',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _lastPlayedAtMeta = const VerificationMeta(
+    'lastPlayedAt',
+  );
+  @override
+  late final GeneratedColumn<int> lastPlayedAt = GeneratedColumn<int>(
+    'last_played_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    songKey,
+    rating,
+    playCount,
+    lastPlayedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'track_ratings';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<TrackRatingRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('song_key')) {
+      context.handle(
+        _songKeyMeta,
+        songKey.isAcceptableOrUnknown(data['song_key']!, _songKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_songKeyMeta);
+    }
+    if (data.containsKey('rating')) {
+      context.handle(
+        _ratingMeta,
+        rating.isAcceptableOrUnknown(data['rating']!, _ratingMeta),
+      );
+    }
+    if (data.containsKey('play_count')) {
+      context.handle(
+        _playCountMeta,
+        playCount.isAcceptableOrUnknown(data['play_count']!, _playCountMeta),
+      );
+    }
+    if (data.containsKey('last_played_at')) {
+      context.handle(
+        _lastPlayedAtMeta,
+        lastPlayedAt.isAcceptableOrUnknown(
+          data['last_played_at']!,
+          _lastPlayedAtMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {songKey};
+  @override
+  TrackRatingRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return TrackRatingRow(
+      songKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}song_key'],
+      )!,
+      rating: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}rating'],
+      )!,
+      playCount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}play_count'],
+      )!,
+      lastPlayedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}last_played_at'],
+      ),
+    );
+  }
+
+  @override
+  $TrackRatingsTable createAlias(String alias) {
+    return $TrackRatingsTable(attachedDatabase, alias);
+  }
+}
+
+class TrackRatingRow extends DataClass implements Insertable<TrackRatingRow> {
+  final String songKey;
+
+  /// `0` = unrated, otherwise 1..5. Zero rather than null so "explicitly
+  /// unrated" and "never rated" are one state — a distinction no UI needs.
+  final int rating;
+
+  /// Materialised `COUNT(*)` over [PlayEvents] for this song. Refreshed by
+  /// [TrackRatingsDao.syncPlayStats]; read [TrackRatingsDao.playCountsFromEvents]
+  /// when the aggregate itself is what matters.
+  final int playCount;
+
+  /// Materialised `MAX(started_at)` over [PlayEvents], or null when the song was
+  /// never played.
+  final int? lastPlayedAt;
+  const TrackRatingRow({
+    required this.songKey,
+    required this.rating,
+    required this.playCount,
+    this.lastPlayedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['song_key'] = Variable<String>(songKey);
+    map['rating'] = Variable<int>(rating);
+    map['play_count'] = Variable<int>(playCount);
+    if (!nullToAbsent || lastPlayedAt != null) {
+      map['last_played_at'] = Variable<int>(lastPlayedAt);
+    }
+    return map;
+  }
+
+  TrackRatingsCompanion toCompanion(bool nullToAbsent) {
+    return TrackRatingsCompanion(
+      songKey: Value(songKey),
+      rating: Value(rating),
+      playCount: Value(playCount),
+      lastPlayedAt: lastPlayedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastPlayedAt),
+    );
+  }
+
+  factory TrackRatingRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return TrackRatingRow(
+      songKey: serializer.fromJson<String>(json['songKey']),
+      rating: serializer.fromJson<int>(json['rating']),
+      playCount: serializer.fromJson<int>(json['playCount']),
+      lastPlayedAt: serializer.fromJson<int?>(json['lastPlayedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'songKey': serializer.toJson<String>(songKey),
+      'rating': serializer.toJson<int>(rating),
+      'playCount': serializer.toJson<int>(playCount),
+      'lastPlayedAt': serializer.toJson<int?>(lastPlayedAt),
+    };
+  }
+
+  TrackRatingRow copyWith({
+    String? songKey,
+    int? rating,
+    int? playCount,
+    Value<int?> lastPlayedAt = const Value.absent(),
+  }) => TrackRatingRow(
+    songKey: songKey ?? this.songKey,
+    rating: rating ?? this.rating,
+    playCount: playCount ?? this.playCount,
+    lastPlayedAt: lastPlayedAt.present ? lastPlayedAt.value : this.lastPlayedAt,
+  );
+  TrackRatingRow copyWithCompanion(TrackRatingsCompanion data) {
+    return TrackRatingRow(
+      songKey: data.songKey.present ? data.songKey.value : this.songKey,
+      rating: data.rating.present ? data.rating.value : this.rating,
+      playCount: data.playCount.present ? data.playCount.value : this.playCount,
+      lastPlayedAt: data.lastPlayedAt.present
+          ? data.lastPlayedAt.value
+          : this.lastPlayedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TrackRatingRow(')
+          ..write('songKey: $songKey, ')
+          ..write('rating: $rating, ')
+          ..write('playCount: $playCount, ')
+          ..write('lastPlayedAt: $lastPlayedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(songKey, rating, playCount, lastPlayedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is TrackRatingRow &&
+          other.songKey == this.songKey &&
+          other.rating == this.rating &&
+          other.playCount == this.playCount &&
+          other.lastPlayedAt == this.lastPlayedAt);
+}
+
+class TrackRatingsCompanion extends UpdateCompanion<TrackRatingRow> {
+  final Value<String> songKey;
+  final Value<int> rating;
+  final Value<int> playCount;
+  final Value<int?> lastPlayedAt;
+  final Value<int> rowid;
+  const TrackRatingsCompanion({
+    this.songKey = const Value.absent(),
+    this.rating = const Value.absent(),
+    this.playCount = const Value.absent(),
+    this.lastPlayedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  TrackRatingsCompanion.insert({
+    required String songKey,
+    this.rating = const Value.absent(),
+    this.playCount = const Value.absent(),
+    this.lastPlayedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : songKey = Value(songKey);
+  static Insertable<TrackRatingRow> custom({
+    Expression<String>? songKey,
+    Expression<int>? rating,
+    Expression<int>? playCount,
+    Expression<int>? lastPlayedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (songKey != null) 'song_key': songKey,
+      if (rating != null) 'rating': rating,
+      if (playCount != null) 'play_count': playCount,
+      if (lastPlayedAt != null) 'last_played_at': lastPlayedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  TrackRatingsCompanion copyWith({
+    Value<String>? songKey,
+    Value<int>? rating,
+    Value<int>? playCount,
+    Value<int?>? lastPlayedAt,
+    Value<int>? rowid,
+  }) {
+    return TrackRatingsCompanion(
+      songKey: songKey ?? this.songKey,
+      rating: rating ?? this.rating,
+      playCount: playCount ?? this.playCount,
+      lastPlayedAt: lastPlayedAt ?? this.lastPlayedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (songKey.present) {
+      map['song_key'] = Variable<String>(songKey.value);
+    }
+    if (rating.present) {
+      map['rating'] = Variable<int>(rating.value);
+    }
+    if (playCount.present) {
+      map['play_count'] = Variable<int>(playCount.value);
+    }
+    if (lastPlayedAt.present) {
+      map['last_played_at'] = Variable<int>(lastPlayedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TrackRatingsCompanion(')
+          ..write('songKey: $songKey, ')
+          ..write('rating: $rating, ')
+          ..write('playCount: $playCount, ')
+          ..write('lastPlayedAt: $lastPlayedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $ScrobbleQueueTable extends ScrobbleQueue
+    with TableInfo<$ScrobbleQueueTable, ScrobbleQueueRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ScrobbleQueueTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _eventIdMeta = const VerificationMeta(
+    'eventId',
+  );
+  @override
+  late final GeneratedColumn<int> eventId = GeneratedColumn<int>(
+    'event_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _serviceMeta = const VerificationMeta(
+    'service',
+  );
+  @override
+  late final GeneratedColumn<String> service = GeneratedColumn<String>(
+    'service',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _songKeyMeta = const VerificationMeta(
+    'songKey',
+  );
+  @override
+  late final GeneratedColumn<String> songKey = GeneratedColumn<String>(
+    'song_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _titleMeta = const VerificationMeta('title');
+  @override
+  late final GeneratedColumn<String> title = GeneratedColumn<String>(
+    'title',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _artistMeta = const VerificationMeta('artist');
+  @override
+  late final GeneratedColumn<String> artist = GeneratedColumn<String>(
+    'artist',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _albumMeta = const VerificationMeta('album');
+  @override
+  late final GeneratedColumn<String> album = GeneratedColumn<String>(
+    'album',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _durationMsMeta = const VerificationMeta(
+    'durationMs',
+  );
+  @override
+  late final GeneratedColumn<int> durationMs = GeneratedColumn<int>(
+    'duration_ms',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _playedAtMeta = const VerificationMeta(
+    'playedAt',
+  );
+  @override
+  late final GeneratedColumn<int> playedAt = GeneratedColumn<int>(
+    'played_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('pending'),
+  );
+  static const VerificationMeta _attemptsMeta = const VerificationMeta(
+    'attempts',
+  );
+  @override
+  late final GeneratedColumn<int> attempts = GeneratedColumn<int>(
+    'attempts',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _nextAttemptAtMeta = const VerificationMeta(
+    'nextAttemptAt',
+  );
+  @override
+  late final GeneratedColumn<int> nextAttemptAt = GeneratedColumn<int>(
+    'next_attempt_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _leaseUntilMeta = const VerificationMeta(
+    'leaseUntil',
+  );
+  @override
+  late final GeneratedColumn<int> leaseUntil = GeneratedColumn<int>(
+    'lease_until',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<int> createdAt = GeneratedColumn<int>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sentAtMeta = const VerificationMeta('sentAt');
+  @override
+  late final GeneratedColumn<int> sentAt = GeneratedColumn<int>(
+    'sent_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _lastErrorMeta = const VerificationMeta(
+    'lastError',
+  );
+  @override
+  late final GeneratedColumn<String> lastError = GeneratedColumn<String>(
+    'last_error',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    eventId,
+    service,
+    songKey,
+    title,
+    artist,
+    album,
+    durationMs,
+    playedAt,
+    status,
+    attempts,
+    nextAttemptAt,
+    leaseUntil,
+    createdAt,
+    sentAt,
+    lastError,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'scrobble_queue';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ScrobbleQueueRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('event_id')) {
+      context.handle(
+        _eventIdMeta,
+        eventId.isAcceptableOrUnknown(data['event_id']!, _eventIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_eventIdMeta);
+    }
+    if (data.containsKey('service')) {
+      context.handle(
+        _serviceMeta,
+        service.isAcceptableOrUnknown(data['service']!, _serviceMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_serviceMeta);
+    }
+    if (data.containsKey('song_key')) {
+      context.handle(
+        _songKeyMeta,
+        songKey.isAcceptableOrUnknown(data['song_key']!, _songKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_songKeyMeta);
+    }
+    if (data.containsKey('title')) {
+      context.handle(
+        _titleMeta,
+        title.isAcceptableOrUnknown(data['title']!, _titleMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_titleMeta);
+    }
+    if (data.containsKey('artist')) {
+      context.handle(
+        _artistMeta,
+        artist.isAcceptableOrUnknown(data['artist']!, _artistMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_artistMeta);
+    }
+    if (data.containsKey('album')) {
+      context.handle(
+        _albumMeta,
+        album.isAcceptableOrUnknown(data['album']!, _albumMeta),
+      );
+    }
+    if (data.containsKey('duration_ms')) {
+      context.handle(
+        _durationMsMeta,
+        durationMs.isAcceptableOrUnknown(data['duration_ms']!, _durationMsMeta),
+      );
+    }
+    if (data.containsKey('played_at')) {
+      context.handle(
+        _playedAtMeta,
+        playedAt.isAcceptableOrUnknown(data['played_at']!, _playedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_playedAtMeta);
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    }
+    if (data.containsKey('attempts')) {
+      context.handle(
+        _attemptsMeta,
+        attempts.isAcceptableOrUnknown(data['attempts']!, _attemptsMeta),
+      );
+    }
+    if (data.containsKey('next_attempt_at')) {
+      context.handle(
+        _nextAttemptAtMeta,
+        nextAttemptAt.isAcceptableOrUnknown(
+          data['next_attempt_at']!,
+          _nextAttemptAtMeta,
+        ),
+      );
+    }
+    if (data.containsKey('lease_until')) {
+      context.handle(
+        _leaseUntilMeta,
+        leaseUntil.isAcceptableOrUnknown(data['lease_until']!, _leaseUntilMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('sent_at')) {
+      context.handle(
+        _sentAtMeta,
+        sentAt.isAcceptableOrUnknown(data['sent_at']!, _sentAtMeta),
+      );
+    }
+    if (data.containsKey('last_error')) {
+      context.handle(
+        _lastErrorMeta,
+        lastError.isAcceptableOrUnknown(data['last_error']!, _lastErrorMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  ScrobbleQueueRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ScrobbleQueueRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      eventId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}event_id'],
+      )!,
+      service: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}service'],
+      )!,
+      songKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}song_key'],
+      )!,
+      title: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}title'],
+      )!,
+      artist: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}artist'],
+      )!,
+      album: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}album'],
+      ),
+      durationMs: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}duration_ms'],
+      )!,
+      playedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}played_at'],
+      )!,
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      attempts: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}attempts'],
+      )!,
+      nextAttemptAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}next_attempt_at'],
+      ),
+      leaseUntil: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}lease_until'],
+      ),
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at'],
+      )!,
+      sentAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sent_at'],
+      ),
+      lastError: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_error'],
+      ),
+    );
+  }
+
+  @override
+  $ScrobbleQueueTable createAlias(String alias) {
+    return $ScrobbleQueueTable(attachedDatabase, alias);
+  }
+}
+
+class ScrobbleQueueRow extends DataClass
+    implements Insertable<ScrobbleQueueRow> {
+  final int id;
+
+  /// `play_events.id` this scrobble was derived from.
+  final int eventId;
+
+  /// Which service the row is for (`lastfm`, `listenbrainz`, …), so one outbox
+  /// can feed several without a row per service per event.
+  final String service;
+
+  /// `"<platform>:<songId>"` — the same key [TrackRatings] uses.
+  final String songKey;
+  final String title;
+  final String artist;
+  final String? album;
+  final int durationMs;
+
+  /// When the play started (epoch ms), i.e. `play_events.started_at`.
+  final int playedAt;
+  final String status;
+  final int attempts;
+
+  /// Earliest epoch ms the next attempt may run; null = immediately.
+  final int? nextAttemptAt;
+
+  /// While `sending`: epoch ms after which the claim is considered abandoned.
+  final int? leaseUntil;
+  final int createdAt;
+  final int? sentAt;
+  final String? lastError;
+  const ScrobbleQueueRow({
+    required this.id,
+    required this.eventId,
+    required this.service,
+    required this.songKey,
+    required this.title,
+    required this.artist,
+    this.album,
+    required this.durationMs,
+    required this.playedAt,
+    required this.status,
+    required this.attempts,
+    this.nextAttemptAt,
+    this.leaseUntil,
+    required this.createdAt,
+    this.sentAt,
+    this.lastError,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['event_id'] = Variable<int>(eventId);
+    map['service'] = Variable<String>(service);
+    map['song_key'] = Variable<String>(songKey);
+    map['title'] = Variable<String>(title);
+    map['artist'] = Variable<String>(artist);
+    if (!nullToAbsent || album != null) {
+      map['album'] = Variable<String>(album);
+    }
+    map['duration_ms'] = Variable<int>(durationMs);
+    map['played_at'] = Variable<int>(playedAt);
+    map['status'] = Variable<String>(status);
+    map['attempts'] = Variable<int>(attempts);
+    if (!nullToAbsent || nextAttemptAt != null) {
+      map['next_attempt_at'] = Variable<int>(nextAttemptAt);
+    }
+    if (!nullToAbsent || leaseUntil != null) {
+      map['lease_until'] = Variable<int>(leaseUntil);
+    }
+    map['created_at'] = Variable<int>(createdAt);
+    if (!nullToAbsent || sentAt != null) {
+      map['sent_at'] = Variable<int>(sentAt);
+    }
+    if (!nullToAbsent || lastError != null) {
+      map['last_error'] = Variable<String>(lastError);
+    }
+    return map;
+  }
+
+  ScrobbleQueueCompanion toCompanion(bool nullToAbsent) {
+    return ScrobbleQueueCompanion(
+      id: Value(id),
+      eventId: Value(eventId),
+      service: Value(service),
+      songKey: Value(songKey),
+      title: Value(title),
+      artist: Value(artist),
+      album: album == null && nullToAbsent
+          ? const Value.absent()
+          : Value(album),
+      durationMs: Value(durationMs),
+      playedAt: Value(playedAt),
+      status: Value(status),
+      attempts: Value(attempts),
+      nextAttemptAt: nextAttemptAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(nextAttemptAt),
+      leaseUntil: leaseUntil == null && nullToAbsent
+          ? const Value.absent()
+          : Value(leaseUntil),
+      createdAt: Value(createdAt),
+      sentAt: sentAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sentAt),
+      lastError: lastError == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastError),
+    );
+  }
+
+  factory ScrobbleQueueRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ScrobbleQueueRow(
+      id: serializer.fromJson<int>(json['id']),
+      eventId: serializer.fromJson<int>(json['eventId']),
+      service: serializer.fromJson<String>(json['service']),
+      songKey: serializer.fromJson<String>(json['songKey']),
+      title: serializer.fromJson<String>(json['title']),
+      artist: serializer.fromJson<String>(json['artist']),
+      album: serializer.fromJson<String?>(json['album']),
+      durationMs: serializer.fromJson<int>(json['durationMs']),
+      playedAt: serializer.fromJson<int>(json['playedAt']),
+      status: serializer.fromJson<String>(json['status']),
+      attempts: serializer.fromJson<int>(json['attempts']),
+      nextAttemptAt: serializer.fromJson<int?>(json['nextAttemptAt']),
+      leaseUntil: serializer.fromJson<int?>(json['leaseUntil']),
+      createdAt: serializer.fromJson<int>(json['createdAt']),
+      sentAt: serializer.fromJson<int?>(json['sentAt']),
+      lastError: serializer.fromJson<String?>(json['lastError']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'eventId': serializer.toJson<int>(eventId),
+      'service': serializer.toJson<String>(service),
+      'songKey': serializer.toJson<String>(songKey),
+      'title': serializer.toJson<String>(title),
+      'artist': serializer.toJson<String>(artist),
+      'album': serializer.toJson<String?>(album),
+      'durationMs': serializer.toJson<int>(durationMs),
+      'playedAt': serializer.toJson<int>(playedAt),
+      'status': serializer.toJson<String>(status),
+      'attempts': serializer.toJson<int>(attempts),
+      'nextAttemptAt': serializer.toJson<int?>(nextAttemptAt),
+      'leaseUntil': serializer.toJson<int?>(leaseUntil),
+      'createdAt': serializer.toJson<int>(createdAt),
+      'sentAt': serializer.toJson<int?>(sentAt),
+      'lastError': serializer.toJson<String?>(lastError),
+    };
+  }
+
+  ScrobbleQueueRow copyWith({
+    int? id,
+    int? eventId,
+    String? service,
+    String? songKey,
+    String? title,
+    String? artist,
+    Value<String?> album = const Value.absent(),
+    int? durationMs,
+    int? playedAt,
+    String? status,
+    int? attempts,
+    Value<int?> nextAttemptAt = const Value.absent(),
+    Value<int?> leaseUntil = const Value.absent(),
+    int? createdAt,
+    Value<int?> sentAt = const Value.absent(),
+    Value<String?> lastError = const Value.absent(),
+  }) => ScrobbleQueueRow(
+    id: id ?? this.id,
+    eventId: eventId ?? this.eventId,
+    service: service ?? this.service,
+    songKey: songKey ?? this.songKey,
+    title: title ?? this.title,
+    artist: artist ?? this.artist,
+    album: album.present ? album.value : this.album,
+    durationMs: durationMs ?? this.durationMs,
+    playedAt: playedAt ?? this.playedAt,
+    status: status ?? this.status,
+    attempts: attempts ?? this.attempts,
+    nextAttemptAt: nextAttemptAt.present
+        ? nextAttemptAt.value
+        : this.nextAttemptAt,
+    leaseUntil: leaseUntil.present ? leaseUntil.value : this.leaseUntil,
+    createdAt: createdAt ?? this.createdAt,
+    sentAt: sentAt.present ? sentAt.value : this.sentAt,
+    lastError: lastError.present ? lastError.value : this.lastError,
+  );
+  ScrobbleQueueRow copyWithCompanion(ScrobbleQueueCompanion data) {
+    return ScrobbleQueueRow(
+      id: data.id.present ? data.id.value : this.id,
+      eventId: data.eventId.present ? data.eventId.value : this.eventId,
+      service: data.service.present ? data.service.value : this.service,
+      songKey: data.songKey.present ? data.songKey.value : this.songKey,
+      title: data.title.present ? data.title.value : this.title,
+      artist: data.artist.present ? data.artist.value : this.artist,
+      album: data.album.present ? data.album.value : this.album,
+      durationMs: data.durationMs.present
+          ? data.durationMs.value
+          : this.durationMs,
+      playedAt: data.playedAt.present ? data.playedAt.value : this.playedAt,
+      status: data.status.present ? data.status.value : this.status,
+      attempts: data.attempts.present ? data.attempts.value : this.attempts,
+      nextAttemptAt: data.nextAttemptAt.present
+          ? data.nextAttemptAt.value
+          : this.nextAttemptAt,
+      leaseUntil: data.leaseUntil.present
+          ? data.leaseUntil.value
+          : this.leaseUntil,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      sentAt: data.sentAt.present ? data.sentAt.value : this.sentAt,
+      lastError: data.lastError.present ? data.lastError.value : this.lastError,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ScrobbleQueueRow(')
+          ..write('id: $id, ')
+          ..write('eventId: $eventId, ')
+          ..write('service: $service, ')
+          ..write('songKey: $songKey, ')
+          ..write('title: $title, ')
+          ..write('artist: $artist, ')
+          ..write('album: $album, ')
+          ..write('durationMs: $durationMs, ')
+          ..write('playedAt: $playedAt, ')
+          ..write('status: $status, ')
+          ..write('attempts: $attempts, ')
+          ..write('nextAttemptAt: $nextAttemptAt, ')
+          ..write('leaseUntil: $leaseUntil, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('sentAt: $sentAt, ')
+          ..write('lastError: $lastError')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    eventId,
+    service,
+    songKey,
+    title,
+    artist,
+    album,
+    durationMs,
+    playedAt,
+    status,
+    attempts,
+    nextAttemptAt,
+    leaseUntil,
+    createdAt,
+    sentAt,
+    lastError,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ScrobbleQueueRow &&
+          other.id == this.id &&
+          other.eventId == this.eventId &&
+          other.service == this.service &&
+          other.songKey == this.songKey &&
+          other.title == this.title &&
+          other.artist == this.artist &&
+          other.album == this.album &&
+          other.durationMs == this.durationMs &&
+          other.playedAt == this.playedAt &&
+          other.status == this.status &&
+          other.attempts == this.attempts &&
+          other.nextAttemptAt == this.nextAttemptAt &&
+          other.leaseUntil == this.leaseUntil &&
+          other.createdAt == this.createdAt &&
+          other.sentAt == this.sentAt &&
+          other.lastError == this.lastError);
+}
+
+class ScrobbleQueueCompanion extends UpdateCompanion<ScrobbleQueueRow> {
+  final Value<int> id;
+  final Value<int> eventId;
+  final Value<String> service;
+  final Value<String> songKey;
+  final Value<String> title;
+  final Value<String> artist;
+  final Value<String?> album;
+  final Value<int> durationMs;
+  final Value<int> playedAt;
+  final Value<String> status;
+  final Value<int> attempts;
+  final Value<int?> nextAttemptAt;
+  final Value<int?> leaseUntil;
+  final Value<int> createdAt;
+  final Value<int?> sentAt;
+  final Value<String?> lastError;
+  const ScrobbleQueueCompanion({
+    this.id = const Value.absent(),
+    this.eventId = const Value.absent(),
+    this.service = const Value.absent(),
+    this.songKey = const Value.absent(),
+    this.title = const Value.absent(),
+    this.artist = const Value.absent(),
+    this.album = const Value.absent(),
+    this.durationMs = const Value.absent(),
+    this.playedAt = const Value.absent(),
+    this.status = const Value.absent(),
+    this.attempts = const Value.absent(),
+    this.nextAttemptAt = const Value.absent(),
+    this.leaseUntil = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.sentAt = const Value.absent(),
+    this.lastError = const Value.absent(),
+  });
+  ScrobbleQueueCompanion.insert({
+    this.id = const Value.absent(),
+    required int eventId,
+    required String service,
+    required String songKey,
+    required String title,
+    required String artist,
+    this.album = const Value.absent(),
+    this.durationMs = const Value.absent(),
+    required int playedAt,
+    this.status = const Value.absent(),
+    this.attempts = const Value.absent(),
+    this.nextAttemptAt = const Value.absent(),
+    this.leaseUntil = const Value.absent(),
+    required int createdAt,
+    this.sentAt = const Value.absent(),
+    this.lastError = const Value.absent(),
+  }) : eventId = Value(eventId),
+       service = Value(service),
+       songKey = Value(songKey),
+       title = Value(title),
+       artist = Value(artist),
+       playedAt = Value(playedAt),
+       createdAt = Value(createdAt);
+  static Insertable<ScrobbleQueueRow> custom({
+    Expression<int>? id,
+    Expression<int>? eventId,
+    Expression<String>? service,
+    Expression<String>? songKey,
+    Expression<String>? title,
+    Expression<String>? artist,
+    Expression<String>? album,
+    Expression<int>? durationMs,
+    Expression<int>? playedAt,
+    Expression<String>? status,
+    Expression<int>? attempts,
+    Expression<int>? nextAttemptAt,
+    Expression<int>? leaseUntil,
+    Expression<int>? createdAt,
+    Expression<int>? sentAt,
+    Expression<String>? lastError,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (eventId != null) 'event_id': eventId,
+      if (service != null) 'service': service,
+      if (songKey != null) 'song_key': songKey,
+      if (title != null) 'title': title,
+      if (artist != null) 'artist': artist,
+      if (album != null) 'album': album,
+      if (durationMs != null) 'duration_ms': durationMs,
+      if (playedAt != null) 'played_at': playedAt,
+      if (status != null) 'status': status,
+      if (attempts != null) 'attempts': attempts,
+      if (nextAttemptAt != null) 'next_attempt_at': nextAttemptAt,
+      if (leaseUntil != null) 'lease_until': leaseUntil,
+      if (createdAt != null) 'created_at': createdAt,
+      if (sentAt != null) 'sent_at': sentAt,
+      if (lastError != null) 'last_error': lastError,
+    });
+  }
+
+  ScrobbleQueueCompanion copyWith({
+    Value<int>? id,
+    Value<int>? eventId,
+    Value<String>? service,
+    Value<String>? songKey,
+    Value<String>? title,
+    Value<String>? artist,
+    Value<String?>? album,
+    Value<int>? durationMs,
+    Value<int>? playedAt,
+    Value<String>? status,
+    Value<int>? attempts,
+    Value<int?>? nextAttemptAt,
+    Value<int?>? leaseUntil,
+    Value<int>? createdAt,
+    Value<int?>? sentAt,
+    Value<String?>? lastError,
+  }) {
+    return ScrobbleQueueCompanion(
+      id: id ?? this.id,
+      eventId: eventId ?? this.eventId,
+      service: service ?? this.service,
+      songKey: songKey ?? this.songKey,
+      title: title ?? this.title,
+      artist: artist ?? this.artist,
+      album: album ?? this.album,
+      durationMs: durationMs ?? this.durationMs,
+      playedAt: playedAt ?? this.playedAt,
+      status: status ?? this.status,
+      attempts: attempts ?? this.attempts,
+      nextAttemptAt: nextAttemptAt ?? this.nextAttemptAt,
+      leaseUntil: leaseUntil ?? this.leaseUntil,
+      createdAt: createdAt ?? this.createdAt,
+      sentAt: sentAt ?? this.sentAt,
+      lastError: lastError ?? this.lastError,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (eventId.present) {
+      map['event_id'] = Variable<int>(eventId.value);
+    }
+    if (service.present) {
+      map['service'] = Variable<String>(service.value);
+    }
+    if (songKey.present) {
+      map['song_key'] = Variable<String>(songKey.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (artist.present) {
+      map['artist'] = Variable<String>(artist.value);
+    }
+    if (album.present) {
+      map['album'] = Variable<String>(album.value);
+    }
+    if (durationMs.present) {
+      map['duration_ms'] = Variable<int>(durationMs.value);
+    }
+    if (playedAt.present) {
+      map['played_at'] = Variable<int>(playedAt.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (attempts.present) {
+      map['attempts'] = Variable<int>(attempts.value);
+    }
+    if (nextAttemptAt.present) {
+      map['next_attempt_at'] = Variable<int>(nextAttemptAt.value);
+    }
+    if (leaseUntil.present) {
+      map['lease_until'] = Variable<int>(leaseUntil.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<int>(createdAt.value);
+    }
+    if (sentAt.present) {
+      map['sent_at'] = Variable<int>(sentAt.value);
+    }
+    if (lastError.present) {
+      map['last_error'] = Variable<String>(lastError.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ScrobbleQueueCompanion(')
+          ..write('id: $id, ')
+          ..write('eventId: $eventId, ')
+          ..write('service: $service, ')
+          ..write('songKey: $songKey, ')
+          ..write('title: $title, ')
+          ..write('artist: $artist, ')
+          ..write('album: $album, ')
+          ..write('durationMs: $durationMs, ')
+          ..write('playedAt: $playedAt, ')
+          ..write('status: $status, ')
+          ..write('attempts: $attempts, ')
+          ..write('nextAttemptAt: $nextAttemptAt, ')
+          ..write('leaseUntil: $leaseUntil, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('sentAt: $sentAt, ')
+          ..write('lastError: $lastError')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -5128,13 +6385,11 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $LyricsOffsetsTable lyricsOffsets = $LyricsOffsetsTable(this);
   late final $SourceMatchCachesTable sourceMatchCaches =
       $SourceMatchCachesTable(this);
+  late final $TrackRatingsTable trackRatings = $TrackRatingsTable(this);
+  late final $ScrobbleQueueTable scrobbleQueue = $ScrobbleQueueTable(this);
   late final Index listeningHistoryListenedAt = Index(
     'listening_history_listened_at',
     'CREATE INDEX listening_history_listened_at ON listening_history (listened_at)',
-  );
-  late final Index localTracksPath = Index(
-    'local_tracks_path',
-    'CREATE INDEX local_tracks_path ON local_tracks (path)',
   );
   late final Index playEventsSongPlatform = Index(
     'play_events_song_platform',
@@ -5143,6 +6398,14 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final Index playEventsStartedAt = Index(
     'play_events_started_at',
     'CREATE INDEX play_events_started_at ON play_events (started_at)',
+  );
+  late final Index scrobbleQueueStatus = Index(
+    'scrobble_queue_status',
+    'CREATE INDEX scrobble_queue_status ON scrobble_queue (status)',
+  );
+  late final Index scrobbleQueueServiceEvent = Index(
+    'scrobble_queue_service_event',
+    'CREATE INDEX scrobble_queue_service_event ON scrobble_queue (service, event_id)',
   );
   late final SongsDao songsDao = SongsDao(this as AppDatabase);
   late final HistoryDao historyDao = HistoryDao(this as AppDatabase);
@@ -5165,6 +6428,12 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   );
   late final SmartPlaylistSnapshotsDao smartPlaylistSnapshotsDao =
       SmartPlaylistSnapshotsDao(this as AppDatabase);
+  late final TrackRatingsDao trackRatingsDao = TrackRatingsDao(
+    this as AppDatabase,
+  );
+  late final ScrobbleQueueDao scrobbleQueueDao = ScrobbleQueueDao(
+    this as AppDatabase,
+  );
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -5181,10 +6450,13 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     smartPlaylistSnapshots,
     lyricsOffsets,
     sourceMatchCaches,
+    trackRatings,
+    scrobbleQueue,
     listeningHistoryListenedAt,
-    localTracksPath,
     playEventsSongPlatform,
     playEventsStartedAt,
+    scrobbleQueueStatus,
+    scrobbleQueueServiceEvent,
   ];
 }
 
@@ -7771,6 +9043,602 @@ typedef $$SourceMatchCachesTableProcessedTableManager =
       SourceMatchCacheRow,
       PrefetchHooks Function()
     >;
+typedef $$TrackRatingsTableCreateCompanionBuilder =
+    TrackRatingsCompanion Function({
+      required String songKey,
+      Value<int> rating,
+      Value<int> playCount,
+      Value<int?> lastPlayedAt,
+      Value<int> rowid,
+    });
+typedef $$TrackRatingsTableUpdateCompanionBuilder =
+    TrackRatingsCompanion Function({
+      Value<String> songKey,
+      Value<int> rating,
+      Value<int> playCount,
+      Value<int?> lastPlayedAt,
+      Value<int> rowid,
+    });
+
+class $$TrackRatingsTableFilterComposer
+    extends Composer<_$AppDatabase, $TrackRatingsTable> {
+  $$TrackRatingsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get songKey => $composableBuilder(
+    column: $table.songKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get rating => $composableBuilder(
+    column: $table.rating,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get playCount => $composableBuilder(
+    column: $table.playCount,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get lastPlayedAt => $composableBuilder(
+    column: $table.lastPlayedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$TrackRatingsTableOrderingComposer
+    extends Composer<_$AppDatabase, $TrackRatingsTable> {
+  $$TrackRatingsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get songKey => $composableBuilder(
+    column: $table.songKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get rating => $composableBuilder(
+    column: $table.rating,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get playCount => $composableBuilder(
+    column: $table.playCount,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get lastPlayedAt => $composableBuilder(
+    column: $table.lastPlayedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$TrackRatingsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $TrackRatingsTable> {
+  $$TrackRatingsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get songKey =>
+      $composableBuilder(column: $table.songKey, builder: (column) => column);
+
+  GeneratedColumn<int> get rating =>
+      $composableBuilder(column: $table.rating, builder: (column) => column);
+
+  GeneratedColumn<int> get playCount =>
+      $composableBuilder(column: $table.playCount, builder: (column) => column);
+
+  GeneratedColumn<int> get lastPlayedAt => $composableBuilder(
+    column: $table.lastPlayedAt,
+    builder: (column) => column,
+  );
+}
+
+class $$TrackRatingsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $TrackRatingsTable,
+          TrackRatingRow,
+          $$TrackRatingsTableFilterComposer,
+          $$TrackRatingsTableOrderingComposer,
+          $$TrackRatingsTableAnnotationComposer,
+          $$TrackRatingsTableCreateCompanionBuilder,
+          $$TrackRatingsTableUpdateCompanionBuilder,
+          (
+            TrackRatingRow,
+            BaseReferences<_$AppDatabase, $TrackRatingsTable, TrackRatingRow>,
+          ),
+          TrackRatingRow,
+          PrefetchHooks Function()
+        > {
+  $$TrackRatingsTableTableManager(_$AppDatabase db, $TrackRatingsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$TrackRatingsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$TrackRatingsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$TrackRatingsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> songKey = const Value.absent(),
+                Value<int> rating = const Value.absent(),
+                Value<int> playCount = const Value.absent(),
+                Value<int?> lastPlayedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => TrackRatingsCompanion(
+                songKey: songKey,
+                rating: rating,
+                playCount: playCount,
+                lastPlayedAt: lastPlayedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String songKey,
+                Value<int> rating = const Value.absent(),
+                Value<int> playCount = const Value.absent(),
+                Value<int?> lastPlayedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => TrackRatingsCompanion.insert(
+                songKey: songKey,
+                rating: rating,
+                playCount: playCount,
+                lastPlayedAt: lastPlayedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$TrackRatingsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $TrackRatingsTable,
+      TrackRatingRow,
+      $$TrackRatingsTableFilterComposer,
+      $$TrackRatingsTableOrderingComposer,
+      $$TrackRatingsTableAnnotationComposer,
+      $$TrackRatingsTableCreateCompanionBuilder,
+      $$TrackRatingsTableUpdateCompanionBuilder,
+      (
+        TrackRatingRow,
+        BaseReferences<_$AppDatabase, $TrackRatingsTable, TrackRatingRow>,
+      ),
+      TrackRatingRow,
+      PrefetchHooks Function()
+    >;
+typedef $$ScrobbleQueueTableCreateCompanionBuilder =
+    ScrobbleQueueCompanion Function({
+      Value<int> id,
+      required int eventId,
+      required String service,
+      required String songKey,
+      required String title,
+      required String artist,
+      Value<String?> album,
+      Value<int> durationMs,
+      required int playedAt,
+      Value<String> status,
+      Value<int> attempts,
+      Value<int?> nextAttemptAt,
+      Value<int?> leaseUntil,
+      required int createdAt,
+      Value<int?> sentAt,
+      Value<String?> lastError,
+    });
+typedef $$ScrobbleQueueTableUpdateCompanionBuilder =
+    ScrobbleQueueCompanion Function({
+      Value<int> id,
+      Value<int> eventId,
+      Value<String> service,
+      Value<String> songKey,
+      Value<String> title,
+      Value<String> artist,
+      Value<String?> album,
+      Value<int> durationMs,
+      Value<int> playedAt,
+      Value<String> status,
+      Value<int> attempts,
+      Value<int?> nextAttemptAt,
+      Value<int?> leaseUntil,
+      Value<int> createdAt,
+      Value<int?> sentAt,
+      Value<String?> lastError,
+    });
+
+class $$ScrobbleQueueTableFilterComposer
+    extends Composer<_$AppDatabase, $ScrobbleQueueTable> {
+  $$ScrobbleQueueTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get eventId => $composableBuilder(
+    column: $table.eventId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get service => $composableBuilder(
+    column: $table.service,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get songKey => $composableBuilder(
+    column: $table.songKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get artist => $composableBuilder(
+    column: $table.artist,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get album => $composableBuilder(
+    column: $table.album,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get durationMs => $composableBuilder(
+    column: $table.durationMs,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get playedAt => $composableBuilder(
+    column: $table.playedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get attempts => $composableBuilder(
+    column: $table.attempts,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get nextAttemptAt => $composableBuilder(
+    column: $table.nextAttemptAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get leaseUntil => $composableBuilder(
+    column: $table.leaseUntil,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sentAt => $composableBuilder(
+    column: $table.sentAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lastError => $composableBuilder(
+    column: $table.lastError,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$ScrobbleQueueTableOrderingComposer
+    extends Composer<_$AppDatabase, $ScrobbleQueueTable> {
+  $$ScrobbleQueueTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get eventId => $composableBuilder(
+    column: $table.eventId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get service => $composableBuilder(
+    column: $table.service,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get songKey => $composableBuilder(
+    column: $table.songKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get artist => $composableBuilder(
+    column: $table.artist,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get album => $composableBuilder(
+    column: $table.album,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get durationMs => $composableBuilder(
+    column: $table.durationMs,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get playedAt => $composableBuilder(
+    column: $table.playedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get attempts => $composableBuilder(
+    column: $table.attempts,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get nextAttemptAt => $composableBuilder(
+    column: $table.nextAttemptAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get leaseUntil => $composableBuilder(
+    column: $table.leaseUntil,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sentAt => $composableBuilder(
+    column: $table.sentAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lastError => $composableBuilder(
+    column: $table.lastError,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$ScrobbleQueueTableAnnotationComposer
+    extends Composer<_$AppDatabase, $ScrobbleQueueTable> {
+  $$ScrobbleQueueTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<int> get eventId =>
+      $composableBuilder(column: $table.eventId, builder: (column) => column);
+
+  GeneratedColumn<String> get service =>
+      $composableBuilder(column: $table.service, builder: (column) => column);
+
+  GeneratedColumn<String> get songKey =>
+      $composableBuilder(column: $table.songKey, builder: (column) => column);
+
+  GeneratedColumn<String> get title =>
+      $composableBuilder(column: $table.title, builder: (column) => column);
+
+  GeneratedColumn<String> get artist =>
+      $composableBuilder(column: $table.artist, builder: (column) => column);
+
+  GeneratedColumn<String> get album =>
+      $composableBuilder(column: $table.album, builder: (column) => column);
+
+  GeneratedColumn<int> get durationMs => $composableBuilder(
+    column: $table.durationMs,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get playedAt =>
+      $composableBuilder(column: $table.playedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<int> get attempts =>
+      $composableBuilder(column: $table.attempts, builder: (column) => column);
+
+  GeneratedColumn<int> get nextAttemptAt => $composableBuilder(
+    column: $table.nextAttemptAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get leaseUntil => $composableBuilder(
+    column: $table.leaseUntil,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<int> get sentAt =>
+      $composableBuilder(column: $table.sentAt, builder: (column) => column);
+
+  GeneratedColumn<String> get lastError =>
+      $composableBuilder(column: $table.lastError, builder: (column) => column);
+}
+
+class $$ScrobbleQueueTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $ScrobbleQueueTable,
+          ScrobbleQueueRow,
+          $$ScrobbleQueueTableFilterComposer,
+          $$ScrobbleQueueTableOrderingComposer,
+          $$ScrobbleQueueTableAnnotationComposer,
+          $$ScrobbleQueueTableCreateCompanionBuilder,
+          $$ScrobbleQueueTableUpdateCompanionBuilder,
+          (
+            ScrobbleQueueRow,
+            BaseReferences<
+              _$AppDatabase,
+              $ScrobbleQueueTable,
+              ScrobbleQueueRow
+            >,
+          ),
+          ScrobbleQueueRow,
+          PrefetchHooks Function()
+        > {
+  $$ScrobbleQueueTableTableManager(_$AppDatabase db, $ScrobbleQueueTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ScrobbleQueueTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ScrobbleQueueTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ScrobbleQueueTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<int> eventId = const Value.absent(),
+                Value<String> service = const Value.absent(),
+                Value<String> songKey = const Value.absent(),
+                Value<String> title = const Value.absent(),
+                Value<String> artist = const Value.absent(),
+                Value<String?> album = const Value.absent(),
+                Value<int> durationMs = const Value.absent(),
+                Value<int> playedAt = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<int> attempts = const Value.absent(),
+                Value<int?> nextAttemptAt = const Value.absent(),
+                Value<int?> leaseUntil = const Value.absent(),
+                Value<int> createdAt = const Value.absent(),
+                Value<int?> sentAt = const Value.absent(),
+                Value<String?> lastError = const Value.absent(),
+              }) => ScrobbleQueueCompanion(
+                id: id,
+                eventId: eventId,
+                service: service,
+                songKey: songKey,
+                title: title,
+                artist: artist,
+                album: album,
+                durationMs: durationMs,
+                playedAt: playedAt,
+                status: status,
+                attempts: attempts,
+                nextAttemptAt: nextAttemptAt,
+                leaseUntil: leaseUntil,
+                createdAt: createdAt,
+                sentAt: sentAt,
+                lastError: lastError,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required int eventId,
+                required String service,
+                required String songKey,
+                required String title,
+                required String artist,
+                Value<String?> album = const Value.absent(),
+                Value<int> durationMs = const Value.absent(),
+                required int playedAt,
+                Value<String> status = const Value.absent(),
+                Value<int> attempts = const Value.absent(),
+                Value<int?> nextAttemptAt = const Value.absent(),
+                Value<int?> leaseUntil = const Value.absent(),
+                required int createdAt,
+                Value<int?> sentAt = const Value.absent(),
+                Value<String?> lastError = const Value.absent(),
+              }) => ScrobbleQueueCompanion.insert(
+                id: id,
+                eventId: eventId,
+                service: service,
+                songKey: songKey,
+                title: title,
+                artist: artist,
+                album: album,
+                durationMs: durationMs,
+                playedAt: playedAt,
+                status: status,
+                attempts: attempts,
+                nextAttemptAt: nextAttemptAt,
+                leaseUntil: leaseUntil,
+                createdAt: createdAt,
+                sentAt: sentAt,
+                lastError: lastError,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$ScrobbleQueueTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $ScrobbleQueueTable,
+      ScrobbleQueueRow,
+      $$ScrobbleQueueTableFilterComposer,
+      $$ScrobbleQueueTableOrderingComposer,
+      $$ScrobbleQueueTableAnnotationComposer,
+      $$ScrobbleQueueTableCreateCompanionBuilder,
+      $$ScrobbleQueueTableUpdateCompanionBuilder,
+      (
+        ScrobbleQueueRow,
+        BaseReferences<_$AppDatabase, $ScrobbleQueueTable, ScrobbleQueueRow>,
+      ),
+      ScrobbleQueueRow,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -7800,4 +9668,8 @@ class $AppDatabaseManager {
       $$LyricsOffsetsTableTableManager(_db, _db.lyricsOffsets);
   $$SourceMatchCachesTableTableManager get sourceMatchCaches =>
       $$SourceMatchCachesTableTableManager(_db, _db.sourceMatchCaches);
+  $$TrackRatingsTableTableManager get trackRatings =>
+      $$TrackRatingsTableTableManager(_db, _db.trackRatings);
+  $$ScrobbleQueueTableTableManager get scrobbleQueue =>
+      $$ScrobbleQueueTableTableManager(_db, _db.scrobbleQueue);
 }

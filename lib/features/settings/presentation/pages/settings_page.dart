@@ -15,6 +15,7 @@ import 'package:mconnect/core/constants/app_constants.dart';
 import 'package:mconnect/core/diagnostics/diagnostics_export.dart';
 import 'package:mconnect/core/diagnostics/diagnostics_service.dart';
 import 'package:mconnect/core/theme/app_background.dart';
+import 'package:mconnect/core/source_matching/source_match_settings.dart';
 import 'package:mconnect/core/theme/app_background_provider.dart';
 import 'package:mconnect/core/theme/app_theme.dart';
 import 'package:mconnect/core/theme/platform_accent.dart';
@@ -577,12 +578,31 @@ class SettingsAudioPage extends ConsumerWidget {
     );
     final sleepTimer = ref.watch(sleepTimerProvider);
     final sleepTimerNotifier = ref.read(sleepTimerProvider.notifier);
+    // Wave 1-A / 计划 D-2：自动换源开关（默认开）。provider 与 Hive 持久化都在
+    // lib/core/source_matching/source_match_settings.dart。
+    final autoSourceSwitch = ref.watch(autoSourceSwitchProvider);
+    final autoSourceSwitchNotifier = ref.read(
+      autoSourceSwitchProvider.notifier,
+    );
 
     return Scaffold(
       appBar: AppBar(title: Text(context.l10n.settingsAudio)),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
+          SwitchListTile(
+            secondary: const Icon(Icons.swap_horiz),
+            // 文案暂未入 l10n（lib/l10n 属 W3-D），先硬编码中文。
+            title: const Text('自动换源'),
+            subtitle: Text(
+              autoSourceSwitch.enabled
+                  ? '开：当前平台的音源放不出来时，自动在内置三平台中找同一个录音'
+                  : '关：失败只降一档音质，然后跳到下一首',
+            ),
+            value: autoSourceSwitch.enabled,
+            onChanged: (value) =>
+                autoSourceSwitchNotifier.setEnabled(value),
+          ),
           SwitchListTile(
             secondary: const Icon(Icons.graphic_eq),
             title: Text(context.l10n.audioFade),

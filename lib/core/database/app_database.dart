@@ -95,12 +95,16 @@ class LyricsCache extends Table {
 /// of walking the whole tree every time the page opens, and so tags/cover art
 /// are read once rather than on every visit.
 ///
-/// The `local_tracks_path` index is named in the W0-D contract, but [path] is
-/// already the primary key, so SQLite maintains its own implicit unique index
-/// (`sqlite_autoindex_local_tracks_1`) for the same column. The planner never
-/// picks this second index; it is kept only to honour the contract and costs a
-/// little write time on every scan upsert.
-@TableIndex(name: 'local_tracks_path', columns: {#path})
+/// The `local_tracks_path` index that v3 declared here was **removed in v4**.
+///
+/// [path] is already the primary key, so SQLite maintains its own implicit
+/// unique index (`sqlite_autoindex_local_tracks_1`) for the same column and the
+/// planner never picks a second one; the declaration only added write cost to
+/// every scan upsert. Dropping it needs three places to move together — this
+/// annotation, `_v3IndexStatements` (fresh installs) and a `DROP INDEX` in the
+/// v3 → v4 branch (already-published databases) — because a schema that is only
+/// "fixed" in the annotation would leave new installs without the index and
+/// upgraded installs with it forever.
 @DataClassName('LocalTrack')
 class LocalTracks extends Table {
   TextColumn get path => text()();
@@ -132,6 +136,12 @@ class LocalTracks extends Table {
 /// Persisted by [name]; the statistics tracker uses it to keep a
 /// pause-and-resume from being counted as a brand-new play.
 enum PlayEventSource { play, resume, skip, seek }
+
+/// Where one [ScrobbleQueue] row is in its delivery state machine.
+///
+/// Persisted by [name]; the transitions are documented on [ScrobbleQueue] and
+/// are only ever made by [ScrobbleQueueDao].
+enum ScrobbleStatus { pending, sending, sent, failed, dropped }
 
 /// One song's rolled-up playback totals.
 typedef SongPlayAggregate = ({
@@ -268,6 +278,116 @@ class SourceMatchCaches extends Table {
 
   @override
   Set<Column> get primaryKey => {songKey, targetPlatform};
+}
+
+/// User rating and a materialised play aggregate, keyed by
+/// `"<platform>:<songId>"` — the same key shape [LyricsOffsets] and
+/// [SourceMatchCaches] use.
+///
+/// **A separate table, not a column on [LocalTracks].** A rating belongs to a
+/// *song*, not to a file at a path: re-scanning, moving a file or renaming it
+/// must not lose the rating, and a song that is only ever streamed can be rated
+/// too. [LocalTracks.path] is also reassigned freely by the scanner, so anything
+/// keyed on it would silently reset.
+///
+/// `playCount` / `lastPlayedAt` are a **cache of an aggregate over [PlayEvents]**,
+/// never a counter: [TrackRatingsDao.syncPlayStats] recomputes both from the
+/// events in one statement and nothing ever increments them. `play_events` stays
+/// the single source of truth (the stats page, the history page and this cache
+/// therefore cannot disagree), and the cache exists only so the local library can
+/// sort by play count without grouping the whole event table on every rebuild.
+///
+/// Deliberately **no index**: the primary key covers every lookup this table
+/// serves, and an index on `rating` would be five distinct values — the same
+/// low-selectivity cost the v4 migration removes from `local_tracks`.
+@DataClassName('TrackRatingRow')
+class TrackRatings extends Table {
+  TextColumn get songKey => text()();
+
+  /// `0` = unrated, otherwise 1..5. Zero rather than null so "explicitly
+  /// unrated" and "never rated" are one state — a distinction no UI needs.
+  IntColumn get rating => integer().withDefault(const Constant(0))();
+
+  /// **Materialised cache of `COUNT(*)` over [PlayEvents].**
+  ///
+  /// There is exactly **one writer**, [TrackRatingsDao.syncPlayStats], and it
+  /// always *recomputes* the value from the events — **never increment it**, not
+  /// here, not in a DAO, not from a caller. A second incrementing writer is what
+  /// would make this column disagree with the statistics page, so if you are
+  /// tempted to add one, read the aggregate instead
+  /// ([TrackRatingsDao.playCountsFromEvents]).
+  ///
+  /// Readers that need the *number* must use that aggregate method, which is why
+  /// the local library's "sort by play count" cannot see a stale cache.
+  IntColumn get playCount => integer().withDefault(const Constant(0))();
+
+  /// **Materialised cache of `MAX(started_at)` over [PlayEvents.]** Same single
+  /// writer as [playCount]; null when the song was never played.
+  IntColumn get lastPlayedAt => integer().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {songKey};
+}
+
+/// The scrobble outbox consumed by W2-D.
+///
+/// One row per [PlayEvents] row that qualifies for scrobbling; `eventId` is that
+/// events row's id, which is what makes enqueueing idempotent across restarts
+/// (the stats tracker may flush the same stretch twice).
+///
+/// State machine, stored in [status] as the enum's `name`:
+///
+/// | status | meaning | fields that matter |
+/// |---|---|---|
+/// | `pending` | waiting to be claimed | [nextAttemptAt] gates the retry |
+/// | `sending` | claimed by a delivery attempt | [leaseUntil] — a claim older than its lease may be retried, which is how a killed process releases its rows |
+/// | `sent` | accepted by the service | [sentAt]; the row is kept so the same event cannot be re-sent |
+/// | `failed` | the last attempt failed | [attempts] + [nextAttemptAt] (exponential backoff) |
+/// | `dropped` | given up on (unscrobblable, or too many attempts) | [lastError]; kept for the same reason `sent` rows are |
+///
+/// Only [ScrobbleQueueDao.claimNext] moves a row out of `pending`/expired
+/// `sending`; that single writer is what keeps the lease honest.
+///
+/// Two indexes, both earning their write cost: `(service, event_id)` is the
+/// idempotency lookup every enqueue performs, and `status` is what the drain
+/// loop scans. There is deliberately no index on `event_id` alone — idempotency
+/// is always evaluated per service, so the composite covers it as a prefix.
+@TableIndex(name: 'scrobble_queue_status', columns: {#status})
+@TableIndex(name: 'scrobble_queue_service_event', columns: {#service, #eventId})
+@DataClassName('ScrobbleQueueRow')
+class ScrobbleQueue extends Table {
+  IntColumn get id => integer().autoIncrement()();
+
+  /// `play_events.id` this scrobble was derived from.
+  IntColumn get eventId => integer()();
+
+  /// Which service the row is for (`lastfm`, `listenbrainz`, …), so one outbox
+  /// can feed several without a row per service per event.
+  TextColumn get service => text()();
+
+  /// `"<platform>:<songId>"` — the same key [TrackRatings] uses.
+  TextColumn get songKey => text()();
+
+  TextColumn get title => text()();
+  TextColumn get artist => text()();
+  TextColumn get album => text().nullable()();
+  IntColumn get durationMs => integer().withDefault(const Constant(0))();
+
+  /// When the play started (epoch ms), i.e. `play_events.started_at`.
+  IntColumn get playedAt => integer()();
+
+  TextColumn get status => text().withDefault(const Constant('pending'))();
+  IntColumn get attempts => integer().withDefault(const Constant(0))();
+
+  /// Earliest epoch ms the next attempt may run; null = immediately.
+  IntColumn get nextAttemptAt => integer().nullable()();
+
+  /// While `sending`: epoch ms after which the claim is considered abandoned.
+  IntColumn get leaseUntil => integer().nullable()();
+
+  IntColumn get createdAt => integer()();
+  IntColumn get sentAt => integer().nullable()();
+  TextColumn get lastError => text().nullable()();
 }
 
 // --- DAOs ---
@@ -1330,6 +1450,423 @@ class SourceMatchCacheDao extends DatabaseAccessor<AppDatabase>
   Future<int> clearAll() => delete(sourceMatchCaches).go();
 }
 
+// --- Track ratings and the scrobble outbox (schema v4) ---
+
+/// `<platform>:<songId>` — the key [TrackRatings] and [ScrobbleQueue] use to
+/// identify one song, matching [LyricsOffsets.songKey].
+///
+/// The split is at the **first** `:` because local ids are paths
+/// (`local:C:\music\a.mp3`), so the separator cannot be assumed unique.
+String songKeyOf(String platform, String songId) => '$platform:$songId';
+
+/// Splits a [songKeyOf]-style key, or null when it has no usable separator.
+({String platform, String songId})? splitSongKey(String songKey) {
+  final index = songKey.indexOf(':');
+  if (index <= 0 || index == songKey.length - 1) return null;
+  return (
+    platform: songKey.substring(0, index),
+    songId: songKey.substring(index + 1),
+  );
+}
+
+/// Ratings plus the materialised play aggregate.
+///
+/// `play_events` is the **single source of truth** for play counts; the columns
+/// this DAO caches are only ever *recomputed* from it by [syncPlayStats], never
+/// incremented, so the stats page, the history page and the local library cannot
+/// drift apart.
+@DriftAccessor(tables: [TrackRatings, PlayEvents])
+class TrackRatingsDao extends DatabaseAccessor<AppDatabase>
+    with _$TrackRatingsDaoMixin {
+  TrackRatingsDao(super.db);
+
+  /// [TrackRatings] row for [songKey], or null when the song has neither a
+  /// rating nor a cached play aggregate.
+  Future<TrackRatingRow?> row(String songKey) {
+    return (select(
+      trackRatings,
+    )..where((t) => t.songKey.equals(songKey))).getSingleOrNull();
+  }
+
+  /// The rating for [songKey]; `0` means "not rated".
+  Future<int> ratingOf(String songKey) async => (await row(songKey))?.rating ?? 0;
+
+  /// `songKey` → rating for every **rated** song. Unrated songs are absent, so
+  /// callers can use `containsKey` as the filter for 仅已评分.
+  Future<Map<String, int>> allRatings() async {
+    final rows = await select(trackRatings).get();
+    return {
+      for (final row in rows)
+        if (row.rating > 0) row.songKey: row.rating,
+    };
+  }
+
+  /// Sets [rating] (clamped to `0..5`) for [songKey].
+  ///
+  /// Zero **clears** the rating. A row that still carries a cached play
+  /// aggregate is kept with `rating = 0` rather than deleted — dropping the row
+  /// would throw away the aggregate the library list sorts by — and is deleted
+  /// only when there is nothing left to keep. Mirrors [LyricsOffsetDao.set],
+  /// which also treats "cleared" as "no row" for the same reason.
+  Future<void> setRating(String songKey, int rating) async {
+    final clamped = rating < 0 ? 0 : (rating > 5 ? 5 : rating);
+    await transaction(() async {
+      final existing = await row(songKey);
+      if (clamped == 0) {
+        if (existing == null) return;
+        if (existing.playCount == 0 && existing.lastPlayedAt == null) {
+          await (delete(
+            trackRatings,
+          )..where((t) => t.songKey.equals(songKey))).go();
+          return;
+        }
+        await (update(
+          trackRatings,
+        )..where((t) => t.songKey.equals(songKey))).write(
+          const TrackRatingsCompanion(rating: Value(0)),
+        );
+        return;
+      }
+      if (existing == null) {
+        await into(trackRatings).insert(
+          TrackRatingsCompanion.insert(
+            songKey: songKey,
+            rating: Value(clamped),
+          ),
+        );
+        return;
+      }
+      // Only `rating` is written: an upsert/replace here would reset the cached
+      // play aggregate every time the user tapped a star.
+      await (update(
+        trackRatings,
+      )..where((t) => t.songKey.equals(songKey))).write(
+        TrackRatingsCompanion(rating: Value(clamped)),
+      );
+    });
+  }
+
+  /// Play counts for every song with at least one event, keyed by song key.
+  ///
+  /// Aggregated from [PlayEvents] — the authoritative source — rather than read
+  /// from the cached column, so a caller that needs the *number* can never be
+  /// misled by a cache that has not been refreshed yet. One grouped query, served
+  /// by the `play_events_song_platform` index from v3.
+  Future<Map<String, int>> playCountsFromEvents() async {
+    final count = playEvents.id.count();
+    final rows =
+        await (selectOnly(playEvents)
+              ..addColumns([playEvents.platform, playEvents.songId, count])
+              ..groupBy([playEvents.platform, playEvents.songId]))
+            .get();
+    final counts = <String, int>{};
+    for (final row in rows) {
+      final platform = row.read(playEvents.platform);
+      final songId = row.read(playEvents.songId);
+      if (platform == null || songId == null) continue;
+      counts[songKeyOf(platform, songId)] = row.read(count) ?? 0;
+    }
+    return counts;
+  }
+
+  /// The **authoritative** play count for [songKey], aggregated from
+  /// [PlayEvents] rather than read from the cached column.
+  Future<int> playCountFromEvents(String songKey) async {
+    final parts = splitSongKey(songKey);
+    if (parts == null) return 0;
+    final count = playEvents.id.count();
+    final row =
+        await (selectOnly(playEvents)
+              ..addColumns([count])
+              ..where(
+                playEvents.platform.equals(parts.platform) &
+                    playEvents.songId.equals(parts.songId),
+              ))
+            .getSingleOrNull();
+    return row?.read(count) ?? 0;
+  }
+
+  /// The authoritative `MAX(started_at)` for [songKey], or null when unplayed.
+  Future<int?> lastPlayedAtFromEvents(String songKey) async {
+    final parts = splitSongKey(songKey);
+    if (parts == null) return null;
+    final last = playEvents.startedAt.max();
+    final row =
+        await (selectOnly(playEvents)
+              ..addColumns([last])
+              ..where(
+                playEvents.platform.equals(parts.platform) &
+                    playEvents.songId.equals(parts.songId),
+              ))
+            .getSingleOrNull();
+    return row?.read(last);
+  }
+
+  /// Refreshes the cached play aggregate for every played song.
+  ///
+  /// The only writer of [TrackRatings.playCount] / [TrackRatings.lastPlayedAt].
+  /// Returns how many rows actually changed, so a caller can log/assert that a
+  /// second call in a row is a no-op. Ratings are never touched.
+  Future<int> syncPlayStats() async {
+    final count = playEvents.id.count();
+    final last = playEvents.startedAt.max();
+    final rows =
+        await (selectOnly(playEvents)
+              ..addColumns([playEvents.platform, playEvents.songId, count, last])
+              ..groupBy([playEvents.platform, playEvents.songId]))
+            .get();
+
+    var changed = 0;
+    await transaction(() async {
+      final cached = {
+        for (final row in await select(trackRatings).get()) row.songKey: row,
+      };
+      for (final row in rows) {
+        final platform = row.read(playEvents.platform);
+        final songId = row.read(playEvents.songId);
+        if (platform == null || songId == null) continue;
+        final songKey = songKeyOf(platform, songId);
+        final playCount = row.read(count) ?? 0;
+        final lastPlayedAt = row.read(last);
+        final existing = cached[songKey];
+        if (existing == null) {
+          await into(trackRatings).insert(
+            TrackRatingsCompanion.insert(
+              songKey: songKey,
+              playCount: Value(playCount),
+              lastPlayedAt: Value(lastPlayedAt),
+            ),
+          );
+          changed++;
+          continue;
+        }
+        if (existing.playCount == playCount &&
+            existing.lastPlayedAt == lastPlayedAt) {
+          continue;
+        }
+        await (update(
+          trackRatings,
+        )..where((t) => t.songKey.equals(songKey))).write(
+          TrackRatingsCompanion(
+            playCount: Value(playCount),
+            lastPlayedAt: Value(lastPlayedAt),
+          ),
+        );
+        changed++;
+      }
+    });
+    return changed;
+  }
+
+  Future<int> clearAll() => delete(trackRatings).go();
+}
+
+/// The scrobble outbox (schema v4).
+///
+/// See [ScrobbleQueue] for the state machine. Every transition is a named method
+/// here so the table has exactly one writer per state.
+@DriftAccessor(tables: [ScrobbleQueue])
+class ScrobbleQueueDao extends DatabaseAccessor<AppDatabase>
+    with _$ScrobbleQueueDaoMixin {
+  ScrobbleQueueDao(super.db);
+
+  /// Adds one play to [service]'s outbox; returns false when that event is
+  /// already queued for it.
+  ///
+  /// Idempotent by `(service, eventId)`: the stats tracker flushes a listening
+  /// stretch more than once by design (pause/resume), and a duplicate scrobble
+  /// is a visible error on the user's profile.
+  Future<bool> enqueue({
+    required int eventId,
+    required String service,
+    required String songKey,
+    required String title,
+    required String artist,
+    required int playedAt,
+    String? album,
+    int durationMs = 0,
+    DateTime? now,
+  }) async {
+    final existing = await (select(scrobbleQueue)..where(
+          (t) => t.service.equals(service) & t.eventId.equals(eventId),
+        ))
+        .getSingleOrNull();
+    if (existing != null) return false;
+    await into(scrobbleQueue).insert(
+      ScrobbleQueueCompanion.insert(
+        eventId: eventId,
+        service: service,
+        songKey: songKey,
+        title: title,
+        artist: artist,
+        playedAt: playedAt,
+        album: Value(album),
+        durationMs: Value(durationMs),
+        createdAt: (now ?? DateTime.now()).millisecondsSinceEpoch,
+      ),
+    );
+    return true;
+  }
+
+  /// Claims the oldest deliverable row for [service], or null when there is
+  /// nothing to do.
+  ///
+  /// Deliverable means: `pending` or `failed` whose [ScrobbleQueue.nextAttemptAt]
+  /// has passed, or `sending` whose lease expired (a killed process comes back
+  /// this way), or `sending` with no lease at all (crash between claim and lease
+  /// write). The claim writes `sending` + a fresh lease in the same transaction,
+  /// so a second drain cannot pick the same row up.
+  Future<ScrobbleQueueRow?> claimNext({
+    required String service,
+    required Duration lease,
+    DateTime? now,
+  }) {
+    final at = (now ?? DateTime.now()).millisecondsSinceEpoch;
+    return transaction(() async {
+      // Filtered in Dart rather than in SQL so the lease rule stays in one
+      // readable place; the outbox is small by construction (one row per played
+      // song, drained continuously) and the service+status index bounds the scan.
+      final candidates =
+          await (select(scrobbleQueue)
+                ..where((t) => t.service.equals(service))
+                ..orderBy([(t) => OrderingTerm.asc(t.playedAt)]))
+              .get();
+      ScrobbleQueueRow? picked;
+      for (final row in candidates) {
+        if (row.status == ScrobbleStatus.sent.name ||
+            row.status == ScrobbleStatus.dropped.name) {
+          continue;
+        }
+        final dueAt = row.nextAttemptAt;
+        final triesAgain = dueAt == null || dueAt <= at;
+        final leaseExpired = row.leaseUntil == null || row.leaseUntil! <= at;
+        if (triesAgain && leaseExpired) {
+          picked = row;
+          break;
+        }
+      }
+      if (picked == null) return null;
+      // `ScrobbleQueueRow.copyWith` follows drift's row-vs-companion split: a
+      // **non-nullable** column takes a bare value (`status`, `attempts`), while a
+      // **nullable** one takes a `Value<T?>` so that `Value(null)` can mean
+      // "clear it" — that is why `leaseUntil` is wrapped and the other two are
+      // not.
+      final claimed = picked.copyWith(
+        status: ScrobbleStatus.sending.name,
+        attempts: picked.attempts + 1,
+        leaseUntil: Value(at + lease.inMilliseconds),
+      );
+      await (update(
+        scrobbleQueue,
+      )..where((t) => t.id.equals(claimed.id))).write(
+        ScrobbleQueueCompanion(
+          status: Value(claimed.status),
+          attempts: Value(claimed.attempts),
+          leaseUntil: Value(claimed.leaseUntil),
+        ),
+      );
+      return claimed;
+    });
+  }
+
+  /// Marks one claimed row as delivered.
+  Future<void> markSent(int id, {DateTime? at}) async {
+    await (update(scrobbleQueue)..where((t) => t.id.equals(id))).write(
+      ScrobbleQueueCompanion(
+        status: Value(ScrobbleStatus.sent.name),
+        sentAt: Value((at ?? DateTime.now()).millisecondsSinceEpoch),
+      ),
+    );
+  }
+
+  /// Records a failed attempt: backoff ([baseDelay] doubled per attempt, capped)
+  /// or, once [attempts] reaches [maxAttempts], gives up with `dropped`.
+  ///
+  /// `dropped` rows stay in the table exactly like `sent` ones, so a re-scan can
+  /// never re-enqueue an event the app already decided about. [nextAttemptAt] is
+  /// only read for rows the claim rule considers, and it skips `dropped` ones, so
+  /// a give-up row's stale timestamp is harmless.
+  Future<void> markFailed(
+    int id, {
+    required String error,
+    required int attempts,
+    DateTime? at,
+    int maxAttempts = 5,
+    Duration baseDelay = const Duration(seconds: 30),
+  }) async {
+    final now = (at ?? DateTime.now()).millisecondsSinceEpoch;
+    final gaveUp = attempts >= maxAttempts;
+    final shift = (attempts - 1).clamp(0, 10);
+    final delayMs = baseDelay.inMilliseconds * (1 << shift);
+    await (update(scrobbleQueue)..where((t) => t.id.equals(id))).write(
+      ScrobbleQueueCompanion(
+        status: Value(
+          gaveUp ? ScrobbleStatus.dropped.name : ScrobbleStatus.failed.name,
+        ),
+        attempts: Value(attempts),
+        nextAttemptAt: Value(now + delayMs),
+        lastError: Value(error),
+      ),
+    );
+  }
+
+  /// Rows in [status] for [service], oldest first.
+  Future<List<ScrobbleQueueRow>> byStatus(
+    String service,
+    ScrobbleStatus status, {
+    int? limit,
+  }) {
+    final query = select(scrobbleQueue)
+      ..where(
+        (t) => t.service.equals(service) & t.status.equals(status.name),
+      )
+      ..orderBy([(t) => OrderingTerm.asc(t.playedAt)]);
+    if (limit != null) query.limit(limit);
+    return query.get();
+  }
+
+  Future<int> countByStatus(String service, ScrobbleStatus status) async {
+    final count = scrobbleQueue.id.count();
+    final row =
+        await (selectOnly(scrobbleQueue)
+              ..addColumns([count])
+              ..where(
+                scrobbleQueue.service.equals(service) &
+                    scrobbleQueue.status.equals(status.name),
+              ))
+            .getSingleOrNull();
+    return row?.read(count) ?? 0;
+  }
+
+  /// Drops settled rows whose play happened before [before], so the outbox
+  /// cannot grow forever. Returns how many rows went away.
+  ///
+  /// Filtered in Dart because the outbox is bounded by "songs actually played"
+  /// and this runs on a maintenance path, not per frame.
+  Future<int> purgeSettled({required DateTime before, String? service}) async {
+    final cutoff = before.millisecondsSinceEpoch;
+    final query = select(scrobbleQueue)
+      ..where((t) {
+        final settled =
+            t.status.equals(ScrobbleStatus.sent.name) |
+            t.status.equals(ScrobbleStatus.dropped.name);
+        if (service == null) return settled;
+        return settled & t.service.equals(service);
+      });
+    final rows = await query.get();
+    var removed = 0;
+    for (final row in rows) {
+      if (row.playedAt >= cutoff) continue;
+      removed += await (delete(
+        scrobbleQueue,
+      )..where((t) => t.id.equals(row.id))).go();
+    }
+    return removed;
+  }
+
+  Future<int> clearAll() => delete(scrobbleQueue).go();
+}
+
 // --- Chart cache (DAO only; the hub UI lives in WS-H) ---
 
 @DriftAccessor(tables: [ToplistsCache])
@@ -1475,6 +2012,8 @@ class SmartPlaylistSnapshotsDao
     SmartPlaylistSnapshots,
     LyricsOffsets,
     SourceMatchCaches,
+    TrackRatings,
+    ScrobbleQueue,
   ],
   daos: [
     SongsDao,
@@ -1487,6 +2026,8 @@ class SmartPlaylistSnapshotsDao
     SourceMatchCacheDao,
     ToplistsCacheDao,
     SmartPlaylistSnapshotsDao,
+    TrackRatingsDao,
+    ScrobbleQueueDao,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -1501,8 +2042,12 @@ class AppDatabase extends _$AppDatabase {
   /// v2 → v3 adds the query indexes the statistics and history pages needed all
   /// along, the local-library lyrics stamp ([LocalTracks.lyricsMtime]), and the
   /// per-song lyrics-offset and source-match caches.
+  ///
+  /// v3 → v4 adds the per-song rating plus its materialised play aggregate
+  /// ([TrackRatings]) and the scrobble outbox ([ScrobbleQueue]), and **drops**
+  /// the redundant `local_tracks_path` index (see [_v4DroppedIndexStatements]).
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   /// Schema evolution.
   ///
@@ -1521,6 +2066,11 @@ class AppDatabase extends _$AppDatabase {
       // end up with the identical index set even if a drift version were to
       // create only tables here.
       await _createV3Indexes(m);
+      await _createV4Indexes(m);
+      // A fresh database never had the v4-dropped index, but running the same
+      // statement keeps `onCreate` and `onUpgrade` literally identical — the
+      // schema-parity test is what makes that property permanent.
+      await _dropRemovedIndexes(m);
     },
     onUpgrade: (m, from, to) async {
       if (from < 2) {
@@ -1558,6 +2108,18 @@ class AppDatabase extends _$AppDatabase {
         // does (a fresh install).
         await _createV3Indexes(m);
       }
+      if (from < 4) {
+        // New tables only: added, never altered, so nothing here can lose data.
+        await m.createTable(trackRatings);
+        await m.createTable(scrobbleQueue);
+        // Indexes are not created by `Migrator.createTable`, so the v4 ones are
+        // replayed explicitly (same reasoning as the v3 branch above).
+        await _createV4Indexes(m);
+        // A database that was already v3 carries the redundant index that v4
+        // removes from the annotations; drop it here so an upgraded install ends
+        // up with exactly what a fresh v4 install has.
+        await _dropRemovedIndexes(m);
+      }
     },
   );
 }
@@ -1569,6 +2131,20 @@ Future<void> _createV3Indexes(Migrator m) async {
   }
 }
 
+/// Creates the schema-v4 indexes, idempotently.
+Future<void> _createV4Indexes(Migrator m) async {
+  for (final statement in _v4IndexStatements) {
+    await m.database.customStatement(statement);
+  }
+}
+
+/// Drops the indexes a previous schema declared and the current one does not.
+Future<void> _dropRemovedIndexes(Migrator m) async {
+  for (final statement in _v4DroppedIndexStatements) {
+    await m.database.customStatement(statement);
+  }
+}
+
 /// `CREATE INDEX` statements for the schema-v3 indexes.
 ///
 /// Spelled out rather than taken from the generated `Index` objects so that the
@@ -1576,6 +2152,12 @@ Future<void> _createV3Indexes(Migrator m) async {
 /// produce the same DDL. The names are the ones the `@TableIndex` annotations
 /// declare, and `test/database_migration_test.dart` asserts that a fresh
 /// database and an upgraded one carry the identical index set.
+///
+/// `local_tracks_path` was part of this list in v3 and is **not** here any more:
+/// `TrackRatings` aside, `path` is the primary key of `local_tracks`, so SQLite
+/// already maintains an implicit index for it and the explicit one only cost
+/// write time. A v1/v2 database therefore never creates it (this list is what
+/// they run) and a v3 database has it dropped by [_dropRemovedIndexes].
 const List<String> _v3IndexStatements = [
   'CREATE INDEX IF NOT EXISTS listening_history_listened_at '
       'ON listening_history (listened_at)',
@@ -1583,7 +2165,30 @@ const List<String> _v3IndexStatements = [
       'ON play_events (song_id, platform)',
   'CREATE INDEX IF NOT EXISTS play_events_started_at '
       'ON play_events (started_at)',
-  'CREATE INDEX IF NOT EXISTS local_tracks_path ON local_tracks (path)',
+];
+
+/// `CREATE INDEX` statements for the schema-v4 indexes.
+///
+/// Same contract as [_v3IndexStatements]: the DDL here and the `@TableIndex`
+/// annotations on [ScrobbleQueue] must name the same indexes.
+const List<String> _v4IndexStatements = [
+  'CREATE INDEX IF NOT EXISTS scrobble_queue_status '
+      'ON scrobble_queue (status)',
+  'CREATE INDEX IF NOT EXISTS scrobble_queue_service_event '
+      'ON scrobble_queue (service, event_id)',
+];
+
+/// Indexes that published schemas created and the current one does not want.
+///
+/// Removing an `@TableIndex` annotation only changes what **new** databases get;
+/// every database already upgraded past v3 keeps the index forever unless it is
+/// dropped explicitly. That asymmetry (new installs clean, upgraded installs
+/// not) is exactly the kind of drift the parity test cannot see, because the two
+/// schemas then differ by an index nobody declared.
+const List<String> _v4DroppedIndexStatements = [
+  // Redundant since v3: `local_tracks.path` is the primary key, so
+  // `sqlite_autoindex_local_tracks_1` already covers every lookup.
+  'DROP INDEX IF EXISTS local_tracks_path',
 ];
 
 LazyDatabase _openConnection() {

@@ -2225,8 +2225,12 @@ group('diagnostics instrumentation', () {
         audioController: audio,
         platformResolver: (_) => platform,
         audioControllerFactory: () => _FakeAudioController(),
+        // Wave 1-A：接缝返回 CrossSourceResult（URL + 来源平台），角标要用后者。
         crossSourceResolver: (song, quality) async => song.id == 'cross-1'
-            ? 'https://example.test/cross-1-alt.mp3'
+            ? const CrossSourceResult(
+                url: 'https://example.test/cross-1-alt.mp3',
+                platform: PlatformType.qq,
+              )
             : null,
         stuckWatchdogInterval: Duration.zero,
         keepAliveController: const NoopPlaybackKeepAliveController(),
@@ -2237,6 +2241,11 @@ group('diagnostics instrumentation', () {
       await pumpEventQueue();
 
       expect(audio.lastUrl, 'https://example.test/cross-1-alt.mp3');
+      expect(
+        notifier.state.sourcePlatform,
+        PlatformType.qq,
+        reason: '换源成功必须把来源平台写进 state，播放页角标才有数据',
+      );
       expect(
         notifier.state.currentSong?.id,
         'cross-1',
