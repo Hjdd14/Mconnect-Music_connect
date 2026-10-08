@@ -7,7 +7,7 @@ import 'package:mconnect/features/scrobble/presentation/providers/scrobble_provi
 /// 设置页「听歌记录同步」区块看到的一份只读快照。
 ///
 /// 为什么不直接暴露 `ScrobbleStatus`：那是 scrobble 侧的模型，字段会随实现演进。
-/// 设置页只需要下面这些已经稳定的量；把适配收在
+/// 设置页只需要下面这些稳定的量；把适配收在
 /// [RiverpodScrobbleSettingsController] 一个类里，scrobble 侧改字段名时只有那一个
 /// 类需要跟着改，UI 与用例都不动。
 class ScrobbleSettingsView {
@@ -25,22 +25,20 @@ class ScrobbleSettingsView {
     this.token = '',
   });
 
-  /// 默认关闭。**关闭时设置页不显示凭据输入**（provider 层已经保证不构造后端、
-  /// 不发请求 —— 见 `scrobbleBackendProvider` 在 enabled=false 时返回 null）。
+  /// 默认关闭。**关闭时设置页不显示凭据输入**（provider 层已保证 enabled=false 时
+  /// `scrobbleBackendProvider` 返回 null、coordinator 不 start，即不构造后端、不发请求）。
   final bool enabled;
 
   final ScrobbleService service;
 
-  /// 用户填的自定义 base URL（未填为 null）。它是**全局一个**字段
-  /// （`ScrobblePreferences.customBaseUrl`），UI 只在
-  /// `service.usesCustomBaseUrl`（目前仅 Maloja）时显示它。
+  /// 用户填的自定义 base URL（未填为 null）。它是全局一个字段
+  /// （`ScrobblePreferences.customBaseUrl`），UI 只在 `service.usesCustomBaseUrl` 时显示。
   final String? customBaseUrl;
 
-  /// 当前服务的凭据是否齐全（用于"尚未配置"提示）。
+  /// 当前服务的凭据是否齐全（用于「尚未配置凭据」提示）。
   final bool hasCredentials;
 
-  /// 凭据被服务端拒绝（Last.fm 错误码 9 / HTTP 401 之类）→ 显示
-  /// 「需要重新登录」并**禁止**再发请求。
+  /// 凭据被服务端拒绝 → 显示「需要重新登录」并禁止再发请求。
   final bool needsReauth;
 
   /// 待补交条数（用于「待补交 N 条」与「立即补交」的可用性）。
@@ -49,8 +47,7 @@ class ScrobbleSettingsView {
   /// 最近一次失败文案（「测试连接」失败时显示它）。
   final String? lastError;
 
-  /// 已保存的凭据。用来喂输入框的 `initialValue`：让用户看得见"已经配过"，
-  /// 而不是面对三个永远空着的框（obscureText 会遮住内容）。
+  /// 已保存的凭据，用来喂输入框的 `initialValue`（obscureText 遮住内容）。
   final String apiKey;
   final String apiSecret;
   final String sessionKey;
@@ -62,13 +59,13 @@ class ScrobbleSettingsView {
 /// 存在的唯一理由是**可测**：真实实现跨两个 notifier（偏好 / 机密）与平台存储，
 /// 而 widget 测试需要一个十几行的假对象。UI 只依赖这个接口。
 abstract class ScrobbleSettingsController {
-  /// 当前快照。实现方保证它是一次 **build 期的捕获**（不持有活 Ref），
-  /// 所以异步动作之后仍可安全读取。
+  /// 当前快照。实现方保证它是**延迟读**（每次调用取最新值、不持有活快照），
+  /// 所以异步动作之后仍能安全读到新文案。
   ScrobbleSettingsView get view;
 
   Future<void> setEnabled(bool enabled);
 
-  /// 切服务。实现方要负责让机密随之重新载入（`loadFor`），
+  /// 切服务。实现方负责让机密随之重新载入（`loadFor`），
   /// 但**绝不能**把凭据写成空值 —— 另一个服务已存的凭据必须原样留在 keystore 里。
   Future<void> setService(ScrobbleService service);
 
@@ -77,7 +74,6 @@ abstract class ScrobbleSettingsController {
 
   /// 保存凭据。**null = 用户没动过这个字段（不要写）**；
   /// 非 null（含空串）= 用户改过 → 交给实现写入（按约定空串 = 删除该键）。
-  /// 这个区分是必要的：把没动过的字段当空串写下去，会把已存的密钥抹掉。
   Future<void> saveCredentials({
     String? apiKey,
     String? apiSecret,
@@ -92,7 +88,6 @@ abstract class ScrobbleSettingsController {
   Future<bool> drainNow();
 
   /// 授权页 URL（由 scrobble 侧构造，设置页不自己拼字符串）。
-  /// [apiKey] 用用户当前输入或已保存的值。返回 null → 该服务没有授权页。
   Uri? authorizeUrl(String apiKey);
 
   /// 让快照重新取值（补交/测试连接之后调用，刷新「待补交 N 条」）。
@@ -103,50 +98,80 @@ abstract class ScrobbleSettingsController {
 ///
 /// 这是**唯一** import `scrobble_provider.dart` 的地方（测试里的假实现当然不算）。
 ///
-/// 生命周期与两个刻意的选择：
-/// * `_status` / `_preferences` / `_secrets` 是 provider build 时捕获的快照，
-///   `view` 只读它们（不碰 `Ref`），所以异步动作之后仍能安全读文案；
-/// * 刷新用 **notifier 的 `refresh()`**，不是 `ref.invalidate(scrobbleStatusProvider)`
-///   —— 后者会把 `StateNotifierProvider` 的 notifier 整个重建、状态退回初始值，
-///   而 `refresh()` 才是 scrobble 侧提供的正确刷新方式；
-/// * 机密 setter 在**另一个** notifier 上（两半来自不同存储：Hive vs keystore），
-///   UI 侧的输入框因此要跟着 `scrobbleSecretsProvider` 重建。
+/// # 这个类现在的形状是被一次实测故障决定的，**别再改回去**
+/// 早期版本在 `scrobbleSettingsControllerProvider` 的 build 里
+/// `ref.watch` 了 status/preferences/secrets 三份状态，并在 build 期**即时**读了一次
+/// `backendLastError`（它会 `read(scrobbleBackendProvider)`）。于是 provider 图里出现了
+/// `scrobbleSettingsControllerProvider → scrobbleStatusProvider → coordinator →
+/// backend → preferences/secrets → 回到 controller` 的环。把区块挂进 `SettingsPage`
+/// 的 ListView 时，`PROBE S`（`test/scrobble_settings_probe_test.dart`）量到：
+/// ```
+/// takeException=CircularDependencyError
+/// section=1 audio=1 backup=0 diagnostics=0
+/// ```
+/// 即**区块自身的 build 抛异常、它后面的条目不再渲染**（"懒构建/滚动窗口"的解释
+/// 已被证伪：滚一下也不会出现）。
+///
+/// 现在的形状把**所有 scrobble 依赖都变成延迟读**：
+/// * 本 provider 的 build **不 watch 任何 scrobble provider**（只有 `ref` 本身）⇒
+///   它在 provider 图里是"无边"的，环不可能存在；
+/// * `view` 在**被 UI 读取时**才 `read` 那三份状态（`read` 不建立依赖边）；
+/// * 订阅交给 **widget**：`ScrobbleSettingsSection.build` 里显式
+///   `ref.watch(...)` —— widget 订阅不参与 provider 图，所以不会成环；
+/// * 动作全部是 `read` + 调用，同样不引入边。
 class RiverpodScrobbleSettingsController implements ScrobbleSettingsController {
-  RiverpodScrobbleSettingsController(
-    this._ref,
-    this._status,
-    this._preferences,
-    this._secrets,
-    this._backendLastErrorOf,
-  );
+  RiverpodScrobbleSettingsController(this._ref);
 
   final Ref _ref;
-  final ScrobbleStatus _status;
-  final ScrobblePreferences _preferences;
-  final ScrobbleSecrets _secrets;
-
-  /// A closure, not a `String?`: reading `backendLastError` goes through
-  /// `scrobbleBackendProvider`, and doing that **eagerly inside this provider's
-  /// build** re-entered the build (Riverpod reports `CircularDependencyError`,
-  /// and the stack shows this very line repeatedly). Deferring the read to the
-  /// moment the UI asks for `view` keeps it outside the provider build.
-  final String? Function() _backendLastErrorOf;
 
   @override
-  ScrobbleSettingsView get view => ScrobbleSettingsView(
-    enabled: _status.enabled,
-    service: _status.service,
-    customBaseUrl: _preferences.customBaseUrl,
-    hasCredentials: _status.hasCredentials,
-    needsReauth: _status.needsReauth,
-    pendingCount: _status.pendingCount,
-    // transport 自己的措辞优先（`backendLastError`），状态里的 lastError 兜底。
-    lastError: _status.lastError ?? _backendLastErrorOf(),
-    apiKey: _secrets.apiKey,
-    apiSecret: _secrets.apiSecret,
-    sessionKey: _secrets.sessionKey,
-    token: _secrets.token,
-  );
+  ScrobbleSettingsView get view {
+    final status = _ref.read(scrobbleStatusProvider);
+
+    // **"开没开"读 preferences，不读 `status.enabled`。**
+    //
+    // `ScrobbleStatus` 里的 `preferences` 只在 `ScrobbleStatusNotifier.refresh()` 之后
+    // 才被填上，而 `refresh()` 会去读凭据（平台 keystore）与协调器（数据库）。拿它当
+    // 开关的真值来源会形成死锁：状态永远是"关闭" ⇒ 谁都不会去 refresh ⇒ 开关永远显示关。
+    // `ScrobblePreferencesNotifier` 自己异步从 Hive 读，读到就重建 UI，不需要任何 refresh。
+    //
+    // 顺带的好处：默认关闭（绝大多数人、以及所有"pump 一下设置页"的 widget 测试）时
+    // **凭据 provider 根本不会被构造** —— 它的 notifier 构造期 `unawaited(_load())`
+    // 会碰平台 keystore，而关闭状态下没有任何理由碰它。
+    final preferences = _ref.read(scrobblePreferencesProvider);
+    if (!preferences.enabled) {
+      return ScrobbleSettingsView(
+        enabled: false,
+        service: preferences.service,
+        hasCredentials: status.hasCredentials,
+        needsReauth: status.needsReauth,
+        pendingCount: status.pendingCount,
+        lastError: status.lastError,
+      );
+    }
+
+    final secrets = _ref.read(scrobbleSecretsProvider);
+    return ScrobbleSettingsView(
+      enabled: true,
+      service: preferences.service,
+      // customBaseUrl 不在 ScrobbleStatus 里（那是"要不要补交"的快照），
+      // 它属于偏好设置 —— 从 preferences 取，语义更准。
+      customBaseUrl: preferences.customBaseUrl,
+      hasCredentials: status.hasCredentials,
+      needsReauth: status.needsReauth,
+      pendingCount: status.pendingCount,
+      // 延迟读：`backendLastError` 会 read(scrobbleBackendProvider)，在 build 期读它
+      // 正是那个环最初的成因。
+      lastError: status.lastError ?? _backendLastError(),
+      apiKey: secrets.apiKey,
+      apiSecret: secrets.apiSecret,
+      sessionKey: secrets.sessionKey,
+      token: secrets.token,
+    );
+  }
+
+  String? _backendLastError() =>
+      _ref.read(scrobblePreferencesProvider.notifier).backendLastError;
 
   @override
   Future<void> setEnabled(bool enabled) async {
@@ -206,30 +231,30 @@ class RiverpodScrobbleSettingsController implements ScrobbleSettingsController {
   }
 
   @override
-  Uri? authorizeUrl(String apiKey) => scrobbleAuthorizeUrl(
-    service: _status.service,
-    apiKey: apiKey,
-    preferences: _preferences,
-  );
+  Uri? authorizeUrl(String apiKey) {
+    final preferences = _ref.read(scrobblePreferencesProvider);
+    return scrobbleAuthorizeUrl(
+      service: preferences.service,
+      apiKey: apiKey,
+      preferences: preferences,
+    );
+  }
 
   @override
   void refresh() {
-    // 不能用 invalidate：那会重建 notifier 并丢掉它的内存状态。
+    // 不能用 invalidate：那会重建 notifier 并丢掉它的内存状态；
+    // `refresh()` 才是 scrobble 侧提供的正确刷新方式 —— 它更新状态后，
+    // widget 那侧的 `ref.watch(scrobbleStatusProvider)` 会重建 UI。
     unawaited(_ref.read(scrobbleStatusProvider.notifier).refresh());
   }
 }
 
-/// 设置页的注入点。测试用
-/// `overrideWith((ref) => FakeController())` 替换它
+/// 设置页的注入点。测试用 `overrideWith((ref) => FakeController())` 替换它
 /// （见 `test/scrobble_settings_test.dart`）。
+///
+/// **build 里不 watch 任何 scrobble provider** —— 刻意如此，见
+/// [RiverpodScrobbleSettingsController] 的类注释（CircularDependencyError）。
+/// 订阅由 `ScrobbleSettingsSection` 在 widget 层做。
 final scrobbleSettingsControllerProvider = Provider<ScrobbleSettingsController>(
-  (ref) => RiverpodScrobbleSettingsController(
-    ref,
-    ref.watch(scrobbleStatusProvider),
-    ref.watch(scrobblePreferencesProvider),
-    ref.watch(scrobbleSecretsProvider),
-    // A closure: see [_backendLastErrorOf]. Reading it eagerly here made the
-    // provider's own build re-enter itself.
-    () => ref.read(scrobblePreferencesProvider.notifier).backendLastError,
-  ),
+  (ref) => RiverpodScrobbleSettingsController(ref),
 );

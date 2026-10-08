@@ -377,19 +377,38 @@ class _AlbumCover extends StatelessWidget {
       color: accent.withValues(alpha: 0.12),
       child: Icon(Icons.album, color: accent, size: size * 0.4),
     );
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(10),
-      child: coverUrl == null || coverUrl!.isEmpty
-          ? placeholder
-          : CachedNetworkImage(
-              imageUrl: coverUrl!,
-              width: size,
-              height: size,
-              memCacheWidth: (size * 2).round(),
-              fit: BoxFit.cover,
-              placeholder: (_, _) => placeholder,
-              errorWidget: (_, _, _) => placeholder,
-            ),
+    // **Role label, without the album name.** The cover is meaningful artwork,
+    // not decoration, so it is announced as an image — but the album's name is
+    // already read as adjacent text, and putting it in here too would make a
+    // screen reader say it twice. The label therefore describes the *role* only.
+    //
+    // Wrapping the whole slot (placeholder included) is deliberate: the role is
+    // the same whether or not the artwork loaded, and it keeps the semantics
+    // test off the network — `CachedNetworkImage` never runs for a
+    // cover-less fixture.
+    return Semantics(
+      // `container: true` gives the artwork its **own** node. Without it a
+      // non-container `Semantics` merges upward into the nearest enclosing node,
+      // so the label would be absorbed by an ancestor (the header list) instead
+      // of describing the image itself — the same merge rule that made a
+      // `Semantics` wrapper around an AppBar action the wrong fix.
+      container: true,
+      image: true,
+      label: '专辑封面',
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: coverUrl == null || coverUrl!.isEmpty
+            ? placeholder
+            : CachedNetworkImage(
+                imageUrl: coverUrl!,
+                width: size,
+                height: size,
+                memCacheWidth: (size * 2).round(),
+                fit: BoxFit.cover,
+                placeholder: (_, _) => placeholder,
+                errorWidget: (_, _, _) => placeholder,
+              ),
+      ),
     );
   }
 }

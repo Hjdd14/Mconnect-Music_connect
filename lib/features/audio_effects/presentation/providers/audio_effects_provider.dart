@@ -213,30 +213,106 @@ class AudioEffectsSettings {
   static double _clampGain(num value) => value.clamp(-12, 12).toDouble();
 }
 
+/// 读/写音频增强设置的存储 seam（形状与理由同 `AutoSourceSwitchStore`）。
+///
+/// 探针实测：点击这一页的开关（例如「淡入淡出」）→ `_save()` 里的
+/// `await Hive.openBox(...).put(...)` 被 UI 回调 fire-and-forget，真实 I/O 的
+/// continuation 留在 FakeAsync 队列里 ⇒ 文件级 `tearDown` 的 `Hive.close()` 一直等它
+/// （`PROBE D: hiveClose=closed-TIMEOUT(3s)`，且与具体开关无关）。
+///
+/// 生产仍写 Hive；widget 测试 override [audioEffectsSettingsStoreProvider] 成
+/// [MemoryAudioEffectsSettingsStore]；"真的落盘了"由
+/// `test/settings_persistence_test.dart` 的持久化单测保证（否则"点击只改内存"
+/// 会变成新的假绿）。
+///
+/// 注意构造函数的 [AudioEffectsSettingsNotifier] 仍然**允许零参数**：
+/// `test/audio_enhancement_settings_test.dart` 直接 `AudioEffectsSettingsNotifier()`，
+/// 那种 plain `test()` 里没有 FakeAsync，真实 Hive I/O 正常完成，所以默认走 Hive 是对的。
+abstract class AudioEffectsSettingsStore {
+  /// `null` = 没存过 ⇒ 用 [AudioEffectsSettings] 的默认值。
+  Object? read();
+
+  Future<void> write(Map<String, dynamic> json);
+}
+
+class HiveAudioEffectsSettingsStore implements AudioEffectsSettingsStore {
+  const HiveAudioEffectsSettingsStore();
+
+  @override
+  Object? read() {
+    try {
+      return Hive.box(_audioEffectsBoxName).get(_audioEffectsKey);
+    } catch (e, s) {
+      debugPrint('AudioEffectsSettingsStore read failed: $e');
+      debugPrint('$s');
+      return null;
+    }
+  }
+
+  @override
+  Future<void> write(Map<String, dynamic> json) async {
+    try {
+      final box = await Hive.openBox(_audioEffectsBoxName);
+      await box.put(_audioEffectsKey, json);
+    } catch (e, s) {
+      debugPrint('AudioEffectsSettingsStore write failed: $e');
+      debugPrint('$s');
+    }
+  }
+}
+
+/// 测试实现：不碰 Hive；`writes` 记录每一次落盘请求。
+class MemoryAudioEffectsSettingsStore implements AudioEffectsSettingsStore {
+  MemoryAudioEffectsSettingsStore([this._value]);
+
+  Object? _value;
+
+  /// 当前"已存"的 JSON（null = 从未写过）。
+  Object? get value => _value;
+
+  /// 依次收到的写入（用来断言"设置确实要求落盘了"）。
+  final List<Map<String, dynamic>> writes = <Map<String, dynamic>>[];
+
+  @override
+  Object? read() => _value;
+
+  @override
+  Future<void> write(Map<String, dynamic> json) async {
+    _value = json;
+    writes.add(json);
+  }
+}
+
+/// 注入点：生产用 Hive；widget 测试 override 成内存实现。
+final audioEffectsSettingsStoreProvider = Provider<AudioEffectsSettingsStore>(
+  (ref) => const HiveAudioEffectsSettingsStore(),
+);
+
 final audioEffectsSettingsProvider =
     StateNotifierProvider<AudioEffectsSettingsNotifier, AudioEffectsSettings>((
       ref,
     ) {
-      return AudioEffectsSettingsNotifier();
+      return AudioEffectsSettingsNotifier(
+        ref.read(audioEffectsSettingsStoreProvider),
+      );
     });
 
 class AudioEffectsSettingsNotifier extends StateNotifier<AudioEffectsSettings> {
+  /// 历史遗留（无副作用、永远已完成）：保留是为了不扩大这次改动的面。
   Future<void> ready = Future.value();
 
-  AudioEffectsSettingsNotifier() : super(const AudioEffectsSettings()) {
+  AudioEffectsSettingsNotifier([AudioEffectsSettingsStore? store])
+    : _store = store ?? const HiveAudioEffectsSettingsStore(),
+      super(const AudioEffectsSettings()) {
     _load();
   }
 
+  final AudioEffectsSettingsStore _store;
+
   void _load() {
-    try {
-      final box = Hive.box(_audioEffectsBoxName);
-      final raw = box.get(_audioEffectsKey);
-      if (!mounted) return;
-      state = AudioEffectsSettings.fromJson(raw);
-    } catch (e, s) {
-      debugPrint('AudioEffectsSettingsNotifier load failed: $e');
-      debugPrint('$s');
-    }
+    final raw = _store.read();
+    if (!mounted) return;
+    state = AudioEffectsSettings.fromJson(raw);
   }
 
   Future<void> setFadeEnabled(bool enabled) {
@@ -299,12 +375,8 @@ class AudioEffectsSettingsNotifier extends StateNotifier<AudioEffectsSettings> {
 
   Future<void> _save(AudioEffectsSettings settings) async {
     state = settings;
-    try {
-      final box = await Hive.openBox(_audioEffectsBoxName);
-      await box.put(_audioEffectsKey, settings.toJson());
-    } catch (e, s) {
-      debugPrint('AudioEffectsSettingsNotifier save failed: $e');
-      debugPrint('$s');
-    }
+    // 存储自己吞掉异常（见 AudioEffectsSettingsStore 的实现）：一次落盘失败
+    // 不能让 UI 抛错，这是本文件既有的降级约定。
+    await _store.write(settings.toJson());
   }
 }

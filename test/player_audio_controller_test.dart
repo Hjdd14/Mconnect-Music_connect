@@ -181,6 +181,59 @@ void main() {
       );
       expect(boosted, 3.0, reason: '标签要求提升 → 照做（不得反转符号）');
     });
+
+    test('tag lists: track gain wins over album gain', () {
+      expect(
+        LoudnessNormalizer.gainFromTags(
+          trackGain: const ['-6.50 dB'],
+          trackPeak: const ['0.988553'],
+          albumGain: const ['-2.00 dB'],
+          albumPeak: const ['0.99'],
+        ),
+        -6.5,
+      );
+    });
+
+    test('tag lists: falls back to album values, null when nothing usable', () {
+      expect(
+        LoudnessNormalizer.gainFromTags(albumGain: const ['-3.25 dB']),
+        -3.25,
+      );
+      expect(LoudnessNormalizer.gainFromTags(), isNull);
+      expect(LoudnessNormalizer.gainFromTags(trackGain: const []), isNull);
+      expect(
+        LoudnessNormalizer.gainFromTags(trackGain: const ['', '   ']),
+        isNull,
+      );
+    });
+
+    test('tag lists: repeated tags take the LAST non-empty value', () {
+      expect(
+        LoudnessNormalizer.gainFromTags(
+          trackGain: const ['-2.00 dB', '  ', '-6.50 dB'],
+        ),
+        -6.5,
+        reason: '同一 tag 出现多次时取最后一个非空值，不静默取中间值',
+      );
+    });
+
+    test('tag lists: an unusable peak only drops clipping protection', () {
+      // peak 带 dB 后缀（与"线性峰值"规范不符）→ 被拒 → 只按增益策略走
+      expect(
+        LoudnessNormalizer.gainFromTags(
+          trackGain: const ['+6.00 dB'],
+          trackPeak: const ['-1.00 dB'],
+        ),
+        LoudnessNormalizer.maxBoostDb,
+      );
+
+      // 正常线性峰值 → 削波保护生效，结果必须小于策略上限
+      final protected = LoudnessNormalizer.gainFromTags(
+        trackGain: const ['+6.00 dB'],
+        trackPeak: const ['1.2'],
+      )!;
+      expect(protected, lessThan(LoudnessNormalizer.maxBoostDb));
+    });
   });
 
   group('EQ preset JSON import/export (W2-B item b)', () {

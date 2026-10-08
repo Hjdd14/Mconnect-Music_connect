@@ -1,8 +1,37 @@
 import 'package:flutter/material.dart';
+// `SemanticsFlag` is NOT exported by `material.dart` (it lives in
+// src/semantics/semantics.dart), and `SemanticsData.hasFlag(SemanticsFlag…)` is
+// the only public way to ask "is this node an image?" — `SemanticsData` has no
+// `isImage` getter (verified by analyze: `undefined_getter`).
+// NOTE: `package:flutter/semantics.dart` is NOT needed any more - the flag is read
+// through `SemanticsData.flagsCollection`, which comes from material.dart. The
+// deprecated `hasFlag(SemanticsFlag.isImage)` needed it.
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mconnect/features/album/presentation/pages/album_page.dart';
 import 'package:mconnect/features/discovery/presentation/pages/recommendations_page.dart';
 import 'package:mconnect/features/discovery/presentation/providers/recommendations_provider.dart';
+import 'package:mconnect/models/album.dart';
+import 'package:mconnect/models/artist.dart';
+import 'package:mconnect/models/platform_type.dart';
+import 'package:mconnect/models/song.dart';
+
+import 'support/content_page_fakes.dart';
+
+/// A cover-less album fixture.
+///
+/// Deliberately without a `coverUrl`: the cover *slot* carries the label, so the
+/// placeholder path is what renders — which keeps `CachedNetworkImage` (and its
+/// real HTTP work) out of the widget test entirely. A network fixture would be
+/// needed only if the assertion were about pixels, which it is not.
+const _coverlessAlbum = Album(id: 'a1', name: '未完成', artistName: '孙燕姿');
+
+const _albumSong = Song(
+  id: 's1',
+  platform: PlatformType.qq,
+  name: '神奇',
+  artists: <Artist>[Artist(id: '', name: '孙燕姿')],
+);
 
 /// W3-B accessibility: the mechanism, plus the first page that was missing a
 /// label.
@@ -85,5 +114,54 @@ void main() {
     // BEFORE `addTearDown` callbacks run, so a teardown-based dispose is too late
     // ("A SemanticsHandle was active at the end of the test").
     handle.dispose();
+  });
+
+  widgetTest('专辑封面是"图片 + 角色标签"，且标签里不含专辑名', (tester) async {
+    final handle = tester.ensureSemantics();
+    // `try`/`finally` (rather than the plain dispose above) so a failing
+    // assertion cannot also leak the handle and bury the real failure under
+    // "A SemanticsHandle was active".
+    try {
+      registerFake(
+        FakeContentPlatform(
+          type: PlatformType.qq,
+          album: _coverlessAlbum,
+          albumSongs: const <Song>[_albumSong],
+        ),
+      );
+
+      await tester.pumpWidget(
+        const ProviderScope(
+          child: MaterialApp(
+            home: AlbumPage(
+              platform: PlatformType.qq,
+              albumId: 'a1',
+              albumName: '未完成',
+            ),
+          ),
+        ),
+      );
+      for (var i = 0; i < 30; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+
+      final cover = tester.getSemantics(find.bySemanticsLabel('专辑封面'));
+      final coverData = cover.getSemanticsData();
+      expect(
+        // `hasFlag` is deprecated as of Flutter 3.32 in favour of the flag
+        // collection; `flagsCollection.isImage` is the current read.
+        coverData.flagsCollection.isImage,
+        isTrue,
+        reason: '封面是有意义的图，不是装饰',
+      );
+      expect(coverData.label, '专辑封面');
+      expect(
+        coverData.label,
+        isNot(contains('未完成')),
+        reason: '专辑名由相邻文本念出；塞进图片标签会让同一信息念两遍',
+      );
+    } finally {
+      handle.dispose();
+    }
   });
 }

@@ -1009,6 +1009,252 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'未知平台'**
   String get netUnknownPlatform;
+
+  /// No description provided for @commonLoadFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'加载失败'**
+  String get commonLoadFailed;
+
+  /// No description provided for @commonConfirm.
+  ///
+  /// In zh, this message translates to:
+  /// **'确定'**
+  String get commonConfirm;
+
+  /// No description provided for @commonAllPlatforms.
+  ///
+  /// In zh, this message translates to:
+  /// **'全部平台'**
+  String get commonAllPlatforms;
+
+  /// No description provided for @commonPlaylist.
+  ///
+  /// In zh, this message translates to:
+  /// **'歌单'**
+  String get commonPlaylist;
+
+  /// No description provided for @commonNow.
+  ///
+  /// In zh, this message translates to:
+  /// **'刚刚'**
+  String get commonNow;
+
+  /// No description provided for @commonToday.
+  ///
+  /// In zh, this message translates to:
+  /// **'今天'**
+  String get commonToday;
+
+  /// No description provided for @commonYesterday.
+  ///
+  /// In zh, this message translates to:
+  /// **'昨天'**
+  String get commonYesterday;
+
+  /// No description provided for @commonDaysAgo.
+  ///
+  /// In zh, this message translates to:
+  /// **'{count}天前'**
+  String commonDaysAgo(int count);
+
+  /// No description provided for @commonHoursAgo.
+  ///
+  /// In zh, this message translates to:
+  /// **'{count}小时前'**
+  String commonHoursAgo(int count);
+
+  /// No description provided for @commonMinutesAgo.
+  ///
+  /// In zh, this message translates to:
+  /// **'{count}分钟前'**
+  String commonMinutesAgo(int count);
+
+  /// No description provided for @commonMonthDayPattern.
+  ///
+  /// In zh, this message translates to:
+  /// **'MM月dd日'**
+  String get commonMonthDayPattern;
+
+  /// No description provided for @libraryLikes.
+  ///
+  /// In zh, this message translates to:
+  /// **'我喜欢的音乐'**
+  String get libraryLikes;
+
+  /// No description provided for @libraryLikesWithCount.
+  ///
+  /// In zh, this message translates to:
+  /// **'我喜欢 ({count})'**
+  String libraryLikesWithCount(int count);
+
+  /// No description provided for @libraryLikesFilter.
+  ///
+  /// In zh, this message translates to:
+  /// **'平台筛选'**
+  String get libraryLikesFilter;
+
+  /// No description provided for @libraryLikesEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'还没有喜欢的歌曲'**
+  String get libraryLikesEmpty;
+
+  /// No description provided for @libraryLikesEmptyHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'在播放器中点击爱心添加'**
+  String get libraryLikesEmptyHint;
+
+  /// No description provided for @libraryLikesEmptyForPlatform.
+  ///
+  /// In zh, this message translates to:
+  /// **'该平台没有喜欢的歌曲'**
+  String get libraryLikesEmptyForPlatform;
+
+  /// No description provided for @libraryHistory.
+  ///
+  /// In zh, this message translates to:
+  /// **'听歌历史'**
+  String get libraryHistory;
+
+  /// No description provided for @libraryHistoryWithCount.
+  ///
+  /// In zh, this message translates to:
+  /// **'听歌历史 ({count})'**
+  String libraryHistoryWithCount(int count);
+
+  /// No description provided for @libraryHistoryClear.
+  ///
+  /// In zh, this message translates to:
+  /// **'清空历史'**
+  String get libraryHistoryClear;
+
+  /// No description provided for @libraryHistoryClearConfirm.
+  ///
+  /// In zh, this message translates to:
+  /// **'清空听歌历史'**
+  String get libraryHistoryClearConfirm;
+
+  /// No description provided for @libraryHistoryClearConfirmBody.
+  ///
+  /// In zh, this message translates to:
+  /// **'确定要清空所有听歌历史吗？'**
+  String get libraryHistoryClearConfirmBody;
+
+  /// No description provided for @libraryHistoryEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'还没有听歌记录'**
+  String get libraryHistoryEmpty;
+
+  /// No description provided for @libraryImportPlaylist.
+  ///
+  /// In zh, this message translates to:
+  /// **'导入歌单'**
+  String get libraryImportPlaylist;
+
+  /// No description provided for @statsTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'听歌统计'**
+  String get statsTitle;
+
+  /// No description provided for @cacheTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'离线缓存'**
+  String get cacheTitle;
+
+  /// No description provided for @smartPlaylistTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'智能歌单'**
+  String get smartPlaylistTitle;
+
+  /// No description provided for @downloadTitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'下载管理'**
+  String get downloadTitle;
+
+  /// No description provided for @downloadButtonTooltip.
+  ///
+  /// In zh, this message translates to:
+  /// **'下载（长按加入离线缓存）'**
+  String get downloadButtonTooltip;
+
+  /// No description provided for @cacheQueuedOfflineMode.
+  ///
+  /// In zh, this message translates to:
+  /// **'离线模式已开启，已加入缓存队列但不会自动开始'**
+  String get cacheQueuedOfflineMode;
+
+  /// No description provided for @cacheQueuedWifi.
+  ///
+  /// In zh, this message translates to:
+  /// **'已加入离线缓存队列，将在连接 Wi-Fi 后开始'**
+  String get cacheQueuedWifi;
+
+  /// No description provided for @cacheQueuedPaused.
+  ///
+  /// In zh, this message translates to:
+  /// **'已加入离线缓存队列，队列当前已暂停'**
+  String get cacheQueuedPaused;
+
+  /// No description provided for @cacheAdded.
+  ///
+  /// In zh, this message translates to:
+  /// **'已加入离线缓存：{name}'**
+  String cacheAdded(String name);
+
+  /// No description provided for @cacheAlreadyQueued.
+  ///
+  /// In zh, this message translates to:
+  /// **'该歌曲已在缓存列表中'**
+  String get cacheAlreadyQueued;
+
+  /// No description provided for @downloadQualityPicker.
+  ///
+  /// In zh, this message translates to:
+  /// **'选择下载音质 - {name}'**
+  String downloadQualityPicker(String name);
+
+  /// No description provided for @downloadRequiresSvip.
+  ///
+  /// In zh, this message translates to:
+  /// **'需 SVIP'**
+  String get downloadRequiresSvip;
+
+  /// No description provided for @downloadRequiresVip.
+  ///
+  /// In zh, this message translates to:
+  /// **'需 VIP'**
+  String get downloadRequiresVip;
+
+  /// No description provided for @downloadLosslessFormat.
+  ///
+  /// In zh, this message translates to:
+  /// **'{format} · 无损音质'**
+  String downloadLosslessFormat(String format);
+
+  /// No description provided for @downloadNeedsSvip.
+  ///
+  /// In zh, this message translates to:
+  /// **'需要超级会员才能下载{quality}音质'**
+  String downloadNeedsSvip(String quality);
+
+  /// No description provided for @downloadNeedsVip.
+  ///
+  /// In zh, this message translates to:
+  /// **'需要VIP才能下载{quality}音质'**
+  String downloadNeedsVip(String quality);
+
+  /// No description provided for @downloadStarted.
+  ///
+  /// In zh, this message translates to:
+  /// **'已开始下载: {name} ({quality})'**
+  String downloadStarted(String name, String quality);
 }
 
 class _AppLocalizationsDelegate

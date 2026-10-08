@@ -9,6 +9,8 @@ import '../../../../platform/base/platform_registry.dart';
 import '../../domain/entities/download_task.dart';
 import '../providers/download_provider.dart';
 import '../../../../core/utils/snackbar_helper.dart';
+import '../../../../l10n/app_localizations.dart';
+import '../../../../l10n/l10n.dart';
 
 /// A button that initiates song download with quality selection.
 class DownloadButton extends ConsumerWidget {
@@ -82,7 +84,7 @@ class DownloadButton extends ConsumerWidget {
     // `GestureDetector`: the IconButton's tap recogniser wins the gesture arena
     // and the parent long-press never fires. One InkWell owns both gestures.
     return Tooltip(
-      message: '下载（长按加入离线缓存）',
+      message: context.l10n.downloadButtonTooltip,
       child: InkWell(
         onTap: () => _showQualityPicker(context, ref),
         onLongPress: () => unawaited(_addToOfflineCache(context, ref)),
@@ -102,17 +104,18 @@ class DownloadButton extends ConsumerWidget {
     final report = await notifier.cacheSongs([song], quality: AudioLevel.low);
     if (!context.mounted) return;
 
+    final l = context.l10n;
     final String message;
     if (report.blockedOfflineMode > 0) {
-      message = '离线模式已开启，已加入缓存队列但不会自动开始';
+      message = l.cacheQueuedOfflineMode;
     } else if (report.blockedNoConnection > 0) {
-      message = '已加入离线缓存队列，将在连接 Wi-Fi 后开始';
+      message = l.cacheQueuedWifi;
     } else if (report.blockedQueuePaused > 0) {
-      message = '已加入离线缓存队列，队列当前已暂停';
+      message = l.cacheQueuedPaused;
     } else if (report.enqueued > 0) {
-      message = '已加入离线缓存：${song.name}';
+      message = l.cacheAdded(song.name);
     } else {
-      message = '该歌曲已在缓存列表中';
+      message = l.cacheAlreadyQueued;
     }
     showSuccessSnackBar(context, message, duration: const Duration(seconds: 2));
   }
@@ -131,6 +134,7 @@ class DownloadButton extends ConsumerWidget {
       ),
       builder: (ctx) {
         final cs = Theme.of(ctx).colorScheme;
+        final l = ctx.l10n;
         return SafeArea(
           child: FutureBuilder<List<AudioQuality>>(
             future: _loadQualities(),
@@ -154,7 +158,7 @@ class DownloadButton extends ConsumerWidget {
                       vertical: 8,
                     ),
                     child: Text(
-                      '选择下载音质 - ${song.name}',
+                      l.downloadQualityPicker(song.name),
                       style: const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.bold,
@@ -207,7 +211,9 @@ class DownloadButton extends ConsumerWidget {
                                       borderRadius: BorderRadius.circular(3),
                                     ),
                                     child: Text(
-                                      quality.isSvipOnly ? '需 SVIP' : '需 VIP',
+                                      quality.isSvipOnly
+                                          ? l.downloadRequiresSvip
+                                          : l.downloadRequiresVip,
                                       style: TextStyle(
                                         fontSize: 9,
                                         color: cs.primary,
@@ -217,7 +223,7 @@ class DownloadButton extends ConsumerWidget {
                                 ],
                               ],
                             ),
-                            subtitle: Text(_qualitySubtitle(quality)),
+                            subtitle: Text(_qualitySubtitle(l, quality)),
                             onTap: () =>
                                 _startDownload(ctx, ref, quality.level),
                           );
@@ -251,9 +257,9 @@ class DownloadButton extends ConsumerWidget {
     ];
   }
 
-  String _qualitySubtitle(AudioQuality quality) {
+  String _qualitySubtitle(AppLocalizations l, AudioQuality quality) {
     if (quality.isLossless && quality.bitrate <= 0) {
-      return '${quality.format.toUpperCase()} · 无损音质';
+      return l.downloadLosslessFormat(quality.format.toUpperCase());
     }
     if (quality.bitrate <= 0) return quality.format.toUpperCase();
     final kbps = quality.bitrate ~/ 1000;
@@ -267,12 +273,26 @@ class DownloadButton extends ConsumerWidget {
   ) async {
     Navigator.pop(context);
     final notifier = ref.read(downloadProvider.notifier);
+    final l = context.l10n;
 
     // Check VIP
     final allowed = await notifier.checkVipForDownload(song, quality);
     if (!allowed && context.mounted) {
       final required = notifier.requiredVipLevel(quality);
-      showErrorSnackBar(context, '需要${required == VipLevel.svip ? "超级会员" : "VIP"}才能下载${quality.displayNameFor(song.platform)}音质');
+      // Two complete sentences rather than one `{tier}` template: this ARB uses
+      // no ICU `select` anywhere, so a placeholder would force the caller to
+      // assemble the sentence from an already-translated fragment
+      // ('超级会员'/'VIP') — which is the "拼句式" that
+      // docs/i18n-migration-plan.md §1.2 rule 5 forbids (word order differs per
+      // language). Two keys cost the same as the tier keys would and keep each
+      // sentence translatable on its own.
+      final qualityName = quality.displayNameFor(song.platform);
+      showErrorSnackBar(
+        context,
+        required == VipLevel.svip
+            ? l.downloadNeedsSvip(qualityName)
+            : l.downloadNeedsVip(qualityName),
+      );
       return;
     }
 
@@ -280,6 +300,10 @@ class DownloadButton extends ConsumerWidget {
     // snackbar below is only shown for a download that was really enqueued.
     await notifier.startDownload(song, quality);
     if (context.mounted) {
-      showSuccessSnackBar(context, '已开始下载: ${song.name} (${quality.displayNameFor(song.platform)})', duration: const Duration(seconds: 2));
+      showSuccessSnackBar(
+        context,
+        l.downloadStarted(song.name, quality.displayNameFor(song.platform)),
+        duration: const Duration(seconds: 2),
+      );
     }
   }}

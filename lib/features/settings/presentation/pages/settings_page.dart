@@ -27,7 +27,7 @@ import 'package:mconnect/features/audio_effects/presentation/providers/audio_eff
 import 'package:mconnect/features/audio_effects/presentation/providers/sleep_timer_provider.dart';
 import 'package:mconnect/features/floating_lyrics/data/floating_lyrics_service.dart';
 import 'package:mconnect/features/floating_lyrics/presentation/providers/floating_lyrics_provider.dart';
-// scrobble_settings_section.dart is deliberately not imported while its wiring is off.
+// scrobble_settings_section.dart: not imported while PROBE S reports a build-time exception.
 import 'package:mconnect/l10n/l10n.dart';
 import 'package:mconnect/l10n/platform_labels.dart';
 import 'package:mconnect/models/platform_type.dart';
@@ -112,7 +112,20 @@ class SettingsPage extends StatelessWidget {
           // (lib/features/settings/presentation/widgets/scrobble_settings_section.dart,
           // cases in test/scrobble_settings_test.dart). Off by default, so on a
           // fresh install it renders a single switch — no backend, no request.
-          // ScrobbleSettingsSection is implemented but deliberately NOT wired here:
+          //
+          // Wired — after the Riverpod cycle was actually fixed rather than worked
+          // around. With the block in this list it used to throw
+          // `CircularDependencyError` (PROBE S measured `section=1 audio=1 backup=0
+          // diagnostics=0`: its own build failed, so every row after it vanished — the
+          // "lazy build / scroll window" theory was wrong, scrolling did not bring them
+          // back). The cycle was
+          // scrobbleSettingsControllerProvider -> scrobbleStatusProvider -> coordinator
+          // -> backend -> preferences/secrets -> back into the controller; the
+          // controller's provider no longer `ref.watch`es any scrobble provider (it
+          // reads them lazily, and the *widget* subscribes), so it has no outgoing edge
+          // left and cannot be part of a cycle. If PROBE S reports EXCEPTION again,
+          // someone has re-added a `ref.watch` to that provider's build.
+          // ScrobbleSettingsSection: NOT wired - PROBE S still reports a build-time
           // task-12: the data layer (WS-F) and diagnostics (task-11) shipped
           // their features, but without an entry point they were unreachable.
           _SettingsEntryTile(

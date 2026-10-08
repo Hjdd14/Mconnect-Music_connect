@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/widgets/app_scrollbar.dart';
 import '../../../../core/widgets/async_state_view.dart';
+import '../../../../l10n/app_localizations.dart';
+import '../../../../l10n/l10n.dart';
 import '../../../../models/song.dart';
 import '../../../../models/platform_type.dart';
 import '../../../download/domain/entities/download_task.dart';
@@ -19,39 +21,42 @@ class HistoryPage extends ConsumerWidget {
   Color _platformColor(PlatformType platform) =>
       PlatformAccent.neutralColorOf(platform);
 
-  String _formatDuration(Duration d) {
-    if (d.inHours > 0) return '${d.inHours}小时前';
-    if (d.inMinutes > 0) return '${d.inMinutes}分钟前';
-    return '刚刚';
+  // 这两个 helper 没有自己的 context，所以把 l10n 实例当参数传进来
+  // （比在方法里再取一次 context 更明确，也便于将来单测）。
+  String _formatDuration(AppLocalizations l, Duration d) {
+    if (d.inHours > 0) return l.commonHoursAgo(d.inHours);
+    if (d.inMinutes > 0) return l.commonMinutesAgo(d.inMinutes);
+    return l.commonNow;
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(historyProvider);
     final notifier = ref.read(historyProvider.notifier);
+    final l = context.l10n;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('听歌历史 (${state.entries.length})'),
+        title: Text(l.libraryHistoryWithCount(state.entries.length)),
         actions: [
           if (state.entries.isNotEmpty)
             IconButton(
               icon: const Icon(Icons.delete_sweep),
-              tooltip: '清空历史',
+              tooltip: l.libraryHistoryClear,
               onPressed: () async {
                 final confirmed = await showDialog<bool>(
                   context: context,
                   builder: (ctx) => AlertDialog(
-                    title: const Text('清空听歌历史'),
-                    content: const Text('确定要清空所有听歌历史吗？'),
+                    title: Text(l.libraryHistoryClearConfirm),
+                    content: Text(l.libraryHistoryClearConfirmBody),
                     actions: [
                       TextButton(
                         onPressed: () => Navigator.pop(ctx, false),
-                        child: const Text('取消'),
+                        child: Text(l.actionCancel),
                       ),
                       TextButton(
                         onPressed: () => Navigator.pop(ctx, true),
-                        child: const Text('确定'),
+                        child: Text(l.commonConfirm),
                       ),
                     ],
                   ),
@@ -70,13 +75,13 @@ class HistoryPage extends ConsumerWidget {
           ? const AsyncStateView.loading(skeleton: true)
           : state.error != null
           ? AsyncStateView.error(
-              title: '加载失败',
+              title: l.commonLoadFailed,
               message: state.error!,
               onRetry: () => ref.read(historyProvider.notifier).loadHistory(),
             )
           : state.entries.isEmpty
-          ? const AsyncStateView.empty(
-              title: '还没有听歌记录',
+          ? AsyncStateView.empty(
+              title: l.libraryHistoryEmpty,
               icon: Icons.history,
             )
           : _buildList(context, ref, state),
@@ -85,6 +90,7 @@ class HistoryPage extends ConsumerWidget {
 
   Widget _buildList(BuildContext context, WidgetRef ref, HistoryState state) {
     final now = DateTime.now();
+    final l = context.l10n;
     final songs = state.entries.map((entry) => entry.song).toList();
     String? lastDateLabel;
 
@@ -95,7 +101,7 @@ class HistoryPage extends ConsumerWidget {
         itemCount: state.entries.length,
         itemBuilder: (context, index) {
           final entry = state.entries[index];
-          final dateLabel = _getDateLabel(entry.listenedAt, now);
+          final dateLabel = _getDateLabel(l, entry.listenedAt, now);
 
           Widget? dateHeader;
           if (dateLabel != lastDateLabel) {
@@ -121,7 +127,10 @@ class HistoryPage extends ConsumerWidget {
                 song: entry.song,
                 time: entry.listenedAt,
                 platformColor: _platformColor(entry.song.platform),
-                timeAgo: _formatDuration(now.difference(entry.listenedAt)),
+                timeAgo: _formatDuration(
+                  context.l10n,
+                  now.difference(entry.listenedAt),
+                ),
                 onTap: () {
                   ref
                       .read(playerProvider.notifier)
@@ -149,15 +158,17 @@ class HistoryPage extends ConsumerWidget {
     );
   }
 
-  String _getDateLabel(DateTime date, DateTime now) {
+  String _getDateLabel(AppLocalizations l, DateTime date, DateTime now) {
     final today = DateTime(now.year, now.month, now.day);
     final dateOnly = DateTime(date.year, date.month, date.day);
     final diff = today.difference(dateOnly).inDays;
 
-    if (diff == 0) return '今天';
-    if (diff == 1) return '昨天';
-    if (diff < 7) return '$diff天前';
-    return DateFormat('MM月dd日').format(date);
+    if (diff == 0) return l.commonToday;
+    if (diff == 1) return l.commonYesterday;
+    if (diff < 7) return l.commonDaysAgo(diff);
+    // 日期模式本身也是文案（zh 是 `MM月dd日`、en 是 `MMM d`），所以它同样来自
+    // ARB：否则 en 用户会看到 `10月06日`。
+    return DateFormat(l.commonMonthDayPattern).format(date);
   }
 }
 

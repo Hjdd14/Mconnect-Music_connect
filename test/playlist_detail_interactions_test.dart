@@ -289,7 +289,7 @@ void main() {
     );
   });
 
-  testWidgets('自建歌单提供拖拽把手，拖动后顺序写入歌单', (tester) async {
+  widgetTest('自建歌单提供拖拽把手，拖动后顺序写入歌单', (tester) async {
     playlists.seed(
       [_playlist('p1', '拖拽歌单')],
       {
@@ -321,7 +321,7 @@ void main() {
     expect(playlists.lastReorder!.names, ['B', 'A', 'C']);
   });
 
-  testWidgets('长按进入多选，批量移出会真的从歌单删除', (tester) async {
+  widgetTest('长按进入多选，批量移出会真的从歌单删除', (tester) async {
     playlists.seed(
       [_playlist('p1', '待整理')],
       {
@@ -345,7 +345,7 @@ void main() {
     expect(find.text('歌单暂无歌曲'), findsOneWidget);
   });
 
-  testWidgets('多选状态下不再显示拖拽把手（两种手势不打架）', (tester) async {
+  widgetTest('多选状态下不再显示拖拽把手（两种手势不打架）', (tester) async {
     playlists.seed(
       [_playlist('p1', '多选')],
       {
@@ -366,7 +366,7 @@ void main() {
     expect(find.byIcon(Icons.drag_handle), findsNWidgets(2));
   });
 
-  testWidgets('批量加入歌单：选择目标歌单后歌曲真的进去', (tester) async {
+  widgetTest('批量加入歌单：选择目标歌单后歌曲真的进去', (tester) async {
     playlists.seed(
       [_playlist('p1', '来源歌单'), _playlist('p2', '目标歌单')],
       {
@@ -397,7 +397,7 @@ void main() {
     expect(_names(playlists.songs['p2']!), ['A']);
   });
 
-  testWidgets('⋮ 打开共享的长按菜单（动作由 dispatcher 负责）', (tester) async {
+  widgetTest('⋮ 打开共享的长按菜单（动作由 dispatcher 负责）', (tester) async {
     playlists.seed(
       [_playlist('p1', '菜单')],
       {
@@ -420,7 +420,7 @@ void main() {
     expect(find.text('下一首播放'), findsNothing);
   });
 
-  testWidgets('平台歌单不可拖拽排序，但保留多选与下载入口', (tester) async {
+  widgetTest('平台歌单不可拖拽排序，但保留多选与下载入口', (tester) async {
     PlatformRegistry.register(
       _FakePlaylistPlatform([
         _song('s1', 'S1', PlatformType.qq),

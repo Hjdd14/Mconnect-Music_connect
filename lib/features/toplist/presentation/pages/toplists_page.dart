@@ -9,6 +9,7 @@ import '../../../../core/theme/platform_accent.dart';
 import '../../../../core/utils/snackbar_helper.dart';
 import '../../../../core/widgets/app_scrollbar.dart';
 import '../../../../core/widgets/async_state_view.dart';
+import '../../../../l10n/l10n.dart';
 import '../../../../models/audio_quality.dart';
 import '../../../../models/platform_type.dart';
 import '../../../../models/song.dart';
@@ -539,7 +540,7 @@ class _ToplistDetailPageState extends ConsumerState<ToplistDetailPage> {
       body: async.when(
         loading: () => const AsyncStateView.loading(),
         error: (error, _) => AsyncStateView.error(
-          title: '加载失败',
+          title: context.l10n.commonLoadFailed,
           message: apiErrorText(context, apiExceptionOf(error)),
           onRetry: () => ref.invalidate(toplistSongsProvider(_key)),
         ),

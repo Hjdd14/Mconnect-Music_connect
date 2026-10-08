@@ -4,6 +4,7 @@ import '../../../../core/theme/platform_accent.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/widgets/app_scrollbar.dart';
 import '../../../../core/widgets/async_state_view.dart';
+import '../../../../l10n/l10n.dart';
 import '../../../../models/song.dart';
 import '../../../../models/platform_type.dart';
 import '../../../download/domain/entities/download_task.dart';
@@ -21,18 +22,19 @@ class LikesPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(likesProvider);
     final notifier = ref.read(likesProvider.notifier);
+    final l = context.l10n;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('我喜欢 (${state.filteredSongs.length})'),
+        title: Text(l.libraryLikesWithCount(state.filteredSongs.length)),
         actions: [
           if (state.songs.isNotEmpty)
             PopupMenuButton<PlatformType?>(
               icon: const Icon(Icons.filter_list),
-              tooltip: '平台筛选',
+              tooltip: l.libraryLikesFilter,
               onSelected: (platform) => notifier.setFilter(platform),
               itemBuilder: (context) => [
-                const PopupMenuItem(value: null, child: Text('全部平台')),
+                PopupMenuItem(value: null, child: Text(l.commonAllPlatforms)),
                 ...PlatformType.values.map(
                   (p) => PopupMenuItem(value: p, child: Text(p.displayName)),
                 ),
@@ -47,19 +49,19 @@ class LikesPage extends ConsumerWidget {
           ? const AsyncStateView.loading(skeleton: true)
           : state.error != null
           ? AsyncStateView.error(
-              title: '加载失败',
+              title: l.commonLoadFailed,
               message: state.error!,
               onRetry: () => ref.read(likesProvider.notifier).loadLikes(),
             )
           : state.songs.isEmpty
-          ? const AsyncStateView.empty(
-              title: '还没有喜欢的歌曲',
-              message: '在播放器中点击爱心添加',
+          ? AsyncStateView.empty(
+              title: l.libraryLikesEmpty,
+              message: l.libraryLikesEmptyHint,
               icon: Icons.favorite_border,
             )
           : state.filteredSongs.isEmpty
-          ? const AsyncStateView.empty(
-              title: '该平台没有喜欢的歌曲',
+          ? AsyncStateView.empty(
+              title: l.libraryLikesEmptyForPlatform,
               icon: Icons.filter_alt_off_outlined,
             )
           : _buildSongList(context, ref, state, notifier),

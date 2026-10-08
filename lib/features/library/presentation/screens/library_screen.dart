@@ -2,74 +2,78 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/widgets/app_scrollbar.dart';
+import '../../../../l10n/l10n.dart';
 
 class LibraryScreen extends StatelessWidget {
   const LibraryScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final l = context.l10n;
     return SafeArea(
       child: AppScrollbar(
         builder: (controller) => ListView(
           controller: controller,
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 88),
           children: [
-            const Text(
-              '音乐库',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            Text(
+              l.navLibrary,
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
             ListTile(
               leading: const Icon(Icons.favorite, color: Colors.red),
-              title: const Text('我喜欢的音乐'),
+              title: Text(l.libraryLikes),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/likes'),
             ),
             ListTile(
               leading: const Icon(Icons.history),
-              title: const Text('听歌历史'),
+              title: Text(l.libraryHistory),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/history'),
             ),
             ListTile(
               leading: const Icon(Icons.bar_chart),
-              title: const Text('听歌统计'),
+              title: Text(l.statsTitle),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/listening-stats'),
             ),
             ListTile(
               leading: const Icon(Icons.folder_open),
-              title: const Text('本地音乐'),
+              // 平台层与这行说的是同一件事（"本地"），复用现成的 platformLocal，
+              // 不再新造一个同义 key（地图 §1.2 规则 4）。
+              title: Text(l.platformLocal),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/local-music'),
             ),
             ListTile(
               leading: const Icon(Icons.offline_pin_outlined),
-              title: const Text('离线缓存'),
+              title: Text(l.cacheTitle),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/offline-cache'),
             ),
             ListTile(
               leading: const Icon(Icons.auto_awesome),
-              title: const Text('智能歌单'),
+              title: Text(l.smartPlaylistTitle),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/smart-playlists'),
             ),
             ListTile(
               leading: const Icon(Icons.queue_music),
-              title: const Text('歌单'),
+              title: Text(l.commonPlaylist),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/platform-playlists'),
             ),
             ListTile(
               leading: const Icon(Icons.playlist_play),
-              title: const Text('导入歌单'),
+              title: Text(l.libraryImportPlaylist),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/import-playlist'),
             ),
             ListTile(
               leading: const Icon(Icons.download),
-              title: const Text('下载管理'),
+              title: Text(l.downloadTitle),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.go('/?tab=3'),
             ),
@@ -88,7 +92,7 @@ class LibraryScreen extends StatelessWidget {
             const Divider(),
             ListTile(
               leading: const Icon(Icons.settings),
-              title: const Text('设置'),
+              title: Text(l.settingsTitle),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/settings'),
             ),

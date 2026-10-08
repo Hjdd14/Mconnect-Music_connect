@@ -255,5 +255,129 @@
       }
     }
   },
-  "netUnknownPlatform": "未知平台"
+  "netUnknownPlatform": "未知平台",
+
+  "commonLoadFailed": "加载失败",
+  "commonConfirm": "确定",
+  "commonAllPlatforms": "全部平台",
+  "commonPlaylist": "歌单",
+  "commonNow": "刚刚",
+  "commonToday": "今天",
+  "commonYesterday": "昨天",
+  "commonDaysAgo": "{count}天前",
+  "@commonDaysAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "commonHoursAgo": "{count}小时前",
+  "@commonHoursAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "commonMinutesAgo": "{count}分钟前",
+  "@commonMinutesAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "commonMonthDayPattern": "MM月dd日",
+
+  "libraryLikes": "我喜欢的音乐",
+  "libraryLikesWithCount": "我喜欢 ({count})",
+  "@libraryLikesWithCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryLikesFilter": "平台筛选",
+  "libraryLikesEmpty": "还没有喜欢的歌曲",
+  "libraryLikesEmptyHint": "在播放器中点击爱心添加",
+  "libraryLikesEmptyForPlatform": "该平台没有喜欢的歌曲",
+  "libraryHistory": "听歌历史",
+  "libraryHistoryWithCount": "听歌历史 ({count})",
+  "@libraryHistoryWithCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryHistoryClear": "清空历史",
+  "libraryHistoryClearConfirm": "清空听歌历史",
+  "libraryHistoryClearConfirmBody": "确定要清空所有听歌历史吗？",
+  "libraryHistoryEmpty": "还没有听歌记录",
+  "libraryImportPlaylist": "导入歌单",
+  "statsTitle": "听歌统计",
+  "cacheTitle": "离线缓存",
+  "smartPlaylistTitle": "智能歌单",
+  "downloadTitle": "下载管理",
+
+  "downloadButtonTooltip": "下载（长按加入离线缓存）",
+  "cacheQueuedOfflineMode": "离线模式已开启，已加入缓存队列但不会自动开始",
+  "cacheQueuedWifi": "已加入离线缓存队列，将在连接 Wi-Fi 后开始",
+  "cacheQueuedPaused": "已加入离线缓存队列，队列当前已暂停",
+  "cacheAdded": "已加入离线缓存：{name}",
+  "@cacheAdded": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "cacheAlreadyQueued": "该歌曲已在缓存列表中",
+  "downloadQualityPicker": "选择下载音质 - {name}",
+  "@downloadQualityPicker": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "downloadRequiresSvip": "需 SVIP",
+  "downloadRequiresVip": "需 VIP",
+  "downloadLosslessFormat": "{format} · 无损音质",
+  "@downloadLosslessFormat": {
+    "placeholders": {
+      "format": {
+        "type": "String"
+      }
+    }
+  },
+  "downloadNeedsSvip": "需要超级会员才能下载{quality}音质",
+  "@downloadNeedsSvip": {
+    "placeholders": {
+      "quality": {
+        "type": "String"
+      }
+    }
+  },
+  "downloadNeedsVip": "需要VIP才能下载{quality}音质",
+  "@downloadNeedsVip": {
+    "placeholders": {
+      "quality": {
+        "type": "String"
+      }
+    }
+  },
+  "downloadStarted": "已开始下载: {name} ({quality})",
+  "@downloadStarted": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "quality": {
+        "type": "String"
+      }
+    }
+  }
 }

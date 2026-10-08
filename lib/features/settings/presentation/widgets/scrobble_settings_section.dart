@@ -5,6 +5,7 @@ import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mconnect/core/utils/snackbar_helper.dart';
 import 'package:mconnect/features/scrobble/data/scrobble_config.dart';
+import 'package:mconnect/features/scrobble/presentation/providers/scrobble_provider.dart';
 import 'package:mconnect/features/settings/presentation/providers/scrobble_settings_controller.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -60,6 +61,47 @@ class _ScrobbleSettingsSectionState
 
   @override
   Widget build(BuildContext context) {
+    // 显式订阅（widget 级）：状态一变就重建 UI，但**不把这条边加进
+    // `scrobbleSettingsControllerProvider` 的 provider 图**。
+    //
+    // 早期版本由 controller 自己 `ref.watch` 这些 provider，于是 provider 图里出现
+    // controller → status → coordinator → backend → preferences/secrets → controller
+    // 的环；把区块挂进 `SettingsPage` 时 `PROBE S` 量到 `CircularDependencyError`，
+    // 该页在区块之后的条目全部不再渲染。widget 订阅不参与 provider 图，所以
+    // 订阅放在这里既能让 UI 跟着变，又不可能成环。
+    ref.watch(scrobbleStatusProvider);
+
+    // **"开没开"读 preferences，不读 `status.enabled`。**
+    // `ScrobbleStatus` 里的 preferences 只有 `refresh()` 之后才会被填上，而
+    // `refresh()` 会去读凭据（平台 keystore）与协调器（数据库）—— 拿它当开关的真值
+    // 会变成"关闭时永远刷新不到开启"的死锁，而且默认关闭时本就不该碰那两个存储。
+    // `scrobblePreferencesProvider` 自己是异步从 Hive 读的（Hive 打开着的环境里
+    // 零真实 I/O），读到之后会重建这里，开关自然就对了。
+    final preferences = ref.watch(scrobblePreferencesProvider);
+
+    // 凭据只在**开启时**订阅：默认关闭时连 `scrobbleSecretsProvider` 都不要被构造
+    // （它的 notifier 构造期 `unawaited(_load())` 会碰平台 keystore）。
+    if (preferences.enabled) {
+      ref.watch(scrobbleSecretsProvider);
+    }
+
+    // 「待补交 N 条」是 status 里非 reactive 的部分，开启后要主动问一次。
+    // 用 `ref.listen(fireImmediately: true)` 而不是 initState：preferences 是**异步**
+    // 载入的，initState 那一帧它多半还是"关闭"，只会在关→开时漏刷；listen 覆盖
+    // "载入后本来就是开启"的情况。回调里只排帧后动作 —— refresh() 会读 provider，
+    // 不能在 build 期跑。
+    ref.listen<bool>(
+      scrobblePreferencesProvider.select((prefs) => prefs.enabled),
+      (previous, next) {
+        if (!next) return;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          ref.read(scrobbleSettingsControllerProvider).refresh();
+        });
+      },
+      fireImmediately: true,
+    );
+
     final controller = ref.watch(scrobbleSettingsControllerProvider);
     final view = controller.view;
 

@@ -511,4 +511,153 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get netUnknownPlatform => 'Unknown platform';
+
+  @override
+  String get commonLoadFailed => 'Failed to load';
+
+  @override
+  String get commonConfirm => 'OK';
+
+  @override
+  String get commonAllPlatforms => 'All platforms';
+
+  @override
+  String get commonPlaylist => 'Playlists';
+
+  @override
+  String get commonNow => 'Just now';
+
+  @override
+  String get commonToday => 'Today';
+
+  @override
+  String get commonYesterday => 'Yesterday';
+
+  @override
+  String commonDaysAgo(int count) {
+    return '$count days ago';
+  }
+
+  @override
+  String commonHoursAgo(int count) {
+    return '$count hours ago';
+  }
+
+  @override
+  String commonMinutesAgo(int count) {
+    return '$count minutes ago';
+  }
+
+  @override
+  String get commonMonthDayPattern => 'MMM d';
+
+  @override
+  String get libraryLikes => 'Liked songs';
+
+  @override
+  String libraryLikesWithCount(int count) {
+    return 'Liked songs ($count)';
+  }
+
+  @override
+  String get libraryLikesFilter => 'Filter by platform';
+
+  @override
+  String get libraryLikesEmpty => 'No liked songs yet';
+
+  @override
+  String get libraryLikesEmptyHint => 'Tap the heart in the player to add one';
+
+  @override
+  String get libraryLikesEmptyForPlatform => 'No liked songs on this platform';
+
+  @override
+  String get libraryHistory => 'Listening history';
+
+  @override
+  String libraryHistoryWithCount(int count) {
+    return 'Listening history ($count)';
+  }
+
+  @override
+  String get libraryHistoryClear => 'Clear history';
+
+  @override
+  String get libraryHistoryClearConfirm => 'Clear listening history';
+
+  @override
+  String get libraryHistoryClearConfirmBody =>
+      'Clear the entire listening history?';
+
+  @override
+  String get libraryHistoryEmpty => 'No listening history yet';
+
+  @override
+  String get libraryImportPlaylist => 'Import playlist';
+
+  @override
+  String get statsTitle => 'Listening stats';
+
+  @override
+  String get cacheTitle => 'Offline cache';
+
+  @override
+  String get smartPlaylistTitle => 'Smart playlists';
+
+  @override
+  String get downloadTitle => 'Downloads';
+
+  @override
+  String get downloadButtonTooltip => 'Download (long-press to cache offline)';
+
+  @override
+  String get cacheQueuedOfflineMode =>
+      'Offline mode is on — queued, but it will not start automatically';
+
+  @override
+  String get cacheQueuedWifi =>
+      'Queued for offline cache — it will start once you are on Wi-Fi';
+
+  @override
+  String get cacheQueuedPaused =>
+      'Queued for offline cache — the queue is paused';
+
+  @override
+  String cacheAdded(String name) {
+    return 'Added to the offline cache: $name';
+  }
+
+  @override
+  String get cacheAlreadyQueued => 'This song is already in the cache list';
+
+  @override
+  String downloadQualityPicker(String name) {
+    return 'Choose download quality - $name';
+  }
+
+  @override
+  String get downloadRequiresSvip => 'SVIP';
+
+  @override
+  String get downloadRequiresVip => 'VIP';
+
+  @override
+  String downloadLosslessFormat(String format) {
+    return '$format · lossless';
+  }
+
+  @override
+  String downloadNeedsSvip(String quality) {
+    return 'SVIP is required to download $quality';
+  }
+
+  @override
+  String downloadNeedsVip(String quality) {
+    return 'VIP is required to download $quality';
+  }
+
+  @override
+  String downloadStarted(String name, String quality) {
+    return 'Download started: $name ($quality)';
+  }
 }

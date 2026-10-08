@@ -3,15 +3,20 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mconnect/features/scrobble/data/scrobble_config.dart';
+import 'package:mconnect/features/scrobble/presentation/providers/scrobble_provider.dart';
 import 'package:mconnect/features/settings/presentation/providers/scrobble_settings_controller.dart';
 import 'package:mconnect/features/settings/presentation/widgets/scrobble_settings_section.dart';
 
 /// 设置页「听歌记录同步」区块的用例。
 ///
-/// 数据面通过 [ScrobbleSettingsController] 这个窄接口注入假实现，所以：
-/// * 不需要真的 `ScrobblePreferencesNotifier` / `ScrobbleSecretsNotifier`；
-/// * 不需要 keystore / 网络 / Hive；
-/// * 可以让"关闭时不发请求"变成**可断言**的，而不是"看起来没动静"。
+/// 数据面通过 [ScrobbleSettingsController] 这个窄接口注入假实现（动作 + 快照），
+/// 所以"点了几次、传了什么"不需要真 notifier 就能断言。
+///
+/// 但**区块自身会裸 watch `scrobbleStatus/Preferences/Secrets` 三个 provider**
+/// （订阅刻意放在 widget 层，避免 provider 图成环），因此这三个 provider 仍会被
+/// **真实构造**；两个 store 于是在 `_app` 里被 override 成内存实现。这不影响
+/// "关闭时不发请求"那条断言 —— 它仍然是可断言的，而不是"看起来没动静"。
+/// 依然完全不碰：keystore、网络、Hive。
 ///
 /// 用例名与验收条目一一对应（默认关闭 / 切服务不丢凭据 / 凭据回填 /
 /// 只提交改过的字段 / base URL 非法就地报错 / 测试连接 / 立即补交 / 授权页回退）。
@@ -186,6 +191,21 @@ Widget _app(
       // 用 `overrideWith` 而不是 `overrideWithValue`：后者在 Riverpod 后续版本里
       // 有过 deprecation 讨论，而 `overrideWith` 在 2.x/3.x 都是稳的。
       scrobbleSettingsControllerProvider.overrideWith((ref) => fake),
+
+      // ⚠️ 这两条是"订阅移到 widget"的**代价**，不能删。
+      //
+      // 区块的 build 里裸 watch 了 status / preferences / secrets 三个 provider
+      // （订阅刻意放在 widget 层，避免 provider 图成环），所以它们在本测试里会被
+      // **真实构造**。默认的 store 实现会去碰 Hive 与平台 keystore：真实 I/O 在
+      // fake-async 里以"未捕获 zone 错误"的形式冒出来，栈落在
+      // `ScrobblePreferencesNotifier._load` → `scrobble_provider.dart:96`。
+      // 换成内存实现后：构造照旧、异步 load 立即完成、不碰任何平台通道。
+      scrobblePreferenceStoreProvider.overrideWith(
+        (ref) => MemoryScrobblePreferenceStore(),
+      ),
+      scrobbleSecretStoreProvider.overrideWith(
+        (ref) => MemoryScrobbleSecretStore(),
+      ),
     ],
     child: MaterialApp(
       home: Scaffold(

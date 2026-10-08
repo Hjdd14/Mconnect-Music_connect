@@ -491,4 +491,149 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get netUnknownPlatform => '未知平台';
+
+  @override
+  String get commonLoadFailed => '加载失败';
+
+  @override
+  String get commonConfirm => '确定';
+
+  @override
+  String get commonAllPlatforms => '全部平台';
+
+  @override
+  String get commonPlaylist => '歌单';
+
+  @override
+  String get commonNow => '刚刚';
+
+  @override
+  String get commonToday => '今天';
+
+  @override
+  String get commonYesterday => '昨天';
+
+  @override
+  String commonDaysAgo(int count) {
+    return '$count天前';
+  }
+
+  @override
+  String commonHoursAgo(int count) {
+    return '$count小时前';
+  }
+
+  @override
+  String commonMinutesAgo(int count) {
+    return '$count分钟前';
+  }
+
+  @override
+  String get commonMonthDayPattern => 'MM月dd日';
+
+  @override
+  String get libraryLikes => '我喜欢的音乐';
+
+  @override
+  String libraryLikesWithCount(int count) {
+    return '我喜欢 ($count)';
+  }
+
+  @override
+  String get libraryLikesFilter => '平台筛选';
+
+  @override
+  String get libraryLikesEmpty => '还没有喜欢的歌曲';
+
+  @override
+  String get libraryLikesEmptyHint => '在播放器中点击爱心添加';
+
+  @override
+  String get libraryLikesEmptyForPlatform => '该平台没有喜欢的歌曲';
+
+  @override
+  String get libraryHistory => '听歌历史';
+
+  @override
+  String libraryHistoryWithCount(int count) {
+    return '听歌历史 ($count)';
+  }
+
+  @override
+  String get libraryHistoryClear => '清空历史';
+
+  @override
+  String get libraryHistoryClearConfirm => '清空听歌历史';
+
+  @override
+  String get libraryHistoryClearConfirmBody => '确定要清空所有听歌历史吗？';
+
+  @override
+  String get libraryHistoryEmpty => '还没有听歌记录';
+
+  @override
+  String get libraryImportPlaylist => '导入歌单';
+
+  @override
+  String get statsTitle => '听歌统计';
+
+  @override
+  String get cacheTitle => '离线缓存';
+
+  @override
+  String get smartPlaylistTitle => '智能歌单';
+
+  @override
+  String get downloadTitle => '下载管理';
+
+  @override
+  String get downloadButtonTooltip => '下载（长按加入离线缓存）';
+
+  @override
+  String get cacheQueuedOfflineMode => '离线模式已开启，已加入缓存队列但不会自动开始';
+
+  @override
+  String get cacheQueuedWifi => '已加入离线缓存队列，将在连接 Wi-Fi 后开始';
+
+  @override
+  String get cacheQueuedPaused => '已加入离线缓存队列，队列当前已暂停';
+
+  @override
+  String cacheAdded(String name) {
+    return '已加入离线缓存：$name';
+  }
+
+  @override
+  String get cacheAlreadyQueued => '该歌曲已在缓存列表中';
+
+  @override
+  String downloadQualityPicker(String name) {
+    return '选择下载音质 - $name';
+  }
+
+  @override
+  String get downloadRequiresSvip => '需 SVIP';
+
+  @override
+  String get downloadRequiresVip => '需 VIP';
+
+  @override
+  String downloadLosslessFormat(String format) {
+    return '$format · 无损音质';
+  }
+
+  @override
+  String downloadNeedsSvip(String quality) {
+    return '需要超级会员才能下载$quality音质';
+  }
+
+  @override
+  String downloadNeedsVip(String quality) {
+    return '需要VIP才能下载$quality音质';
+  }
+
+  @override
+  String downloadStarted(String name, String quality) {
+    return '已开始下载: $name ($quality)';
+  }
 }

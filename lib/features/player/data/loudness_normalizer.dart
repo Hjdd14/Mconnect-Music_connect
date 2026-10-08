@@ -107,6 +107,44 @@ class LoudnessNormalizer {
 
   static bool _hasDbSuffix(String text) => text.toLowerCase().endsWith('db');
 
+  /// 从**已经取出的** ReplayGain 字符串列表算出软件增益（item c 的适配层）。
+  ///
+  /// 刻意**只吃字符串列表**、不 `import 'package:audio_metadata_reader/...'`：
+  /// "怎么从 `AudioMetadata` 走到 `VorbisMetadata` / `MP3Metadata.customMetadata`"这条
+  /// 路由**没有核实过**（Lead 查过 `AudioMetadata` 的字段表，没找到能证明的入口），所以
+  /// 不猜。取值由已经 import 该包的取值层（`local_metadata_reader.dart`）把字符串列表
+  /// 传进来 —— 分工干净，本函数仍可完全单测。
+  ///
+  /// 取值策略（集中写在这里，避免每层各有一套）：
+  /// * 同一 tag 可能出现多次（上游字段是 `List<String>`）→ **取最后一个非空值**
+  ///   （"后写的覆盖先写的"是 TXXX/注释字段的常见语义；不一致时不静默取中间值）；
+  /// * **track 优先于 album**：单曲播放用 track gain；album gain 需要"整张专辑"的
+  ///   上下文（队列级判断），不属本项范围；
+  /// * peak 同理：track peak 优先、album peak 兜底；某个 peak 不可用时**只是不做削波
+  ///   保护**，不影响增益本身。
+  static double? gainFromTags({
+    List<String>? trackGain,
+    List<String>? trackPeak,
+    List<String>? albumGain,
+    List<String>? albumPeak,
+  }) {
+    final gainText = _lastNonEmpty(trackGain) ?? _lastNonEmpty(albumGain);
+    final peakText = _lastNonEmpty(trackPeak) ?? _lastNonEmpty(albumPeak);
+    return gainFor(
+      trackGainDb: parseGainDb(gainText),
+      trackPeak: parsePeak(peakText),
+    );
+  }
+
+  static String? _lastNonEmpty(List<String>? values) {
+    if (values == null || values.isEmpty) return null;
+    for (var i = values.length - 1; i >= 0; i--) {
+      final candidate = values[i].trim();
+      if (candidate.isNotEmpty) return candidate;
+    }
+    return null;
+  }
+
   /// 让 [peak] 恰好升到 [peakCeilingDb] 所需的增益（通常是负的）。
   static double _gainToReachPeak(double peak) {
     final ceiling = math.pow(10, peakCeilingDb / 20).toDouble();

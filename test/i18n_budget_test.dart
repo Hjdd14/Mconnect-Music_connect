@@ -61,8 +61,29 @@ void main() {
   //   4 个页面里"文案来源"的那一行，新增 0 处字面量）。
   //   ⇒ 净值 974 − 25 + 1 = **950/102**（`files` 105 → 102：network 里原带中文的
   //   3 个文件都归零）。
-  const baselineTotal = 950;
-  const baselineFiles = 102;
+  // W3-D B4（`library` + `download`，**进行中** —— 本批 253 处只完成了一部分）：
+  //   已归零的文件：`library_screen.dart` 11 → 0、`likes_page.dart` 7 → 0、
+  //     `history_page.dart` 15 → 0。
+  //   另把 `toplists_page.dart` 的 `'加载失败'` 收进共享 key `commonLoadFailed`
+  //     （1 处；它属于 B6 的文件，只是在 B2 改过一行的文件里顺手收掉）。
+  //   ⇒ 本批至今 `library` **33/157**、`download` **0/96**，新增 28 个 key
+  //     （`common*` 11 个 + `library*`/`stats*`/`cache*`/`download*` 17 个）。
+  //   整棵树 950/102 → **917/99**（净值 −33/−3 = 本批 33 处，加上并行 writer 的 ±0）。
+  //   ⚠️ 剩余 `library` 124 处 + `download` 96 处**还没迁**，仍计入基线；
+  //      下一批继续往下压。
+  //
+  // W3-D B4-2（继续）：
+  //   `download/presentation/widgets/download_button.dart` 13 → 0 ⇒ 本批 **−13/−1**
+  //   （整棵树 917/99 → **904/98**，与文件实测完全吻合，无并行干扰）。
+  //   新增 13 个 key：`downloadButtonTooltip`、`cacheQueuedOfflineMode`、
+  //   `cacheQueuedWifi`、`cacheQueuedPaused`、`cacheAdded`、`cacheAlreadyQueued`、
+  //   `downloadQualityPicker`、`downloadRequiresSvip`、`downloadRequiresVip`、
+  //   `downloadLosslessFormat`、`downloadNeedsSvip`、`downloadNeedsVip`、
+  //   `downloadStarted`（6 个参数化 key 带 `@placeholders`）。
+  //   ⚠️ 剩余 B4-2：`platform_playlists_page` 37、`download_page` 37、
+  //      `playlist_detail_page` 29、`import_playlist_page` 29 = **132 处**。
+  const baselineTotal = 904;
+  const baselineFiles = 98;
 
   test('lib/ 的硬编码中文不得超过基线（总数与文件数都不许涨）', () {
     var total = 0;
