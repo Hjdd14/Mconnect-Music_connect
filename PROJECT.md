@@ -9,7 +9,7 @@
 | 项目 | 值 |
 |------|-----|
 | 名称 | Mconnect |
-| 版本 | 1.4.4+15 |
+| 版本 | 1.5.0+16 |
 | Application ID | com.mconnect.mconnect |
 | 技术栈 | Flutter 3.47.5 / Dart 3.13.4 |
 | 平台 | Android（主）+ Windows 桌面端口（`windows/`，含自研原生悬浮歌词窗口与 Inno Setup 安装器） |
@@ -700,4 +700,4 @@ dart run scripts/test_kugou_info.dart
 
 详见 [CHANGELOG.md](CHANGELOG.md)
 
-当前版本: v1.4.4 悬浮歌词行序修复 (2026-10-07)
+当前版本: v1.5.0 (2026-10-08)

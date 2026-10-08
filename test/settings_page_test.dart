@@ -155,7 +155,7 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
 
-    expect(find.text('v1.4.4'), findsOneWidget);
+    expect(find.text('v1.5.0'), findsOneWidget);
   });
 
   testWidgets(

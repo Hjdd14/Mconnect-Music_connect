@@ -1,9 +1,63 @@
 # Changelog
 
-## 2026-10-07 - v1.4.4 悬浮歌词行序修复：让翻译紧跟在正在唱的那句下方
+## 2026-10-08 - v1.5.0 跨源换源、播放与歌词增强、库与统计、scrobble、Android 小组件、可访问性与工程护栏
+
+一次性的阶段发布（Wave 0–4）。**音源仍固定为内置三平台**（网易云 / QQ / 酷狗），无任何外部音源导入能力。
+
+### 版本与产物
+
+| 项 | 值 |
+|---|---|
+| 版本 | `1.5.0+16` |
+| Android | **分包三 APK**（`flutter build apk --release --split-per-abi`），**不提供 universal 包** |
+| Windows | `flutter build windows --release` + Inno Setup 安装器（见下方"已知未验证"） |
+
+### 播放与失败链
+
+- **跨源换源失败后当次即失效该缓存条目**：源侧本来就有 `invalidate()`，但**没有任何地方调用它**，于是一个"按时间仍有效、实际在服务端已死"的 URL 会被复用满 20 分钟 TTL。现在在**两个时刻**失效——换源 URL 重放失败（知道确切平台）、以及**播放中途出错**而 `sourcePlatform` 已设置（跨源流半途断掉）；原平台永不被失效，且**每条失败链只解析一次**（不是每个音质档位一次）。
+- 播放失败**可见**：失败链的每一环都给出用户可读的原因，SnackBar 与三态统一。
+
+### 歌词
+
+- **整首丢失修复**；分享图（屏幕外挂载**确实被绘制**的守卫、真 PNG 头断言、假 channel 收到恰一个存在的 PNG）。
+- Android **歌词候选发现**：`lyrics/` 子目录 + `artist - title` 尾巴匹配 + rank 排序（精确同名恒优先）。
+
+### 库、统计与歌单
+
+- 歌单**导入/导出**、歌单详情三态、听歌历史/我喜欢页面、听歌统计页三态。
+- Android **MediaStore + ContentObserver 监听**：1500 ms 去抖（一次突发 = 一个事件），Dart 侧只调 `rescan()`、**Kotlin 内零扫描逻辑**。**已知限制**：SAF 选的目录不一定在 MediaStore 索引内 ⇒ 监听是"锦上添花"，**手动刷新仍然必要**。
+
+### scrobble（Last.fm / Libre.fm / ListenBrainz / Maloja）
+
+- 传输层 + 队列协调器 + 设置页区块（**默认关闭**；关闭时不构造后端、不发请求）。
+- 设置区块接线曾因 provider 图成环（`CircularDependencyError`）**三次未果**，最终根因是一个**死锁**：refresh 的门槛依赖"只有该 refresh 才会填上"的值。改为直接读偏好 + 仅开启时读凭据后消除。
+- 持久化改为**可注入**（`AutoSourceSwitchStore` / `AudioEffectsSettingsStore`，Hive 生产实现 + 记录写入的内存实现），修掉一个**点击开关即让测试挂死 10 分钟**的问题——根因是 UI 回调里的 fire-and-forget 真实 Hive 写，其 continuation 留在假时钟队列上，`tearDown` 的 `Hive.close()` 永远等不到。
+
+### 工程护栏
+
+- `flutter analyze` 0 issue + 全量测试绿为**每次提交的硬门禁**；版本号 **7 处机器校验**（`version_sync_test`）。
+- **i18n 硬编码计数棘轮**（`i18n_budget_test`，只降不升）。本版把 `core/network` 25 → 0 等批次迁入 ARB，基线冻结于 **875/98**。
+  **说明**：本版**只发布中文**（`app.dart` 的 `appSupportedLocales` 仅 `zh`），因此**剩余 177 处迁移留待将来放开 `en` 的版本**——它们对本版用户**零可观察变化**，不应阻塞发布。棘轮继续防止新增硬编码。
+- 可访问性：新增 `accessibility_audit_test`，对图标按钮与封面/头像断言**真实语义节点上的字段**（并记录两个通道的区别：`IconButton(tooltip:)` → tooltip 通道；`Icon(semanticLabel:)` → label 通道，后者为**实测结论**）。
+
+### 已知未验证（交付时如实标注）
+
+- **安装器编译**：本机**没有 Inno Setup**（`ISCC.exe` 不存在）⇒ 安装器未在本机构建验证。
+- **Android release 的 R8 收缩**已实测**构建通过**（分包三 APK 成功），但**运行期行为**需真机验证。
+- 其余【需真机】项：换源真机可播与来源角标、预解析实际请求量、通知栏小图标、Android 小组件渲染与点击（含冷启动）、Android Auto 全链路、系统分享面板、悬浮窗视觉、KRC `[language:]`、Maloja 端点、`user.getInfo` 探针。
+- **签名**：release 仍指向 **debug keystore**（用户 2026-10-04 的明确选择）⇒ 换签名会让已安装用户丢本地数据；`C:\Users\PC\.android\debug.keystore` **丢失或重生成后老用户将永远无法升级**，请备份。
+
+### 未做（有理由，已入档）
+
+- **gapless**：现状是单 URL 传输 ⇒ 要改接口 + 3 个实现 + MediaSession 队列语义；完整方案要拆掉 `_safeStop()` 这条防线（本项目最贵的 bug 区），且"预解析到可播"只是**语义近似**；验收判据**全部需要真机**。⇒ 本版不做，留能力位与接口草案。
+- **缓存 LRU**：仓库**已有一个生产中的 LRU**（`download_provider.dart` 的 `cleanupOfflineCache` + `policy.sizeLimitMb`）。再写一份等于同一块磁盘两个清理器互相淘汰。⇒ 复用现有清理器，不新写。
+
+
 
 门禁：`flutter analyze --no-pub` **0 issue**、`flutter test --no-pub -j 1` **1093 passed / 10 skipped / 0 failed**。
 
+
+## 2026-10-07 - v1.4.4 悬浮歌词行序修复：让翻译紧跟在正在唱的那句下方
 ### 问题
 
 悬浮歌词显示三行时**顺序错了**：**正在唱的那句**（高亮）、**下一句的原文**、**本句的翻译**。下一句被夹在"本句"和"本句自己的翻译"之间，所以看着混乱 —— 例如：
