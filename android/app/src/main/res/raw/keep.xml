@@ -1,2 +1,2 @@
 <resources xmlns:tools="http://schemas.android.com/tools"
-    tools:keep="@drawable/audio_service_lyrics_on,@drawable/audio_service_lyrics_off,@drawable/audio_service_favorite_filled,@drawable/audio_service_favorite_outline" />
+    tools:keep="@drawable/audio_service_lyrics_on,@drawable/audio_service_lyrics_off,@drawable/audio_service_favorite_filled,@drawable/audio_service_favorite_outline,@drawable/ic_stat_music" />
