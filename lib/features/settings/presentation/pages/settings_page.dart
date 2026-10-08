@@ -27,7 +27,7 @@ import 'package:mconnect/features/audio_effects/presentation/providers/audio_eff
 import 'package:mconnect/features/audio_effects/presentation/providers/sleep_timer_provider.dart';
 import 'package:mconnect/features/floating_lyrics/data/floating_lyrics_service.dart';
 import 'package:mconnect/features/floating_lyrics/presentation/providers/floating_lyrics_provider.dart';
-// scrobble_settings_section.dart: not imported while PROBE S reports a build-time exception.
+import 'package:mconnect/features/settings/presentation/widgets/scrobble_settings_section.dart';
 import 'package:mconnect/l10n/l10n.dart';
 import 'package:mconnect/l10n/platform_labels.dart';
 import 'package:mconnect/models/platform_type.dart';
@@ -125,7 +125,7 @@ class SettingsPage extends StatelessWidget {
           // reads them lazily, and the *widget* subscribes), so it has no outgoing edge
           // left and cannot be part of a cycle. If PROBE S reports EXCEPTION again,
           // someone has re-added a `ref.watch` to that provider's build.
-          // ScrobbleSettingsSection: NOT wired - PROBE S still reports a build-time
+          const ScrobbleSettingsSection(),
           // task-12: the data layer (WS-F) and diagnostics (task-11) shipped
           // their features, but without an entry point they were unreachable.
           _SettingsEntryTile(

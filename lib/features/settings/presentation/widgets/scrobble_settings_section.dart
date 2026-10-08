@@ -90,6 +90,10 @@ class _ScrobbleSettingsSectionState
     // 载入的，initState 那一帧它多半还是"关闭"，只会在关→开时漏刷；listen 覆盖
     // "载入后本来就是开启"的情况。回调里只排帧后动作 —— refresh() 会读 provider，
     // 不能在 build 期跑。
+    // No `fireImmediately`: `WidgetRef.listen` has no such parameter (only
+    // `listenManual` does). It is not needed either: the preferences notifier
+    // loads from Hive asynchronously, so the "stored value is enabled" case
+    // arrives as a false -> true transition, which this listener does see.
     ref.listen<bool>(
       scrobblePreferencesProvider.select((prefs) => prefs.enabled),
       (previous, next) {
@@ -99,7 +103,6 @@ class _ScrobbleSettingsSectionState
           ref.read(scrobbleSettingsControllerProvider).refresh();
         });
       },
-      fireImmediately: true,
     );
 
     final controller = ref.watch(scrobbleSettingsControllerProvider);
