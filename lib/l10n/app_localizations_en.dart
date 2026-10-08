@@ -441,4 +441,74 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get sessionGoToLogin => 'Sign in';
+
+  @override
+  String get netConnectionFailed =>
+      'Couldn\'t connect. Check your network and try again';
+
+  @override
+  String get netLoginExpired => 'Your session expired, please sign in again';
+
+  @override
+  String get netCurrentPlatform => 'the current platform';
+
+  @override
+  String netSongNotAvailable(String platform) {
+    return 'This song isn\'t available on $platform';
+  }
+
+  @override
+  String get netQualityNotAvailable => 'That audio quality isn\'t available';
+
+  @override
+  String netQualityDowngraded(String quality) {
+    return 'That audio quality isn\'t available, switched to $quality';
+  }
+
+  @override
+  String get netLyricsNotFound => 'No lyrics available';
+
+  @override
+  String netNoVip(String platform) {
+    return '$platform membership required';
+  }
+
+  @override
+  String get netStoragePermissionDenied =>
+      'Storage permission denied, grant it in Settings';
+
+  @override
+  String get netNotFound => 'This content no longer exists';
+
+  @override
+  String netUnsupported(String platform) {
+    return '$platform doesn\'t support this yet';
+  }
+
+  @override
+  String get netStorageFull => 'Not enough storage space';
+
+  @override
+  String get netRequestCancelled => 'Request cancelled';
+
+  @override
+  String netRequestTimeout(String platform) {
+    return '$platform request timed out';
+  }
+
+  @override
+  String netServerError(String platform) {
+    return '$platform server error';
+  }
+
+  @override
+  String get netRequestFailed => 'Request failed';
+
+  @override
+  String netRequestFailedWithCode(int code) {
+    return 'Request failed ($code)';
+  }
+
+  @override
+  String get netUnknownPlatform => 'Unknown platform';
 }

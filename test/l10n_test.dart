@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mconnect/core/network/api_error_l10n.dart';
+import 'package:mconnect/core/network/api_exception.dart';
 import 'package:mconnect/l10n/app_localizations.dart';
 import 'package:mconnect/l10n/l10n.dart';
 
@@ -195,5 +197,68 @@ void main() {
         .toList()
       ..sort();
     expect(offenders, isEmpty, reason: 'en 值含中文 = 假翻译（等于没翻）：$offenders');
+  });
+
+  testWidgets('apiErrorText renders each ApiErrorCode in the current locale', (
+    tester,
+  ) async {
+    // 这是 §3.3「模式 A」的 UI 半边：core/network 抛**带错误码**的异常（那一层
+    // 没有 BuildContext），页面用 apiErrorText 翻成当前语言。
+    // 覆盖三件事：① zh 与迁移前的字面量逐字一致；② en 真的切过去；
+    // ③ 未分类的（`unknown`，例如平台层自造的 message）原样透传而不是变空。
+    late BuildContext ctx;
+
+    Future<void> pumpLocale(Locale locale) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: locale,
+          supportedLocales: const [Locale('zh'), Locale('en')],
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          home: Builder(
+            builder: (context) {
+              ctx = context;
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+      );
+    }
+
+    await pumpLocale(const Locale('zh'));
+    expect(apiErrorText(ctx, LoginExpiredException()), '登录已过期，请重新登录');
+    expect(apiErrorText(ctx, NetworkException()), '网络连接失败，请检查网络后重试');
+    expect(
+      apiErrorText(ctx, SongNotAvailableException(platform: 'QQ音乐')),
+      '该歌曲在QQ音乐不可用',
+    );
+    expect(apiErrorText(ctx, RequestCancelledException()), '请求已取消');
+    expect(
+      apiErrorText(
+        ctx,
+        NetworkException(
+          details: '网易云请求超时',
+          code: ApiErrorCode.requestTimeout,
+          platform: '网易云',
+        ),
+      ),
+      '网易云请求超时',
+      reason: '超时要能说出是哪个平台超时，而不是笼统的"网络连接失败"',
+    );
+    // 未分类：原样透传（迁移前 UI 显示的就是它）
+    expect(
+      apiErrorText(ctx, ApiException(message: 'raw platform text')),
+      'raw platform text',
+    );
+
+    await pumpLocale(const Locale('en'));
+    expect(
+      apiErrorText(ctx, LoginExpiredException()),
+      'Your session expired, please sign in again',
+    );
+    expect(apiErrorText(ctx, NetworkException()), contains("Couldn't connect"));
+    expect(
+      apiErrorText(ctx, RequestCancelledException()),
+      'Request cancelled',
+    );
   });
 }

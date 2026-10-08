@@ -187,5 +187,73 @@
   "platformQq": "QQ 音乐",
   "platformKugou": "酷狗音乐",
   "sessionExpired": "登录已过期，请重新登录",
-  "sessionGoToLogin": "去登录"
+  "sessionGoToLogin": "去登录",
+
+  "netConnectionFailed": "网络连接失败，请检查网络后重试",
+  "netLoginExpired": "登录已过期，请重新登录",
+  "netCurrentPlatform": "当前平台",
+  "netSongNotAvailable": "该歌曲在{platform}不可用",
+  "@netSongNotAvailable": {
+    "placeholders": {
+      "platform": {
+        "type": "String"
+      }
+    }
+  },
+  "netQualityNotAvailable": "所选音质不可用",
+  "netQualityDowngraded": "所选音质不可用，已降级到{quality}",
+  "@netQualityDowngraded": {
+    "placeholders": {
+      "quality": {
+        "type": "String"
+      }
+    }
+  },
+  "netLyricsNotFound": "暂无歌词",
+  "netNoVip": "需要开通{platform}会员",
+  "@netNoVip": {
+    "placeholders": {
+      "platform": {
+        "type": "String"
+      }
+    }
+  },
+  "netStoragePermissionDenied": "存储权限被拒绝，请在设置中授权",
+  "netNotFound": "内容不存在或已被删除",
+  "netUnsupported": "{platform}暂不支持该功能",
+  "@netUnsupported": {
+    "placeholders": {
+      "platform": {
+        "type": "String"
+      }
+    }
+  },
+  "netStorageFull": "存储空间不足",
+  "netRequestCancelled": "请求已取消",
+  "netRequestTimeout": "{platform}请求超时",
+  "@netRequestTimeout": {
+    "placeholders": {
+      "platform": {
+        "type": "String"
+      }
+    }
+  },
+  "netServerError": "{platform}服务器异常",
+  "@netServerError": {
+    "placeholders": {
+      "platform": {
+        "type": "String"
+      }
+    }
+  },
+  "netRequestFailed": "请求失败",
+  "netRequestFailedWithCode": "请求失败 ({code})",
+  "@netRequestFailedWithCode": {
+    "placeholders": {
+      "code": {
+        "type": "int"
+      }
+    }
+  },
+  "netUnknownPlatform": "未知平台"
 }

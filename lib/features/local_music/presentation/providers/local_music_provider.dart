@@ -350,6 +350,7 @@ class LocalMusicNotifier extends StateNotifier<LocalMusicState> {
     LocalScanRootStore? rootStore,
     OnlineLibrarySnapshot? onlineSnapshot,
     TrackRatingsStore? ratingsStore,
+    Stream<Object?>? mediaStoreChanges,
   }) : this._(
          scanner ?? repository ?? LocalMusicRepository(),
          picker,
@@ -358,6 +359,7 @@ class LocalMusicNotifier extends StateNotifier<LocalMusicState> {
          rootStore ?? HiveLocalScanRootStore(),
          onlineSnapshot ?? DriftOnlineLibrarySnapshot(),
          ratingsStore ?? defaultTrackRatingsStore(),
+         mediaStoreChanges,
        );
 
   LocalMusicNotifier._(
@@ -368,6 +370,7 @@ class LocalMusicNotifier extends StateNotifier<LocalMusicState> {
     this._rootStore,
     this._onlineSnapshot,
     this._ratingsStore,
+    this.mediaStoreChanges,
   ) : _picker =
           picker ??
           defaultLocalMusicPicker(
@@ -376,7 +379,27 @@ class LocalMusicNotifier extends StateNotifier<LocalMusicState> {
             lyricsStore: _lyricsStore,
             rootStore: _rootStore,
           ),
-      super(const LocalMusicState());
+      super(const LocalMusicState()) {
+    // The platform tells us the media store changed; the reaction is the *same*
+    // stamped rescan the refresh button runs, never a second scan path. The
+    // subscription is cancelled in [dispose].
+    _mediaStoreSubscription = mediaStoreChanges?.listen(
+      (_) => unawaited(rescan()),
+    );
+  }
+
+  /// Platform "the library changed underneath you" signal (Android), if this
+  /// platform has one.
+  final Stream<Object?>? mediaStoreChanges;
+
+  StreamSubscription<Object?>? _mediaStoreSubscription;
+
+  @override
+  void dispose() {
+    _mediaStoreSubscription?.cancel();
+    _mediaStoreSubscription = null;
+    super.dispose();
+  }
 
   /// Loads the persisted index into state without touching the filesystem.
   ///
@@ -687,7 +710,17 @@ class LocalMusicNotifier extends StateNotifier<LocalMusicState> {
 
 final localMusicProvider =
     StateNotifierProvider<LocalMusicNotifier, LocalMusicState>((ref) {
-      final notifier = LocalMusicNotifier();
+      // Android pushes `mediaStoreChanged` when the library changes on disk.
+      // Attaching here — next to the only consumer — keeps `main.dart` untouched
+      // and costs nothing on the platforms that never send the event.
+      final androidService = AndroidLocalMusicService.instance;
+      final isAndroid = PlatformUtils.isAndroid;
+      if (isAndroid) androidService.attachMediaStoreListener();
+      final notifier = LocalMusicNotifier(
+        mediaStoreChanges: isAndroid
+            ? androidService.mediaStoreChanged
+            : null,
+      );
       unawaited(notifier.initialize());
       return notifier;
     });

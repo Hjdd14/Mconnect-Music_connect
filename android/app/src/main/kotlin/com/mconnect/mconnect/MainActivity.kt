@@ -32,6 +32,12 @@ class MainActivity : AudioServiceActivity() {
     private var floatingLyricsController: FloatingLyricsController? = null
     private var playbackKeepAliveController: PlaybackKeepAliveController? = null
     private var pendingLocalMusicResult: MethodChannel.Result? = null
+
+    /** The `local_music` channel, kept so the media observer can push events back. */
+    private var localMusicMethodChannel: MethodChannel? = null
+
+    /** Watches `MediaStore` for library changes; created in `configureFlutterEngine`. */
+    private var localMusicMediaObserver: LocalMusicMediaObserver? = null
     private var pendingKnownIndex: Map<String, LongArray> = emptyMap()
 
     /**
@@ -61,7 +67,13 @@ class MainActivity : AudioServiceActivity() {
                 }
             }
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, localMusicChannel)
+        // Stored rather than inlined: the media observer below pushes its
+        // `mediaStoreChanged` event back to Dart over this same channel (a
+        // `MethodChannel` is bidirectional).
+        val localMusicMethodChannel =
+            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, localMusicChannel)
+        this.localMusicMethodChannel = localMusicMethodChannel
+        localMusicMethodChannel
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "pickAndScanDirectory" ->
@@ -70,6 +82,22 @@ class MainActivity : AudioServiceActivity() {
                     else -> result.notImplemented()
                 }
             }
+
+        // Android reports media-store changes (a file was copied in, a track was
+        // deleted); the observer de-bounces the burst and we forward one event.
+        // Nothing is scanned here on purpose: Dart reacts by calling the same
+        // stamped rescan as the manual refresh, so an unchanged folder still opens
+        // no audio file.
+        localMusicMediaObserver =
+            LocalMusicMediaObserver(
+                    applicationContext,
+                    // Named on purpose: a trailing lambda would bind to the *last*
+                    // parameter (`debounceMillis`), which is not a function type.
+                    onChanged = {
+                        localMusicMethodChannel.invokeMethod("mediaStoreChanged", null)
+                    },
+                )
+                .also { it.start() }
 
         // SAF document tree (`com.mconnect.mconnect/saf_tree`): the custom
         // download folder picker / writer. Additive — the local-music channel
@@ -118,6 +146,12 @@ class MainActivity : AudioServiceActivity() {
             pending.error("ACTIVITY_DESTROYED", "目录选择已中断，请重试", null)
         }
         pendingKnownIndex = emptyMap()
+        // Stops the media-store observer before the engine goes away: leaving it
+        // registered would keep a callback into a dead channel, and a pending
+        // de-bounced event would fire into nothing.
+        localMusicMediaObserver?.stop()
+        localMusicMediaObserver = null
+        localMusicMethodChannel = null
         floatingLyricsController?.dispose()
         floatingLyricsController = null
         playbackKeepAliveController?.release()

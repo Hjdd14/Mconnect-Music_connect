@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 
+import '../../l10n/l10n.dart';
 import '../../models/platform_type.dart';
 import 'api_exception.dart';
 import 'retry_interceptor.dart';
@@ -36,13 +37,14 @@ class SessionExpiryReporter {
 
 /// Builds the [Dio] instance every platform adapter should use.
 ///
-/// Before this existed, `ApiClient`/`RetryInterceptor`/`_ErrorInterceptor` were
+/// Before this existed, the old `ApiClient` / `_ErrorInterceptor` pair was
 /// **dead code**: all three platform adapters constructed their own bare `Dio`
 /// (`netease_api.dart:13`, `qq_api.dart:14`, `kugou_api.dart:24`) with no
 /// interceptors, so the app had no retry, no request cancellation and no
-/// translated error messages despite the classes being present.
+/// translated error messages despite the classes being present. (That dead pair
+/// was removed in W3-D; `api_client.dart` is a tombstone.)
 ///
-/// Differences from the old [ApiClient]:
+/// Differences from that old client:
 /// * retries are **restricted to idempotent methods** (`GET`/`HEAD`), so a
 ///   failed `POST` (login, like, playlist write) is never replayed;
 /// * timeouts are configurable per platform, including `sendTimeout`;
@@ -83,7 +85,8 @@ Dio createPlatformDio({
   Duration retryMaxDelay = const Duration(seconds: 30),
   List<Interceptor> interceptors = const [],
 }) {
-  final effectiveLabel = label ?? platform?.displayName ?? '未知平台';
+  final effectiveLabel =
+      label ?? platform?.displayName ?? zhAppLocalizations.netUnknownPlatform;
   final dio = Dio(
     BaseOptions(
       baseUrl: baseUrl ?? '',
@@ -192,7 +195,13 @@ ApiException translateDioException(DioException err, {String label = ''}) {
     case DioExceptionType.connectionTimeout:
     case DioExceptionType.sendTimeout:
     case DioExceptionType.receiveTimeout:
-      return NetworkException(details: '$label请求超时');
+      // A timeout is a connectivity problem, but the UI can say something more
+      // precise than "couldn't connect": it knows which platform timed out.
+      return NetworkException(
+        details: zhAppLocalizations.netRequestTimeout(label),
+        code: ApiErrorCode.requestTimeout,
+        platform: label,
+      );
     case DioExceptionType.connectionError:
     case DioExceptionType.badCertificate:
       return NetworkException(details: err.message);
@@ -221,11 +230,19 @@ ApiException _fromStatusCode(int? code, String label) {
     case 502:
     case 503:
     case 504:
-      return ApiException(statusCode: code, message: '$label服务器异常');
+      return ApiException(
+        statusCode: code,
+        message: zhAppLocalizations.netServerError(label),
+        code: ApiErrorCode.serverError,
+        platform: label,
+      );
     default:
       return ApiException(
         statusCode: code,
-        message: code == null ? '请求失败' : '请求失败 ($code)',
+        message: code == null
+            ? zhAppLocalizations.netRequestFailed
+            : zhAppLocalizations.netRequestFailedWithCode(code),
+        code: ApiErrorCode.requestFailed,
       );
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -240,6 +241,42 @@ void main() {
 
     expect(state.visibleSongs, hasLength(2));
     expect(state.visibleSongs.first.platform, PlatformType.local);
+  });
+
+  // ---- W2-C: platform "the media store changed" -> rescan --------------------
+
+  test('a media-store change triggers exactly one stamped rescan', () async {
+    // Android de-bounces on the Kotlin side and sends one `mediaStoreChanged`;
+    // the reaction must be the *same* stamped rescan as the manual refresh (so a
+    // no-op folder opens no audio file), and one event must mean one rescan.
+    final changes = StreamController<Object?>.broadcast();
+    addTearDown(changes.close);
+    final picker = _FakeLocalMusicPicker(
+      rescanResult: LocalMusicScanResult(songs: const [], tracks: const []),
+    );
+    final notifier = LocalMusicNotifier(
+      scanner: _FakeLocalMusicScanner(),
+      picker: picker,
+      trackStore: MemoryLocalTrackStore(),
+      lyricsStore: MemoryLocalLyricsStore(),
+      rootStore: MemoryLocalScanRootStore('D:/Music'),
+      onlineSnapshot: MemoryOnlineLibrarySnapshot(),
+      ratingsStore: MemoryTrackRatingsStore(),
+      mediaStoreChanges: changes.stream,
+    );
+    addTearDown(notifier.dispose);
+
+    changes.add(null);
+    await pumpEventQueue();
+    expect(picker.rescanCalls, 1, reason: '媒体库变化必须触发一次重扫');
+
+    changes.add(null);
+    await pumpEventQueue();
+    expect(
+      picker.rescanCalls,
+      2,
+      reason: '每一次事件对应一次重扫（去抖在 Kotlin 侧完成）',
+    );
   });
 
   // ---- W2-C: search / sort / filter, ratings, multi-select batch ------------

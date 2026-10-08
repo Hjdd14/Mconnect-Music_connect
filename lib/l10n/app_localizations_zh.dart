@@ -423,4 +423,72 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get sessionGoToLogin => '去登录';
+
+  @override
+  String get netConnectionFailed => '网络连接失败，请检查网络后重试';
+
+  @override
+  String get netLoginExpired => '登录已过期，请重新登录';
+
+  @override
+  String get netCurrentPlatform => '当前平台';
+
+  @override
+  String netSongNotAvailable(String platform) {
+    return '该歌曲在$platform不可用';
+  }
+
+  @override
+  String get netQualityNotAvailable => '所选音质不可用';
+
+  @override
+  String netQualityDowngraded(String quality) {
+    return '所选音质不可用，已降级到$quality';
+  }
+
+  @override
+  String get netLyricsNotFound => '暂无歌词';
+
+  @override
+  String netNoVip(String platform) {
+    return '需要开通$platform会员';
+  }
+
+  @override
+  String get netStoragePermissionDenied => '存储权限被拒绝，请在设置中授权';
+
+  @override
+  String get netNotFound => '内容不存在或已被删除';
+
+  @override
+  String netUnsupported(String platform) {
+    return '$platform暂不支持该功能';
+  }
+
+  @override
+  String get netStorageFull => '存储空间不足';
+
+  @override
+  String get netRequestCancelled => '请求已取消';
+
+  @override
+  String netRequestTimeout(String platform) {
+    return '$platform请求超时';
+  }
+
+  @override
+  String netServerError(String platform) {
+    return '$platform服务器异常';
+  }
+
+  @override
+  String get netRequestFailed => '请求失败';
+
+  @override
+  String netRequestFailedWithCode(int code) {
+    return '请求失败 ($code)';
+  }
+
+  @override
+  String get netUnknownPlatform => '未知平台';
 }

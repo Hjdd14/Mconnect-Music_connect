@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/network/api_error_l10n.dart';
 import '../../../../core/network/platform_http.dart';
 import '../../../../core/theme/platform_accent.dart';
 import '../../../../core/utils/snackbar_helper.dart';
@@ -539,7 +540,7 @@ class _ToplistDetailPageState extends ConsumerState<ToplistDetailPage> {
         loading: () => const AsyncStateView.loading(),
         error: (error, _) => AsyncStateView.error(
           title: '加载失败',
-          message: apiExceptionOf(error).message,
+          message: apiErrorText(context, apiExceptionOf(error)),
           onRetry: () => ref.invalidate(toplistSongsProvider(_key)),
         ),
         data: (ranked) {

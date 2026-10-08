@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/network/api_error_l10n.dart';
 import '../../../../core/network/platform_http.dart';
 import '../../../../core/share/song_actions.dart';
 import '../../../../core/theme/platform_accent.dart';
@@ -63,7 +64,7 @@ class _AlbumPageState extends ConsumerState<AlbumPage> {
         error: (error, _) {
           final typed = apiExceptionOf(error);
           return AsyncStateView.error(
-            title: typed.message,
+            title: apiErrorText(context, typed),
             message: typed.details,
             onRetry: () => ref.invalidate(albumDetailProvider(_key)),
           );

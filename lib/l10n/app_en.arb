@@ -187,5 +187,24 @@
   "platformQq": "QQ Music",
   "platformKugou": "Kugou Music",
   "sessionExpired": "Your session expired, please sign in again",
-  "sessionGoToLogin": "Sign in"
+  "sessionGoToLogin": "Sign in",
+
+  "netConnectionFailed": "Couldn't connect. Check your network and try again",
+  "netLoginExpired": "Your session expired, please sign in again",
+  "netCurrentPlatform": "the current platform",
+  "netSongNotAvailable": "This song isn't available on {platform}",
+  "netQualityNotAvailable": "That audio quality isn't available",
+  "netQualityDowngraded": "That audio quality isn't available, switched to {quality}",
+  "netLyricsNotFound": "No lyrics available",
+  "netNoVip": "{platform} membership required",
+  "netStoragePermissionDenied": "Storage permission denied, grant it in Settings",
+  "netNotFound": "This content no longer exists",
+  "netUnsupported": "{platform} doesn't support this yet",
+  "netStorageFull": "Not enough storage space",
+  "netRequestCancelled": "Request cancelled",
+  "netRequestTimeout": "{platform} request timed out",
+  "netServerError": "{platform} server error",
+  "netRequestFailed": "Request failed",
+  "netRequestFailedWithCode": "Request failed ({code})",
+  "netUnknownPlatform": "Unknown platform"
 }

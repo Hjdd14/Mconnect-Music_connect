@@ -92,6 +92,16 @@ void main() {
     for (var i = 0; i < 60; i++) {
       await tester.pump(const Duration(milliseconds: 16));
     }
+    // The tap starts REAL file I/O: `AutoSourceSwitchNotifier.setEnabled` flips
+    // its state synchronously and then does `unawaited(Hive.box(...).put(...))`.
+    // Inside a testWidgets body that write's continuation sits on the FAKE clock,
+    // which nobody drains once the body returns - so tearDown's Hive.close() waited
+    // forever and this case died on its own timeout even though every step had run
+    // (six STEP probes all printed). `runAsync` gives the real event loop a turn so
+    // the write can complete.
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
 
     expect(container.read(autoSourceSwitchProvider).enabled, isFalse);
     expect(
@@ -105,6 +115,16 @@ void main() {
     for (var i = 0; i < 60; i++) {
       await tester.pump(const Duration(milliseconds: 16));
     }
+    // The tap starts REAL file I/O: `AutoSourceSwitchNotifier.setEnabled` flips
+    // its state synchronously and then does `unawaited(Hive.box(...).put(...))`.
+    // Inside a testWidgets body that write's continuation sits on the FAKE clock,
+    // which nobody drains once the body returns - so tearDown's Hive.close() waited
+    // forever and this case died on its own timeout even though every step had run
+    // (six STEP probes all printed). `runAsync` gives the real event loop a turn so
+    // the write can complete.
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
     expect(container.read(autoSourceSwitchProvider).enabled, isTrue);
   }, skip: true);
 

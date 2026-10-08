@@ -52,8 +52,17 @@ void main() {
   // 它们此刻**必须**被计入基线，否则护栏会因为"别人还没来得及迁移"而红。
   // ⚠️ 唯一不能做的事是**在脏树上**把常量往上调去吸收别人的中间态；本值是在
   // writer 全部停手后测的，符合冻结流程。
-  const baselineTotal = 974;
-  const baselineFiles = 105;
+  //
+  // W3-D B2（core/network 归零 + 展示点改走错误码）：
+  //   `core` 80 → **55**，即本批 **−25**（`api_exception.dart` 11 处、
+  //   `platform_http.dart` 4 处迁到 `net*` key；`api_client.dart` 是**死文件**，
+  //   8 处随内容清空一起消失，见该文件的 tombstone 注释）。
+  //   `features` 774 → 775（+1，并行 writer 的新文案，不是本批 —— 本批只改
+  //   4 个页面里"文案来源"的那一行，新增 0 处字面量）。
+  //   ⇒ 净值 974 − 25 + 1 = **950/102**（`files` 105 → 102：network 里原带中文的
+  //   3 个文件都归零）。
+  const baselineTotal = 950;
+  const baselineFiles = 102;
 
   test('lib/ 的硬编码中文不得超过基线（总数与文件数都不许涨）', () {
     var total = 0;

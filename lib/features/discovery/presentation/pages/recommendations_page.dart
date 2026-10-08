@@ -80,7 +80,27 @@ class _RecommendationsPageState extends ConsumerState<RecommendationsPage>
       appBar: AppBar(
         title: const Text('每日推荐'),
         actions: [
+          // `tooltip` is what an icon-only button needs, and it is also the
+          // mechanism this page's accessibility case asserts.
+          //
+          // **Two semantic channels — do not confuse them.** `IconButton
+          // (tooltip:)` publishes through `Tooltip`, which builds
+          // `Semantics(tooltip: message)`: the text lands in the semantics
+          // **tooltip** field, NOT in **label**. That mismatch is why the first
+          // version of the audit test failed: it asserted
+          // `find.bySemanticsLabel('刷新')` (label channel) and found 0 while the
+          // button was perfectly fine. The test now reads `getSemantics(...)`
+          // and asserts the field the tooltip actually writes to.
+          //
+          // Deliberately NOT wrapped in `Semantics(label: '刷新')`: a
+          // non-container `Semantics` does not create its own node, it merges
+          // into the nearest *enclosing* node — which for an `AppBar` action is
+          // an app-bar-level ancestor, so the label would end up describing the
+          // wrong node. If the label channel is wanted here later, the right
+          // mechanism is the icon's own `Icon(semanticLabel: ...)`, which merges
+          // upward into the button; that needs its own verified round.
           IconButton(
+            tooltip: '刷新',
             icon: const Icon(Icons.refresh),
             onPressed: () => ref
                 .read(recommendationsProvider.notifier)

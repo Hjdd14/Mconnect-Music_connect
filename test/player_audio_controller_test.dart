@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mconnect/features/audio_effects/data/eq_preset_codec.dart';
 import 'package:mconnect/features/audio_effects/presentation/providers/audio_effects_provider.dart';
+import 'package:mconnect/features/player/data/loudness_normalizer.dart';
 import 'package:mconnect/features/player/data/player_audio_controller.dart';
 
 void main() {
@@ -67,6 +68,121 @@ void main() {
   // W2-B item b：EQ 预设的 JSON 导入/导出。对外交换格式必须带 schema + version，
   // 且**严格校验**（越界拒绝、不 clamp）——静默夹紧会把别人给的文件变成用户没见过的
   // 曲线，而导入方还以为成功了。
+  // W2-B item c：ReplayGain tag → 软件增益。只测**策略与算术**（纯函数）；
+  // key→数值 的映射留给调用方那层薄适配（我没能核实 audio_metadata_reader 的键名，
+  // 见交付说明的"不确定项"）。
+  group('ReplayGain → software gain (W2-B item c)', () {
+    test('no usable tag means no normalisation (null, not 0 dB)', () {
+      expect(LoudnessNormalizer.gainFor(trackGainDb: null), isNull);
+      expect(LoudnessNormalizer.gainFor(trackGainDb: double.nan), isNull);
+      expect(LoudnessNormalizer.gainFor(trackGainDb: double.infinity), isNull);
+    });
+
+    test('applies the tag value as-is (no sign inversion) inside the range', () {
+      expect(LoudnessNormalizer.gainFor(trackGainDb: -6.5), -6.5);
+      expect(LoudnessNormalizer.gainFor(trackGainDb: 2.0), 2.0);
+    });
+
+    test('clamps boosts and cuts to the policy range', () {
+      expect(
+        LoudnessNormalizer.gainFor(trackGainDb: 12),
+        LoudnessNormalizer.maxBoostDb,
+      );
+      expect(
+        LoudnessNormalizer.gainFor(trackGainDb: -30),
+        LoudnessNormalizer.maxCutDb,
+      );
+    });
+
+    test('peak protection wins over the policy range (never overshoot)', () {
+      // peak 1.2 上再 +6dB 会让峰值到 2.4 → 必然削波，所以保护必须赢。
+      final gain = LoudnessNormalizer.gainFor(
+        trackGainDb: 6,
+        trackPeak: 1.2,
+      )!;
+
+      expect(gain, lessThan(6));
+      expect(
+        LoudnessNormalizer.peakAfterGain(1.2, gain),
+        lessThanOrEqualTo(1.0),
+        reason: '削波保护优先：施加后的峰值不得超过 1.0',
+      );
+      // 10^(-1/20) / 1.2 → 约 -2.58 dB
+      expect(gain, closeTo(-2.58, 0.1));
+    });
+
+    test('peak protection does not shrink a safe attenuation', () {
+      final gain = LoudnessNormalizer.gainFor(
+        trackGainDb: -6,
+        trackPeak: 0.5,
+      )!;
+
+      expect(gain, -6, reason: '峰值本来就低，削波保护不该把衰减改小');
+    });
+
+    test('ignores a non-positive or non-finite peak', () {
+      expect(LoudnessNormalizer.gainFor(trackGainDb: 3, trackPeak: 0), 3);
+      expect(LoudnessNormalizer.gainFor(trackGainDb: 3, trackPeak: -1), 3);
+      expect(
+        LoudnessNormalizer.gainFor(trackGainDb: 3, trackPeak: double.nan),
+        3,
+      );
+    });
+
+    test('property: for any peak, the applied gain never clips', () {
+      for (var peak = 0.3; peak <= 2.0; peak += 0.1) {
+        final gain = LoudnessNormalizer.gainFor(
+          trackGainDb: 12,
+          trackPeak: peak,
+        )!;
+
+        expect(
+          LoudnessNormalizer.peakAfterGain(peak, gain),
+          lessThanOrEqualTo(1.0),
+          reason: 'peak=$peak gain=$gain 时峰值越界（削波保护失效）',
+        );
+        expect(gain, greaterThanOrEqualTo(LoudnessNormalizer.minGainDb));
+      }
+    });
+
+    test('parses gain tags with or without the " dB" suffix', () {
+      expect(LoudnessNormalizer.parseGainDb('-6.50 dB'), -6.5);
+      expect(LoudnessNormalizer.parseGainDb('-6.50'), -6.5);
+      expect(LoudnessNormalizer.parseGainDb('  +3.00 dB '), 3.0);
+      expect(LoudnessNormalizer.parseGainDb('-1.25DB'), -1.25);
+      expect(LoudnessNormalizer.parseGainDb(null), isNull);
+      expect(LoudnessNormalizer.parseGainDb(''), isNull);
+      expect(LoudnessNormalizer.parseGainDb('dB'), isNull);
+      expect(LoudnessNormalizer.parseGainDb('loud'), isNull);
+      expect(LoudnessNormalizer.parseGainDb('nan'), isNull);
+    });
+
+    test('peak parsing rejects dB-suffixed and non-positive values', () {
+      expect(LoudnessNormalizer.parsePeak('0.988553'), 0.988553);
+      expect(LoudnessNormalizer.parsePeak(' 1.0 '), 1.0);
+      // dB 后缀的峰值说明它不是线性峰值 → 拒绝，而不是按线性解释（10 倍量级错误）
+      expect(LoudnessNormalizer.parsePeak('-1.00 dB'), isNull);
+      expect(LoudnessNormalizer.parsePeak('0'), isNull);
+      expect(LoudnessNormalizer.parsePeak('-0.5'), isNull);
+      expect(LoudnessNormalizer.parsePeak(null), isNull);
+      expect(LoudnessNormalizer.parsePeak('loud'), isNull);
+    });
+
+    test('tag text → normaliser is wired end to end (no sign inversion)', () {
+      final gain = LoudnessNormalizer.gainFor(
+        trackGainDb: LoudnessNormalizer.parseGainDb('-6.50 dB'),
+        trackPeak: LoudnessNormalizer.parsePeak('0.988553'),
+      );
+      expect(gain, -6.5, reason: '标签要求衰减 → 照做，低峰值不改变结论');
+
+      final boosted = LoudnessNormalizer.gainFor(
+        trackGainDb: LoudnessNormalizer.parseGainDb('+3.00 dB'),
+        trackPeak: LoudnessNormalizer.parsePeak('0.5'),
+      );
+      expect(boosted, 3.0, reason: '标签要求提升 → 照做（不得反转符号）');
+    });
+  });
+
   group('EQ preset JSON import/export (W2-B item b)', () {
     test('a custom curve round-trips through encode/decode', () {
       final document = EqPresetDocument(

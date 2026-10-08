@@ -67,6 +67,46 @@ class LoudnessNormalizer {
     return peak * math.pow(10, gainDb / 20).toDouble();
   }
 
+  /// 解析增益标签的**原始字符串**（Wave 2-B / item c 的取值层）。
+  ///
+  /// `audio_metadata_reader 1.8.0` 只把 tag 原文交出来、**不做任何换算**（Lead 读包
+  /// 核实：FLAC/Vorbis 路径里没有一处 replaceAll/toDouble 碰这些键）。真实文件里两种
+  /// 写法都常见 —— `'-6.50 dB'` 与 `'-6.50'` —— 所以这里剥掉**可选的** `dB` 后缀
+  /// （大小写不敏感、允许两侧空格）再 parse。解析不出来 → `null`（与 [gainFor] 契约一致）。
+  static double? parseGainDb(String? raw) {
+    final text = _stripDbSuffix(raw);
+    if (text == null) return null;
+    final value = double.tryParse(text);
+    if (value == null || !value.isFinite) return null;
+    return value;
+  }
+
+  /// 解析峰值标签的原始字符串。
+  ///
+  /// ReplayGain 规范里 `_PEAK` 是**线性采样峰值**（如 `0.988553`）。**带 `dB` 后缀的
+  /// 峰值一律拒绝**（返回 null）：那说明它不是线性峰值，按线性解释会有 10 倍量级误差
+  /// —— 宁可不用这个标签，也不要拿它去做削波保护。
+  ///
+  /// 注：`linear vs dBFS` 这一点包无法回答（它只存字符串），**待真实文件确认**。
+  static double? parsePeak(String? raw) {
+    final text = raw?.trim();
+    if (text == null || text.isEmpty) return null;
+    if (_hasDbSuffix(text)) return null;
+    final value = double.tryParse(text);
+    if (value == null || !value.isFinite || value <= 0) return null;
+    return value;
+  }
+
+  static String? _stripDbSuffix(String? raw) {
+    final text = raw?.trim();
+    if (text == null || text.isEmpty) return null;
+    if (!_hasDbSuffix(text)) return text;
+    final stripped = text.substring(0, text.length - 2).trim();
+    return stripped.isEmpty ? null : stripped;
+  }
+
+  static bool _hasDbSuffix(String text) => text.toLowerCase().endsWith('db');
+
   /// 让 [peak] 恰好升到 [peakCeilingDb] 所需的增益（通常是负的）。
   static double _gainToReachPeak(double peak) {
     final ceiling = math.pow(10, peakCeilingDb / 20).toDouble();

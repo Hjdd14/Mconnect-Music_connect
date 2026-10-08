@@ -901,6 +901,114 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'去登录'**
   String get sessionGoToLogin;
+
+  /// No description provided for @netConnectionFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'网络连接失败，请检查网络后重试'**
+  String get netConnectionFailed;
+
+  /// No description provided for @netLoginExpired.
+  ///
+  /// In zh, this message translates to:
+  /// **'登录已过期，请重新登录'**
+  String get netLoginExpired;
+
+  /// No description provided for @netCurrentPlatform.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前平台'**
+  String get netCurrentPlatform;
+
+  /// No description provided for @netSongNotAvailable.
+  ///
+  /// In zh, this message translates to:
+  /// **'该歌曲在{platform}不可用'**
+  String netSongNotAvailable(String platform);
+
+  /// No description provided for @netQualityNotAvailable.
+  ///
+  /// In zh, this message translates to:
+  /// **'所选音质不可用'**
+  String get netQualityNotAvailable;
+
+  /// No description provided for @netQualityDowngraded.
+  ///
+  /// In zh, this message translates to:
+  /// **'所选音质不可用，已降级到{quality}'**
+  String netQualityDowngraded(String quality);
+
+  /// No description provided for @netLyricsNotFound.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂无歌词'**
+  String get netLyricsNotFound;
+
+  /// No description provided for @netNoVip.
+  ///
+  /// In zh, this message translates to:
+  /// **'需要开通{platform}会员'**
+  String netNoVip(String platform);
+
+  /// No description provided for @netStoragePermissionDenied.
+  ///
+  /// In zh, this message translates to:
+  /// **'存储权限被拒绝，请在设置中授权'**
+  String get netStoragePermissionDenied;
+
+  /// No description provided for @netNotFound.
+  ///
+  /// In zh, this message translates to:
+  /// **'内容不存在或已被删除'**
+  String get netNotFound;
+
+  /// No description provided for @netUnsupported.
+  ///
+  /// In zh, this message translates to:
+  /// **'{platform}暂不支持该功能'**
+  String netUnsupported(String platform);
+
+  /// No description provided for @netStorageFull.
+  ///
+  /// In zh, this message translates to:
+  /// **'存储空间不足'**
+  String get netStorageFull;
+
+  /// No description provided for @netRequestCancelled.
+  ///
+  /// In zh, this message translates to:
+  /// **'请求已取消'**
+  String get netRequestCancelled;
+
+  /// No description provided for @netRequestTimeout.
+  ///
+  /// In zh, this message translates to:
+  /// **'{platform}请求超时'**
+  String netRequestTimeout(String platform);
+
+  /// No description provided for @netServerError.
+  ///
+  /// In zh, this message translates to:
+  /// **'{platform}服务器异常'**
+  String netServerError(String platform);
+
+  /// No description provided for @netRequestFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'请求失败'**
+  String get netRequestFailed;
+
+  /// No description provided for @netRequestFailedWithCode.
+  ///
+  /// In zh, this message translates to:
+  /// **'请求失败 ({code})'**
+  String netRequestFailedWithCode(int code);
+
+  /// No description provided for @netUnknownPlatform.
+  ///
+  /// In zh, this message translates to:
+  /// **'未知平台'**
+  String get netUnknownPlatform;
 }
 
 class _AppLocalizationsDelegate

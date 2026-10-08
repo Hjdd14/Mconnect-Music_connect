@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:go_router/go_router.dart';
+import '../../../../core/network/api_error_l10n.dart';
 import '../../../../core/network/platform_http.dart';
 import '../../../../core/share/song_actions.dart';
 import '../../../../core/theme/platform_accent.dart';
@@ -649,7 +650,7 @@ class _ErrorState extends StatelessWidget {
     // for every page, so the network case is carried by the message
     // ("网络连接失败，请检查网络后重试") instead of by a second icon.
     return AsyncStateView.error(
-      title: typed.message,
+      title: apiErrorText(context, typed),
       message: typed.details,
       onRetry: onRetry,
     );

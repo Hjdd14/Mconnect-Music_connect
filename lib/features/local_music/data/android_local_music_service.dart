@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
@@ -77,6 +79,40 @@ class AndroidLocalMusicService {
 
   @visibleForTesting
   AndroidLocalMusicService.test();
+
+  /// Emits when Android's media store reports a library change — a file copied
+  /// in, a track deleted, a folder moved.
+  ///
+  /// Deliberately carries **no payload**: the only correct reaction is "scan
+  /// again", and that scan reuses the persisted `(mtime, size)` stamps, so a burst
+  /// of events cannot become a burst of full re-reads. The de-bouncing (one event
+  /// per idle gap, not one per changed row) happens on the Kotlin side.
+  Stream<void> get mediaStoreChanged => _mediaStoreChanges.stream;
+
+  final StreamController<void> _mediaStoreChanges =
+      StreamController<void>.broadcast();
+
+  /// Wires the channel's **event** direction (Kotlin → Dart).
+  ///
+  /// Nothing here is exclusive: calling it twice simply replaces the handler, so
+  /// the provider can attach on every (re)build without bookkeeping. It is a no-op
+  /// on platforms whose side never sends the event.
+  void attachMediaStoreListener() {
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == 'mediaStoreChanged') {
+        _mediaStoreChanges.add(null);
+      }
+      return null;
+    });
+  }
+
+  /// Releases the event controller (tests; the app's instance lives as long as the
+  /// process).
+  @visibleForTesting
+  Future<void> disposeMediaStoreListener() async {
+    _channel.setMethodCallHandler(null);
+    await _mediaStoreChanges.close();
+  }
 
   /// Opens the folder picker, then scans the picked tree.
   ///

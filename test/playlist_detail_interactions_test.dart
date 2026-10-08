@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -49,6 +50,21 @@ class _MemoryPlaylists extends MyPlaylistsNotifier {
   int reorderCalls = 0;
   ReorderCall? lastReorder;
 
+  // --- three-state controls (W3-B) ---------------------------------------
+  //
+  // Defaults keep every pre-existing case behaving exactly as before; these only
+  // exist so the page's loading / error / empty branches can be driven.
+
+  /// When set, `getSongs` fails instead of returning the seeded list.
+  Object? fetchError;
+
+  /// When set, `getSongs` never completes — the loading state.
+  Completer<List<Song>>? fetchPending;
+
+  /// How many times the page asked for the songs, so "retry" can be proven to
+  /// really re-fetch rather than just clear the error.
+  int fetchCalls = 0;
+
   void seed(List<Playlist> playlists, Map<String, List<Song>> songsByPlaylist) {
     known
       ..clear()
@@ -66,8 +82,14 @@ class _MemoryPlaylists extends MyPlaylistsNotifier {
   }
 
   @override
-  Future<List<Song>> getSongs(String playlistId) async =>
-      List<Song>.from(songs[playlistId] ?? const <Song>[]);
+  Future<List<Song>> getSongs(String playlistId) async {
+    fetchCalls++;
+    final failure = fetchError;
+    if (failure != null) throw failure;
+    final pending = fetchPending;
+    if (pending != null) return pending.future;
+    return List<Song>.from(songs[playlistId] ?? const <Song>[]);
+  }
 
   @override
   Future<bool> reorderSongs(String playlistId, List<Song> ordered) async {
@@ -177,6 +199,95 @@ void main() {
     );
     await tester.pumpAndSettle();
   }
+
+  /// Bounded `testWidgets` — a hang is undiagnosable, so a never-completing
+  /// future must fail in 30 s rather than eat the runner's 10-minute default.
+  void widgetTest(
+    String description,
+    Future<void> Function(WidgetTester) body,
+  ) {
+    testWidgets(
+      description,
+      body,
+      timeout: const Timeout(Duration(seconds: 30)),
+    );
+  }
+
+  // The page migrated onto `AsyncStateView` with no assertion that could tell:
+  // deleting the retry, or letting `_loading` stay true forever, left every test
+  // in this file green. One case per branch.
+
+  widgetTest('歌单详情：加载中是共享 loading，且不给重试', (tester) async {
+    playlists.seed([_playlist('p1', '加载中')], {});
+    playlists.fetchPending = Completer<List<Song>>();
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(
+          home: PlaylistDetailPage(
+            platform: PlatformType.local,
+            playlistId: 'p1',
+            playlistName: '加载中',
+          ),
+        ),
+      ),
+    );
+    // Deliberately **not** `pumpAndSettle`: this state has a live spinner *and* a
+    // future that never completes, so settling would sit there until the timeout.
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(
+      find.text('重试'),
+      findsNothing,
+      reason: '加载中不是失败，不能给重试',
+    );
+
+    // Let the fetch finish so nothing is left pending into teardown.
+    playlists.fetchPending!.complete(const <Song>[]);
+    playlists.fetchPending = null;
+    await tester.pump(const Duration(milliseconds: 16));
+  });
+
+  widgetTest('歌单详情：读取失败是共享错误态，重试真的再读一次', (tester) async {
+    playlists.seed([_playlist('p1', '失败')], {});
+    playlists.fetchError = Exception('playlist fetch boom');
+
+    await pumpPage(tester, platform: PlatformType.local, playlistId: 'p1');
+
+    expect(find.text('加载歌单失败'), findsOneWidget);
+    expect(find.widgetWithText(ElevatedButton, '重试'), findsOneWidget);
+    expect(playlists.fetchCalls, 1);
+
+    // Let the retry succeed, so the assertion proves the whole retry path rather
+    // than only that a second call happened to fail again.
+    playlists.fetchError = null;
+    await tester.tap(find.text('重试'));
+    await tester.pumpAndSettle();
+
+    expect(
+      playlists.fetchCalls,
+      2,
+      reason: '点重试必须真的再读一次，而不是只把错误清掉',
+    );
+    expect(find.text('歌单暂无歌曲'), findsOneWidget);
+  });
+
+  widgetTest('歌单详情：空歌单是空态，不是错误态', (tester) async {
+    playlists.seed([_playlist('p1', '空')], {'p1': const <Song>[]});
+
+    await pumpPage(tester, platform: PlatformType.local, playlistId: 'p1');
+
+    expect(find.text('歌单暂无歌曲'), findsOneWidget);
+    expect(
+      find.text('重试'),
+      findsNothing,
+      reason: '空歌单不是失败，给重试会让用户以为出错了',
+    );
+  });
 
   testWidgets('自建歌单提供拖拽把手，拖动后顺序写入歌单', (tester) async {
     playlists.seed(
