@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import '../../lyrics/models/lyrics_bundle.dart';
+import '../../lyrics/models/lyrics_line.dart';
 import '../../models/song.dart';
 import '../../models/artist.dart';
 import '../../models/album.dart';
@@ -491,6 +493,60 @@ class QqPlatform extends MusicPlatform {
       return result;
     } catch (e) {
       debugPrint('QQ getLyrics error: $e');
+      return null;
+    }
+  }
+
+  /// Plain LRC (guaranteed) plus the word-by-word QRC track **when it is
+  /// readable**.
+  ///
+  /// QQ's `.qrc` body is 3DES-encrypted and this repository has no key — and does
+  /// not guess keys (see the `.qrc` note in `docs/mconnect-improvement-plan.md`).
+  /// So the QRC track is only forwarded when the body already parses as plain QRC
+  /// XML; anything else (encrypted bytes, an unknown shape, a failed request) is
+  /// dropped silently and the plain LRC track is used. No error, no garbage line.
+  @override
+  Future<LyricsBundle?> getLyricsBundle(String songId) async {
+    try {
+      final tracks = await _api.getLyricTracks(songId);
+      final qrc = await _readableQrcTrack(songId);
+      final bundle = LyricsBundle(
+        lrc: tracks.lyric,
+        translation: tracks.translation,
+        qrc: qrc,
+      );
+      if (bundle.isEmpty) {
+        debugPrint('QQ getLyricsBundle: no lyric tracks for $songId');
+        return null;
+      }
+      return bundle;
+    } catch (e) {
+      debugPrint('QQ getLyricsBundle error: $e');
+      return null;
+    }
+  }
+
+  /// The QRC body **only when it is plain, parseable QRC XML**.
+  ///
+  /// Checks the same way the loader does — by really parsing it — so an encrypted
+  /// (or otherwise unrecognised) body can never reach the display as garbage.
+  Future<String?> _readableQrcTrack(String songId) async {
+    try {
+      final res = await _api.getQrcLyric(songId);
+      if (res == null) return null;
+      final candidate =
+          QqApi.decodeLyricField(res['lyric']) ??
+          QqApi.decodeLyricField(res['qrc']);
+      if (candidate == null || candidate.trim().isEmpty) return null;
+      if (!LyricsDocument.parsesToLines(candidate, LyricsFormat.qrc)) {
+        debugPrint(
+          'QQ getLyricsBundle: qrc body is not readable QRC (encrypted?), '
+          'falling back to lrc',
+        );
+        return null;
+      }
+      return candidate;
+    } catch (_) {
       return null;
     }
   }

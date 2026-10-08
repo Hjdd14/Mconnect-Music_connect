@@ -50,6 +50,15 @@
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="mconnect"/>
             </intent-filter>
+            <!-- Home-screen widget clicks (W3-A). The plugin starts THIS activity
+                 with the custom action `es.antonborri.home_widget.action.LAUNCH`
+                 and a `mconnect://widget/...` URI; `app_links` only listens for
+                 ACTION_VIEW, so the two paths cannot double-fire. `singleTop`
+                 above is what makes an already-running app receive the click
+                 through onNewIntent instead of a second activity instance. -->
+            <intent-filter>
+                <action android:name="es.antonborri.home_widget.action.LAUNCH" />
+            </intent-filter>
         </activity>
         <!-- Receives "share to Mconnect" (ACTION_SEND, text/plain) from other
              apps and forwards it as an `mconnect://share?text=…` deep link, so
@@ -94,6 +103,27 @@
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </receiver>
+        <!-- W3-A: home-screen widget (RemoteViews). `android:exported="true"` is
+             mandatory from API 31 on; omitting it is an INSTALL-time failure, not a
+             runtime one. The provider renders straight from SharedPreferences, so
+             it keeps working while the Flutter process is dead. -->
+        <receiver
+            android:name=".MconnectWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/mconnect_widget_info" />
+        </receiver>
+        <!-- W3-A: Android Auto media app declaration (fixes Play EP-1/EP-2 only
+             together with a real browse tree — see lib/core/android_auto/).
+             `androidx.car.app` is NOT needed: a media app is discovered through the
+             MediaBrowserService that audio_service already declares above. -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
@@ -104,11 +134,23 @@
          https://developer.android.com/training/package-visibility and
          https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
 
-         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin.
+
+         NOTE: the manifest schema allows **at most one** <queries> element, so every
+         package-visibility entry must live inside this block. Adding a second one is an
+         aapt2/merger error, not a "harmless duplicate". -->
     <queries>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Android 11+ (API 30) package visibility: without this, url_launcher's
+             `launchUrl()` silently resolves to nothing — no exception, no browser.
+             Needed for the Last.fm / ListenBrainz authorization page (W2-D scrobble)
+             and for any "open the project page / open a share link" action. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
         </intent>
     </queries>
 </manifest>

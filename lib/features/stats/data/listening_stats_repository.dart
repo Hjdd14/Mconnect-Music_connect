@@ -17,6 +17,28 @@ import '../domain/listening_stats.dart';
 abstract class ListeningStatsRepository {
   Future<ListeningStatsState> load();
 
+  /// Records the start of a play and returns the new `play_events` row id, or
+  /// null when this implementation cannot supply one.
+  ///
+  /// That id is what `scrobble_queue.event_id` stores, which is how the scrobble
+  /// outbox de-duplicates "the same stretch of playback" when the tracker
+  /// flushes it more than once. A **null** id must make a caller skip the outbox
+  /// entirely: falling back to a placeholder would collapse every listen onto
+  /// one row.
+  Future<int?> recordSongStartedEvent(
+    Song song, {
+    PlayEventSource source,
+    DateTime? at,
+  });
+
+  /// Records the start of a play, discarding the row id.
+  ///
+  /// Stays **abstract** on purpose. A concrete method here would only reach
+  /// classes that use `extends`/`with`, while both real implementations say
+  /// `implements` — and Dart's `implements` does **not** inherit a member's
+  /// body. Declaring it abstract keeps the obligation visible to the compiler
+  /// instead of hiding it behind a default that never runs; each implementation
+  /// restates it as a one-line delegation to [recordSongStartedEvent].
   Future<ListeningStatsState> recordSongStarted(
     Song song, {
     PlayEventSource source,
@@ -75,7 +97,7 @@ class DriftListeningStatsRepository implements ListeningStatsRepository {
   }
 
   @override
-  Future<ListeningStatsState> recordSongStarted(
+  Future<int?> recordSongStartedEvent(
     Song song, {
     PlayEventSource source = PlayEventSource.play,
     DateTime? at,
@@ -84,12 +106,28 @@ class DriftListeningStatsRepository implements ListeningStatsRepository {
     // `songs`, so a played song that was never liked would otherwise have no
     // artist to be grouped under.
     await _db.songsDao.insertSong(_songToCompanion(song));
-    await _db.statsDao.recordPlayStart(
+    // `recordPlayStart` answers with the new row's id, which is exactly the
+    // identity the scrobble outbox needs.
+    return _db.statsDao.recordPlayStart(
       songId: song.id,
       platform: song.platform.name,
       startedAt: at ?? DateTime.now(),
       source: source,
     );
+  }
+
+  /// Delegation is restated because this class `implements` the interface, and
+  /// Dart's `implements` does **not** inherit a concrete member's body — only
+  /// `extends`/`with` would. Two lines, and the alternative (turning the
+  /// interface into a base class) would ripple through every implementation and
+  /// test double for no behavioural gain.
+  @override
+  Future<ListeningStatsState> recordSongStarted(
+    Song song, {
+    PlayEventSource source = PlayEventSource.play,
+    DateTime? at,
+  }) async {
+    await recordSongStartedEvent(song, source: source, at: at);
     return load();
   }
 
@@ -266,7 +304,7 @@ class MemoryListeningStatsRepository implements ListeningStatsRepository {
   Future<ListeningStatsState> load() async => _aggregate(_events);
 
   @override
-  Future<ListeningStatsState> recordSongStarted(
+  Future<int?> recordSongStartedEvent(
     Song song, {
     PlayEventSource source = PlayEventSource.play,
     DateTime? at,
@@ -279,6 +317,19 @@ class MemoryListeningStatsRepository implements ListeningStatsRepository {
         source: source,
       ),
     );
+    // 1-based, like the autoIncrement id the drift implementation returns.
+    return _events.length;
+  }
+
+  /// Same reason as the drift implementation: `implements` does not inherit the
+  /// interface's concrete member, so the delegation is repeated here.
+  @override
+  Future<ListeningStatsState> recordSongStarted(
+    Song song, {
+    PlayEventSource source = PlayEventSource.play,
+    DateTime? at,
+  }) async {
+    await recordSongStartedEvent(song, source: source, at: at);
     return load();
   }
 

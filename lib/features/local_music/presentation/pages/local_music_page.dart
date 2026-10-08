@@ -5,11 +5,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/share/song_actions.dart';
+import '../../../../core/utils/snackbar_helper.dart';
 import '../../../../core/widgets/app_scrollbar.dart';
+import '../../../../core/widgets/async_state_view.dart';
+import '../../../../models/playlist.dart';
 import '../../../../models/song.dart';
+import '../../../library/presentation/providers/my_playlists_provider.dart';
 import '../../../player/presentation/providers/player_provider.dart';
 import '../../data/local_track_store.dart';
 import '../../domain/local_library_grouping.dart';
+import '../../domain/local_library_query.dart';
 import '../providers/local_music_provider.dart';
 
 class LocalMusicPage extends ConsumerWidget {
@@ -24,6 +29,17 @@ class LocalMusicPage extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('本地音乐'),
         actions: [
+          if (state.songs.isNotEmpty)
+            IconButton(
+              key: const Key('local-music-select-toggle'),
+              tooltip: state.selectionMode ? '退出多选' : '多选',
+              icon: Icon(
+                state.selectionMode
+                    ? Icons.check_circle
+                    : Icons.check_circle_outline,
+              ),
+              onPressed: () => notifier.setSelectionMode(!state.selectionMode),
+            ),
           IconButton(
             tooltip: '重新扫描（仅读取变化的文件）',
             icon: const Icon(Icons.refresh),
@@ -42,14 +58,17 @@ class LocalMusicPage extends ConsumerWidget {
         children: [
           _Header(state: state, notifier: notifier),
           if (state.isScanning) const LinearProgressIndicator(minHeight: 2),
-          if (state.error != null) _ErrorBanner(message: state.error!),
+          // An inline notice, only while there is still a library behind it. With
+          // nothing to show, the failure belongs in the full-page state below
+          // (`AsyncStateView.error`), which also carries the retry affordance.
+          if (state.error != null && state.songs.isNotEmpty)
+            _ErrorBanner(message: state.error!),
           if (state.skippedFiles.isNotEmpty)
             _SkippedFilesBanner(files: state.skippedFiles),
           Expanded(
-            child: state.songs.isEmpty && !state.isLoading
-                ? _EmptyLocalMusic(isScanning: state.isScanning)
-                : _LocalLibraryBody(state: state),
+            child: _LocalLibraryBody(state: state, notifier: notifier),
           ),
+          if (state.isSelecting) _SelectionBar(state: state, notifier: notifier),
         ],
       ),
     );
@@ -152,8 +171,169 @@ class _Header extends StatelessWidget {
             ),
             onChanged: (value) => notifier.setMergeWithOnline(value),
           ),
+          _SearchAndSortBar(state: state, notifier: notifier),
         ],
       ),
+    );
+  }
+}
+
+/// Search box, sort control and filter chips.
+///
+/// Stateful only because the keyword lives in a `TextEditingController`: the query
+/// itself lives in the provider, so this widget never holds the truth — it syncs
+/// the field when something *else* changes the keyword (the 清除 action, or a
+/// future "jump to this artist" path) and never fights the user's typing.
+class _SearchAndSortBar extends StatefulWidget {
+  const _SearchAndSortBar({required this.state, required this.notifier});
+
+  final LocalMusicState state;
+  final LocalMusicNotifier notifier;
+
+  @override
+  State<_SearchAndSortBar> createState() => _SearchAndSortBarState();
+}
+
+class _SearchAndSortBarState extends State<_SearchAndSortBar> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.state.query.keyword,
+  );
+
+  @override
+  void didUpdateWidget(covariant _SearchAndSortBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final keyword = widget.state.query.keyword;
+    // Only when the *provider* changed it: otherwise this would reset the cursor
+    // on every keystroke.
+    if (keyword != oldWidget.state.query.keyword && keyword != _controller.text) {
+      _controller.text = keyword;
+      _controller.selection = TextSelection.collapsed(offset: keyword.length);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final state = widget.state;
+    final query = state.query;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          key: const Key('local-music-search-field'),
+          controller: _controller,
+          textInputAction: TextInputAction.search,
+          onChanged: widget.notifier.setKeyword,
+          decoration: InputDecoration(
+            isDense: true,
+            prefixIcon: const Icon(Icons.search, size: 20),
+            hintText: '搜索标题、歌手或专辑',
+            border: const OutlineInputBorder(),
+            suffixIcon: query.hasKeyword
+                ? IconButton(
+                    key: const Key('local-music-search-clear'),
+                    tooltip: '清空搜索',
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed: () {
+                      _controller.clear();
+                      widget.notifier.setKeyword('');
+                    },
+                  )
+                : null,
+          ),
+        ),
+        Row(
+          children: [
+            PopupMenuButton<LocalSortField>(
+              key: const Key('local-music-sort-button'),
+              tooltip: '排序方式',
+              onSelected: widget.notifier.setSort,
+              itemBuilder: (context) => [
+                for (final field in LocalSortField.values)
+                  CheckedPopupMenuItem<LocalSortField>(
+                    value: field,
+                    checked: query.sort == field,
+                    child: Text(field.label),
+                  ),
+              ],
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 10,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.sort, size: 16),
+                    const SizedBox(width: 4),
+                    // The *button* deliberately does not print the selected field
+                    // name: '歌手' and '专辑' are also the view switcher's labels,
+                    // and a duplicate `Text` would make those assertions ambiguous
+                    // (and the user would see the same word twice on one screen).
+                    const Text('排序', style: TextStyle(fontSize: 13)),
+                  ],
+                ),
+              ),
+            ),
+            IconButton(
+              key: const Key('local-music-sort-direction'),
+              tooltip: query.descending ? '改为升序' : '改为降序',
+              icon: Icon(
+                query.descending ? Icons.arrow_downward : Icons.arrow_upward,
+                size: 18,
+              ),
+              onPressed: widget.notifier.toggleSortDirection,
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (final filter in LocalTrackFilter.values)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 2),
+                        child: FilterChip(
+                          key: Key('local-music-filter-${filter.name}'),
+                          label: Text(
+                            filter.label,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          selected: query.filters.contains(filter),
+                          onSelected: (selected) =>
+                              widget.notifier.toggleFilter(filter, selected),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            if (state.isQueryActive)
+              TextButton(
+                key: const Key('local-music-clear-query'),
+                onPressed: () {
+                  _controller.clear();
+                  widget.notifier.clearQuery();
+                },
+                child: const Text('清除'),
+              ),
+          ],
+        ),
+        if (state.isQueryActive)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              '筛选后 ${state.queriedTracks.length} / ${state.tracks.length} 首',
+              key: const Key('local-music-filter-summary'),
+              style: TextStyle(color: theme.colorScheme.outline, fontSize: 12),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -230,12 +410,47 @@ class _SkippedFilesBanner extends StatelessWidget {
 }
 
 class _LocalLibraryBody extends StatelessWidget {
-  const _LocalLibraryBody({required this.state});
+  const _LocalLibraryBody({required this.state, required this.notifier});
 
   final LocalMusicState state;
+  final LocalMusicNotifier notifier;
 
   @override
   Widget build(BuildContext context) {
+    // The three states live in `AsyncStateView` so this page cannot drift from
+    // the rest of the app (retry control, body colour, spinner style).
+    if (state.isLoading) {
+      return const AsyncStateView.loading(skeleton: true);
+    }
+    // A library that failed to load *and* has nothing to show: retry means
+    // "read it again", which is the same walk `rescan` performs.
+    if (state.error != null && state.songs.isEmpty) {
+      return AsyncStateView.error(
+        title: '本地曲库读取失败',
+        message: state.error,
+        onRetry: notifier.rescan,
+      );
+    }
+    // Nothing in the index at all: never picked a folder, or the first scan is
+    // still running. Not a failure, so no retry — the header owns that action.
+    if (state.songs.isEmpty) {
+      return AsyncStateView.empty(
+        title: state.isScanning ? '正在扫描本地音乐' : '选择一个文件夹开始扫描本地音乐',
+        message: state.isScanning
+            ? '只读取变化的文件，已解析过的会直接复用'
+            : '扫描后歌曲、专辑、歌手与文件夹视图都可以离线浏览',
+        icon: Icons.library_music_outlined,
+      );
+    }
+    // A query that matches nothing is its own state: the library is fine, the
+    // filter is not — so this is an empty state, not an error.
+    if (state.queriedTracks.isEmpty) {
+      return AsyncStateView.empty(
+        title: '没有匹配的歌曲',
+        message: '试试清除搜索词或筛选条件',
+        icon: Icons.search_off,
+      );
+    }
     switch (state.view) {
       case LocalLibraryView.songs:
         return _SongList(state: state);
@@ -269,6 +484,7 @@ class _SongList extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final songs = state.visibleSongs;
+    final notifier = ref.read(localMusicProvider.notifier);
     // Built once for the whole list: a per-row `firstWhere` over the index
     // would be O(n²) on a 1000-track library.
     final tracksByPath = <String, LocalTrackEntry>{
@@ -283,21 +499,34 @@ class _SongList extends ConsumerWidget {
         itemBuilder: (context, index) {
           final song = songs[index];
           final track = tracksByPath[song.id];
+          final path = track?.path;
+          // A row without a local index entry (an online song merged in) has no
+          // path to tick, so it simply cannot be selected.
+          final selectable = path != null;
           return _SongTile(
             song: song,
             track: track,
             hasLyrics: state.lyricsBySongId.containsKey(song.id),
             alsoOnline: onlineKeys.contains(song.dedupeKey),
-            onTap: () => ref
-                .read(playerProvider.notifier)
-                .playPlaylist(songs, startIndex: index),
+            selecting: state.isSelecting,
+            selected: selectable && state.selectedPaths.contains(path),
+            onSelect: selectable ? () => notifier.toggleSelected(path) : null,
+            onTap: state.isSelecting
+                ? (selectable ? () => notifier.toggleSelected(path) : null)
+                : () => ref
+                      .read(playerProvider.notifier)
+                      .playPlaylist(songs, startIndex: index),
             // The `_SongTile` itself is stateless (no `ref`), so the long-press
             // menu is built here and passed down. `isLocal: true` makes the
             // frozen sheet hide the actions a local file cannot do (下载/分享/
-            // 加歌单/喜欢) — there is no platform id behind the track.
-            onLongPress: () => unawaited(
-              showSongActionsMenu(context, ref, song: song, isLocal: true),
-            ),
+            // 加歌单/喜欢) — there is no platform id behind the track. While
+            // selecting, the tap is the tick, so the sheet is suppressed for the
+            // rows that can be ticked.
+            onLongPress: state.isSelecting && selectable
+                ? null
+                : () => unawaited(
+                    showSongActionsMenu(context, ref, song: song, isLocal: true),
+                  ),
           );
         },
       ),
@@ -319,11 +548,9 @@ class _GroupList extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (groups.isEmpty) {
-      return Center(
-        child: Text(
-          emptyLabel,
-          style: TextStyle(color: Theme.of(context).colorScheme.outline),
-        ),
+      return AsyncStateView.empty(
+        title: emptyLabel,
+        message: '换一个视图，或者重新扫描一次',
       );
     }
     return AppScrollbar(
@@ -385,14 +612,27 @@ class _SongTile extends StatelessWidget {
     required this.alsoOnline,
     required this.onTap,
     required this.onLongPress,
+    this.selecting = false,
+    this.selected = false,
+    this.onSelect,
   });
 
   final Song song;
   final LocalTrackEntry? track;
   final bool hasLyrics;
   final bool alsoOnline;
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
+
+  /// Null while a batch action is in progress, or for a row that cannot be
+  /// ticked (no local index entry) — a null callback is how a `ListTile` shows
+  /// "this does nothing right now" without a disabled-looking custom button.
+  final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
+
+  /// Whether the page is in multi-select mode; the row then leads with a checkbox
+  /// **instead of** the cover, so the tile keeps its single-line height.
+  final bool selecting;
+  final bool selected;
+  final VoidCallback? onSelect;
 
   @override
   Widget build(BuildContext context) {
@@ -404,7 +644,13 @@ class _SongTile extends StatelessWidget {
       if (alsoOnline) '在线曲库中也有',
     ];
     return ListTile(
-      leading: _Cover(path: track?.coverPath),
+      leading: selecting
+          ? Checkbox(
+              key: Key('local-music-select-${track?.path ?? song.id}'),
+              value: selected,
+              onChanged: onSelect == null ? null : (_) => onSelect!(),
+            )
+          : _Cover(path: track?.coverPath),
       title: Text(song.name, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Text(
         subtitleParts.isEmpty
@@ -417,7 +663,7 @@ class _SongTile extends StatelessWidget {
       trailing: track != null && track!.durationMs > 0
           ? Text(_formatDuration(track!.duration))
           : const Icon(Icons.play_arrow),
-      onTap: onTap,
+      onTap: selecting ? onSelect : onTap,
       onLongPress: onLongPress,
     );
   }
@@ -521,33 +767,141 @@ class _Cover extends ConsumerWidget {
   }
 }
 
-class _EmptyLocalMusic extends StatelessWidget {
-  final bool isScanning;
+/// The bottom bar shown while multi-select is on.
+///
+/// It is the page's only destructive affordance, and it routes through
+/// [LocalMusicNotifier.removeSelected] — the single entry point that deletes
+/// index records and cached lyrics and **never** touches an audio file. The
+/// confirmation dialog says exactly that, because "移出曲库" has to be
+/// distinguishable from "删除文件".
+class _SelectionBar extends ConsumerWidget {
+  const _SelectionBar({required this.state, required this.notifier});
 
-  const _EmptyLocalMusic({required this.isScanning});
+  final LocalMusicState state;
+  final LocalMusicNotifier notifier;
 
   @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final hasSelection = state.selectedCount > 0;
+    return Material(
+      color: theme.colorScheme.surfaceContainerHighest,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          child: Row(
+            children: [
+              TextButton(
+                key: const Key('local-music-selection-cancel'),
+                onPressed: () => notifier.setSelectionMode(false),
+                child: const Text('取消'),
+              ),
+              Expanded(
+                child: Text(
+                  '已选 ${state.selectedCount} 首',
+                  key: const Key('local-music-selection-count'),
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall,
+                ),
+              ),
+              TextButton(
+                key: const Key('local-music-select-all'),
+                onPressed: notifier.selectAllVisible,
+                child: const Text('全选'),
+              ),
+              TextButton(
+                key: const Key('local-music-batch-add'),
+                onPressed: hasSelection
+                    ? () => _addToPlaylist(context, ref)
+                    : null,
+                child: const Text('加歌单'),
+              ),
+              TextButton(
+                key: const Key('local-music-batch-remove'),
+                onPressed: hasSelection
+                    ? () => _removeFromLibrary(context, ref)
+                    : null,
+                child: Text(
+                  '移出曲库',
+                  style: TextStyle(color: theme.colorScheme.error),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Adds every ticked track to a playlist the user picks.
+  ///
+  /// The playlists themselves belong to `features/library`, so this page drives
+  /// that feature's notifier instead of duplicating its storage.
+  Future<void> _addToPlaylist(BuildContext context, WidgetRef ref) async {
+    final tracks = ref.read(localMusicProvider).selectedTracks;
+    if (tracks.isEmpty) return;
+    final playlists = ref.read(myPlaylistsProvider).playlists;
+    if (playlists.isEmpty) {
+      showInfoSnackBar(context, '还没有自建歌单，先在「我的歌单」里创建一个');
+      return;
+    }
+    final target = await showModalBottomSheet<Playlist>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
           children: [
-            Icon(
-              Icons.library_music_outlined,
-              size: 64,
-              color: Theme.of(context).colorScheme.outlineVariant,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              isScanning ? '正在扫描本地音乐' : '选择一个文件夹开始扫描本地音乐',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Theme.of(context).colorScheme.outline),
-            ),
+            for (final playlist in playlists)
+              ListTile(
+                key: Key('local-music-pick-playlist-${playlist.id}'),
+                leading: const Icon(Icons.queue_music),
+                title: Text(playlist.name),
+                onTap: () => Navigator.of(sheetContext).pop(playlist),
+              ),
           ],
         ),
       ),
     );
+    if (target == null) return;
+
+    final playlistsNotifier = ref.read(myPlaylistsProvider.notifier);
+    var added = 0;
+    for (final track in tracks) {
+      if (await playlistsNotifier.addSong(target.id, track.toSong())) added++;
+    }
+    notifier.clearSelection();
+    if (!context.mounted) return;
+    showSuccessSnackBar(context, '已把 $added 首加入「${target.name}」');
+  }
+
+  Future<void> _removeFromLibrary(BuildContext context, WidgetRef ref) async {
+    final count = ref.read(localMusicProvider).selectedCount;
+    if (count == 0) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('移出 $count 首？'),
+        content: const Text(
+          '只会从曲库索引里移除这些记录及其缓存歌词，不会删除音频文件；下次扫描会重新出现。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            key: const Key('local-music-remove-confirm'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('移出'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final removed = await notifier.removeSelected();
+    if (!context.mounted) return;
+    showInfoSnackBar(context, '已移出 $removed 首（音频文件未改动）');
   }
 }

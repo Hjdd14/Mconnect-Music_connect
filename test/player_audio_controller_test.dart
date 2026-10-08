@@ -1,7 +1,66 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mconnect/features/player/data/player_audio_controller.dart';
 
 void main() {
+  // W2-B (a)：Windows 的均衡器走 libmpv 的 `af` 滤镜，只有 `NativePlayer` 支持；
+  // 其它实现下以前是**静默 no-op**（用户以为均衡器坏了却毫无线索）。本波只加诊断、
+  // 不修后端，所以这里用**源码级断言**锁定"那条分支确实记了诊断、且空 filter 不刷"：
+  // 行为级用例需要构造一个"非 NativePlayer"的 media_kit Player，那会在单测里初始化
+  // libmpv；真实渲染效果列入【需真机】。
+  group('Windows equalizer quiet-failure diagnostic', () {
+    test('records windows_equalizer_unsupported in the non-NativePlayer branch', () {
+      final source = File(
+        'lib/features/player/data/media_kit_windows_audio_controller.dart',
+      ).readAsStringSync();
+
+      expect(
+        source,
+        contains('windows_equalizer_unsupported'),
+        reason: '静默失效必须留下诊断，否则真机上无法复盘',
+      );
+      expect(
+        source,
+        contains('filter.trim().isEmpty'),
+        reason: '关闭 EQ 的空 filter 不该刷诊断',
+      );
+
+      // 锚点必须**唯一**：该文件 :29 是接口声明 `setAudioFilter(String filter);`，
+      // :370 才是实现（结尾是 `async {`）。用不带 async 的锚会切出接口那一小段，
+      // 于是下面 nativeBranch == -1（上一版就是这样红的）。
+      // 所以：① 锚在实现独有的 async 形态上；② 切片后立刻断言"这确实是实现体"。
+      final methodStart = source.indexOf('setAudioFilter(String filter) async');
+      expect(
+        methodStart,
+        greaterThan(-1),
+        reason: '找不到 setAudioFilter 的实现（锚点必须带 async，接口声明以 ; 结尾）',
+      );
+      final methodEnd = source.indexOf('Future<void>', methodStart + 1);
+      expect(
+        methodEnd,
+        greaterThan(methodStart),
+        reason: '取不到方法结束位置（片段里出现了别的 Future<void>？）',
+      );
+      final method = source.substring(methodStart, methodEnd);
+      expect(
+        method,
+        contains('setProperty'),
+        reason: '切出来的不是实现体（锚点命中了接口声明？）',
+      );
+
+      final nativeBranch = method.indexOf("setProperty('af', filter)");
+      final diagnostic = method.indexOf('windows_equalizer_unsupported');
+      expect(nativeBranch, greaterThan(-1), reason: 'NativePlayer 分支不见了');
+      expect(diagnostic, greaterThan(-1), reason: '静默失效的诊断不见了');
+      expect(
+        diagnostic,
+        greaterThan(nativeBranch),
+        reason: '诊断必须在 setProperty 之后（即只服务非 NativePlayer 分支）',
+      );
+    });
+  });
+
   group('Android equalizer safety gain conversion', () {
     test('converts bass preset to safe EQ with loudness compensation', () {
       final plan = JustAudioController.androidEqualizerPlanForTest(

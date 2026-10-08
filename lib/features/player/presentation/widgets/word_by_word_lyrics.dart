@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../../../../lyrics/lyrics_display_settings.dart';
 import '../../../../lyrics/lyrics_progress.dart';
 import '../../../../lyrics/models/lyrics_line.dart';
 
@@ -100,6 +101,15 @@ class WordByWordLine extends StatelessWidget {
   /// Per-frame played character count; null when not animating.
   final ValueListenable<int>? progressListenable;
 
+  /// Sizes for this line. Defaults reproduce the previous hard-coded values
+  /// (non-current 16, current 20, translation 13) exactly; the player's
+  /// typography setting scales them from there.
+  ///
+  /// Line spacing is deliberately **not** taken from here: this widget never set
+  /// an explicit `height`, and adding one would change how every word-timed song
+  /// has always looked. The line-height control applies to the plain lines.
+  final LyricsTypography typography;
+
   const WordByWordLine({
     super.key,
     required this.line,
@@ -109,6 +119,7 @@ class WordByWordLine extends StatelessWidget {
     this.onTap,
     this.playedCharacters,
     this.progressListenable,
+    this.typography = const LyricsTypography(),
   });
 
   @override
@@ -123,10 +134,11 @@ class WordByWordLine extends StatelessWidget {
             Text(
               line.text,
               key: line.text.trim().isNotEmpty ? primaryKey : null,
-              style: TextStyle(fontSize: 16, color: colors.outline),
+              style: TextStyle(fontSize: typography.fontSize, color: colors.outline),
               textAlign: TextAlign.center,
             ),
-            if (line.hasTranslation) _TranslationText(line: line),
+            if (line.hasTranslation)
+              _TranslationText(line: line, fontSize: typography.fontSize - 3),
           ],
         ),
       );
@@ -140,7 +152,10 @@ class WordByWordLine extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           DefaultTextStyle(
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            style: TextStyle(
+              fontSize: typography.fontSize + 4,
+              fontWeight: FontWeight.bold,
+            ),
             child: PlayedLyricsText(
               text: line.text,
               playedCharacters: played,
@@ -150,7 +165,8 @@ class WordByWordLine extends StatelessWidget {
               primaryKey: line.text.trim().isNotEmpty ? primaryKey : null,
             ),
           ),
-          if (line.hasTranslation) _TranslationText(line: line),
+          if (line.hasTranslation)
+            _TranslationText(line: line, fontSize: typography.fontSize - 3),
         ],
       ),
     );
@@ -159,8 +175,9 @@ class WordByWordLine extends StatelessWidget {
 
 class _TranslationText extends StatelessWidget {
   final LyricsLine line;
+  final double fontSize;
 
-  const _TranslationText({required this.line});
+  const _TranslationText({required this.line, required this.fontSize});
 
   @override
   Widget build(BuildContext context) {
@@ -170,7 +187,7 @@ class _TranslationText extends StatelessWidget {
         line.translation!,
         textAlign: TextAlign.center,
         style: TextStyle(
-          fontSize: 13,
+          fontSize: fontSize,
           color: Theme.of(context).colorScheme.outline,
           height: 1.4,
         ),

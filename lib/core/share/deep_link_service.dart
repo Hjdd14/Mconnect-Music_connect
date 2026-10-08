@@ -4,6 +4,7 @@ import 'package:app_links/app_links.dart';
 
 import '../../features/library/presentation/providers/my_playlists_provider.dart';
 import '../../models/song.dart';
+import '../transfer/playlist_codec.dart';
 import 'share_links.dart';
 
 /// Source of inbound links: platform deep links (`ACTION_VIEW`) and the Android
@@ -54,9 +55,18 @@ class NavigateOutcome extends InboundLinkOutcome {
 /// Takes the notifier instead of a `Ref`/`WidgetRef` so it can be driven in a
 /// unit test with a real [MyPlaylistsNotifier] over a temporary directory.
 class InboundLinkHandler {
-  const InboundLinkHandler({required this.playlists});
+  const InboundLinkHandler({required this.playlists, this.onTransferText});
 
   final MyPlaylistsNotifier playlists;
+
+  /// Called with the raw payload when an inbound share carries a playlist
+  /// *document* (m3u8 / our own JSON / `歌名 - 歌手` lines) rather than a link.
+  ///
+  /// Needed because such a payload has no URL for [ShareLinks.classify] to find:
+  /// without this the shared playlist would be discarded silently, which is the
+  /// one outcome a transfer feature must never have. The wiring hands it to
+  /// `pendingPlaylistTransferProvider`, which the import page consumes.
+  final void Function(String text)? onTransferText;
 
   /// Returns null for text that carries no link we understand (the caller stays
   /// where it is) — an unrecognised share must never move the user somewhere
@@ -65,7 +75,10 @@ class InboundLinkHandler {
     final target = ShareLinks.classify(rawText);
     switch (target) {
       case null:
-        return null;
+        final payload = transferPayloadOf(rawText);
+        if (payload == null) return null;
+        onTransferText?.call(payload);
+        return const NavigateOutcome(ShareLinks.importPlaylistLocation);
       case SongLinkTarget(song: final song):
         return PlaySongOutcome(song);
       case LocalPlaylistLinkTarget(link: final link):
@@ -75,6 +88,21 @@ class InboundLinkHandler {
         // 网易云/QQ/酷狗 formats); the user only has to confirm.
         return const NavigateOutcome(ShareLinks.importPlaylistLocation);
     }
+  }
+
+  /// The shared payload when it is an importable playlist document, else null.
+  ///
+  /// An `ACTION_SEND` payload reaches Dart wrapped in `mconnect://share?text=…`
+  /// (see `ShareIntentHandler`), so one level is unwrapped before judging; prose
+  /// that merely happens to contain a newline is rejected by
+  /// [looksLikePlaylistTransfer].
+  static String? transferPayloadOf(String rawText) {
+    final trimmed = rawText.trim();
+    if (trimmed.isEmpty) return null;
+    final uri = Uri.tryParse(trimmed);
+    final unwrapped = uri == null ? null : ShareLinks.unwrapBridgeText(uri);
+    final candidate = unwrapped ?? trimmed;
+    return looksLikePlaylistTransfer(candidate) ? candidate : null;
   }
 
   Future<InboundLinkOutcome> _importLocalPlaylist(String link) async {

@@ -1,3 +1,4 @@
+import '../../lyrics/models/lyrics_bundle.dart';
 import '../../models/song.dart';
 import '../../models/user.dart';
 import '../../models/playlist.dart';
@@ -68,6 +69,20 @@ abstract class MusicPlatform {
 
   // Lyrics
   Future<String?> getLyrics(String songId);
+
+  /// Every lyric track this platform has for [songId], **kept per format**.
+  ///
+  /// `yrc` (word-by-word) is a different format from `lrc`, not a richer LRC,
+  /// so the tracks cannot be pre-concatenated. The default implementation wraps
+  /// [getLyrics] into one LRC track, which is what every platform that has a
+  /// single payload needs — a platform with several tracks overrides this.
+  ///
+  /// Returns null when the platform has no lyrics for the song.
+  Future<LyricsBundle?> getLyricsBundle(String songId) async {
+    final raw = await getLyrics(songId);
+    if (raw == null || raw.trim().isEmpty) return null;
+    return LyricsBundle(lrc: raw);
+  }
 
   // Library
   Future<List<Playlist>> getUserPlaylists();

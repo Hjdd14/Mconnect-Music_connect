@@ -59,6 +59,40 @@ class ShareService {
       origin: origin,
     );
   }
+
+  /// Shares an exported playlist *document* (m3u8 / `歌名 - 歌手` text / JSON).
+  ///
+  /// Distinct from [sharePlaylist] on purpose: that one sends the
+  /// `mconnect://playlist` link, which only this app can import, while these
+  /// three are the formats a third-party player, server or mover can read.
+  /// [formatLabel] goes into the subject so the receiving app can say what it
+  /// received.
+  ///
+  /// The payload is plain text: a `.m3u8` is a text file, so saving it under that
+  /// extension is the user's step. Sharing an actual file would need a new
+  /// [ShareChannel] method plus temporary-file I/O, which is deliberately not
+  /// part of this change.
+  Future<void> sharePlaylistExport({
+    required String name,
+    required String content,
+    required String formatLabel,
+    Rect? origin,
+  }) {
+    return _channel.shareText(
+      content,
+      subject: '${playlistDisplayName(name)}（$formatLabel）',
+      origin: origin,
+    );
+  }
+}
+
+/// `未命名歌单` when [name] is blank.
+///
+/// Shared by [buildPlaylistShareText] and [ShareService.sharePlaylistExport] so
+/// the two cannot disagree about what an unnamed playlist is called.
+String playlistDisplayName(String name) {
+  final trimmed = name.trim();
+  return trimmed.isEmpty ? '未命名歌单' : trimmed;
 }
 
 /// Text shared for a single song. Kept as a free function so the exact payload
@@ -74,8 +108,8 @@ String buildPlaylistShareText({
   required int songCount,
   required String link,
 }) {
-  final title = name.trim().isEmpty ? '未命名歌单' : name.trim();
-  return '$title（$songCount 首）\n来自 ${AppConstants.appName}\n$link';
+  return '${playlistDisplayName(name)}（$songCount 首）\n'
+      '来自 ${AppConstants.appName}\n$link';
 }
 
 final shareServiceProvider = Provider<ShareService>((ref) {

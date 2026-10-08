@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../features/library/presentation/providers/my_playlists_provider.dart';
 import '../../features/player/presentation/providers/player_provider.dart';
 import '../router/app_router.dart';
+import '../transfer/transfer_providers.dart';
 import 'deep_link_service.dart';
 import 'share_links.dart';
 
@@ -41,6 +42,11 @@ DeepLinkService attachDeepLinkHandling(
     source: source,
     handler: InboundLinkHandler(
       playlists: ref.read(myPlaylistsProvider.notifier),
+      // A shared playlist *document* has no link to classify, so it is parked
+      // for the import page to pick up; `navigate` below sends the user there in
+      // the same outcome.
+      onTransferText: (text) =>
+          ref.read(pendingPlaylistTransferProvider.notifier).state = text,
     ),
     onOutcome: (outcome) {
       switch (outcome) {

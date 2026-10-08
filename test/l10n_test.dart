@@ -8,14 +8,18 @@ import 'package:mconnect/l10n/l10n.dart';
 
 /// Guards the ARB pipeline itself.
 ///
-/// Three failure modes this catches, all of which look like "the app is fine"
+/// Failure modes this catches, all of which look like "the app is fine"
 /// until someone switches locale:
 /// * a key added to one bundle only (the other locale silently falls back to the
 ///   template, so a translator never sees the gap);
 /// * placeholders drifting between the two bundles (`{error}` vs `{message}`),
 ///   which throws at runtime in the generated code;
 /// * editing the ARB and forgetting `flutter gen-l10n`, so the committed
-///   generated code no longer matches the source of truth.
+///   generated code no longer matches the source of truth;
+/// * a key **nobody references** (an orphan) — six of those sat in both bundles
+///   for months because only "the two key sets match" was ever checked;
+/// * an English value that is still Chinese ("fake translation"), which would
+///   ship a half-translated UI the day `en` is enabled.
 void main() {
   late Map<String, dynamic> zh;
   late Map<String, dynamic> en;
@@ -152,5 +156,44 @@ void main() {
     expect(l.backgroundProcessFailed('boom'), contains('boom'));
     expect(l.accountLogoutConfirm('网易云音乐'), contains('网易云音乐'));
     expect(l.diagnosticsExportFailed('disk'), contains('disk'));
+  });
+
+  test('no ARB key is an orphan (nothing under lib/ references it)', () {
+    // 口径与 docs/i18n-migration-plan.md §7.1 一致：
+    // 语料 = lib/ 下所有 .dart，**只**排除生成物 `app_localizations*.dart`。
+    //
+    // 绝不能排除整个 `lib/l10n/`：`l10n.dart` / `platform_labels.dart` 是手写代码，
+    // 一起排除会把 `platformNetease` / `platformQq` 这类**误判成孤儿**
+    // （地图第一版就是这么得到 26 个假孤儿的，真孤儿只有 6 个）。
+    final corpus = StringBuffer();
+    for (final entity in Directory('lib').listSync(recursive: true)) {
+      if (entity is! File || !entity.path.endsWith('.dart')) continue;
+      if (entity.path.contains('app_localizations')) continue;
+      corpus.write(entity.readAsStringSync());
+    }
+    final text = corpus.toString();
+
+    final offenders = messageKeys(zh)
+        .where((key) => !RegExp('\\b$key\\b').hasMatch(text))
+        .toList()
+      ..sort();
+    expect(
+      offenders,
+      isEmpty,
+      reason:
+          'ARB 里有 key 但 lib/ 里没人引用 —— 要么接线（页面标题这类本该用的），'
+          '要么删掉（zh/en 两侧一起删，再跑 `flutter gen-l10n`）：$offenders',
+    );
+  });
+
+  test('no English value is still Chinese (fake translation)', () {
+    // en 值含 CJK = 英文包里躺着中文，等于没翻；放开 en 那天就会露出来。
+    // 品牌名不受影响：`platformQq` 的英文值是 "QQ Music" 之类，本来就不含汉字。
+    final han = RegExp(r'[\u4e00-\u9fff]');
+    final offenders = messageKeys(en)
+        .where((key) => han.hasMatch(en[key]?.toString() ?? ''))
+        .toList()
+      ..sort();
+    expect(offenders, isEmpty, reason: 'en 值含中文 = 假翻译（等于没翻）：$offenders');
   });
 }

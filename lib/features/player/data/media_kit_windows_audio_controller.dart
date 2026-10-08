@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart' as just_audio;
 import 'package:media_kit/media_kit.dart' as media_kit;
 
+import '../../../core/diagnostics/diagnostics_service.dart';
 import 'player_audio_controller.dart';
 
 abstract class MediaKitWindowsBackend {
@@ -370,7 +371,21 @@ class RealMediaKitWindowsBackend implements MediaKitWindowsBackend {
     final platform = _player.platform;
     if (platform is media_kit.NativePlayer) {
       await platform.setProperty('af', filter);
+      return;
     }
+    // W2-B (a)：Windows 的均衡器走 libmpv 的 `af` 滤镜，而 `setProperty` 只有
+    // `NativePlayer` 支持；其它实现下这里以前是**静默 no-op** —— 用户以为均衡器
+    // 坏了却没有任何线索。本波只加诊断、**不修后端**（改 media_kit 后端风险更大，
+    // 且 Windows 不是本波重点）。空 filter（关闭 EQ）不算"静默失效"，不记。
+    if (filter.trim().isEmpty) return;
+    DiagnosticsService.instance.record(
+      'player',
+      'windows_equalizer_unsupported',
+      data: {
+        'filter': filter,
+        'player_platform': platform.runtimeType.toString(),
+      },
+    );
   }
 
   @override

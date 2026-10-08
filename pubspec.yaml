@@ -83,6 +83,16 @@ dependencies:
   connectivity_plus: ^7.3.1
   share_plus: ^12.0.2
   app_links: ^7.2.1
+  # Desktop home-screen widget (RemoteViews). Its `platforms` map declares only
+  # android and ios: on Windows it does NOT fail to compile, but any call throws
+  # MissingPluginException - so every use goes through the facade in
+  # lib/features/widget, which is a no-op off Android.
+  home_widget: ^0.10.0
+  # Opening the Last.fm / ListenBrainz authorisation page in a browser. Android
+  # 11+ requires a `<queries>` entry for the VIEW intent (see
+  # AndroidManifest.xml) or the lookup silently resolves to nothing; the
+  # w2w3 specs doc records that diff. Windows 10+ needs nothing.
+  url_launcher: ^6.3.1
   audio_metadata_reader: ^1.4.1
 
 dev_dependencies:

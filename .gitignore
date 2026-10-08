@@ -144,9 +144,13 @@ accounts/
 *token*.json
 *tokens*.json
 
-# Local project memory and agent planning docs
-/CHANGELOG.md
-/PROJECT.md
+# Agent planning docs that stay local
+#
+# PROJECT.md / CHANGELOG.md deliberately are NOT in this list any more: they carry
+# two of the seven version-sync points in AGENTS.md §2, and while they were
+# untracked neither CI nor a fresh clone could see them — `version_sync_test.dart`
+# could only check them "when present", which is how they drifted unnoticed.
+# `/docs/superpowers/` is still local-only.
 /docs/superpowers/
 
 # Local migration or temporary work folders

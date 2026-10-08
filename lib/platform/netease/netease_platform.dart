@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../../core/network/api_exception.dart';
 import '../../core/network/platform_http.dart';
+import '../../lyrics/models/lyrics_bundle.dart';
 import '../../models/song.dart';
 import '../../models/artist.dart';
 import '../../models/album.dart';
@@ -459,20 +460,54 @@ class NeteasePlatform extends MusicPlatform {
 
   @override
   Future<String?> getLyrics(String songId) async {
+    final bundle = await getLyricsBundle(songId);
+    final lrc = bundle?.lrc;
+    if (lrc == null || lrc.trim().isEmpty) return null;
+    final translation = bundle?.translation;
+    if (translation == null || translation.trim().isEmpty) return lrc;
+    // Kept for callers that only understand one string (the two tracks share
+    // their timestamps, so the LRC parser pairs them back up).
+    return '$lrc\n$translation';
+  }
+
+  /// Every NetEase lyric track for [songId], kept per format.
+  ///
+  /// `yrc` is word-by-word and is **not** LRC: a missing one is the common case
+  /// (2 of 8 probed tracks had it), and the provider falls back to `lrc` — so an
+  /// empty/absent `yrc` must never be turned into an error here.
+  /// `romalrc` is plain LRC. See `docs/netease-lyric-shapes.md`.
+  @override
+  Future<LyricsBundle?> getLyricsBundle(String songId) async {
     try {
       debugPrint('Netease getLyrics: songId=$songId');
       final res = await _api.getLyric(songId);
       debugPrint('Netease getLyrics: response keys=${res.keys.toList()}');
-      final lrc = res['lrc']?['lyric'] as String?;
-      final tlyric = res['tlyric']?['lyric'] as String?;
-      debugPrint('Netease getLyrics: lrc length=${lrc?.length ?? 'null'}');
-      if (lrc == null || lrc.isEmpty) return null;
-      if (tlyric == null || tlyric.isEmpty) return lrc;
-      return '$lrc\n$tlyric';
+      final bundle = LyricsBundle(
+        lrc: _lyricTrack(res, 'lrc'),
+        translation: _lyricTrack(res, 'tlyric'),
+        yrc: _lyricTrack(res, 'yrc'),
+        romaji: _lyricTrack(res, 'romalrc') ?? _lyricTrack(res, 'yromalrc'),
+      );
+      if (bundle.isEmpty) {
+        debugPrint('Netease getLyrics: no lyric tracks in the response');
+        return null;
+      }
+      return bundle;
     } catch (e) {
       debugPrint('Netease getLyrics error: $e');
       return null;
     }
+  }
+
+  /// One `<key>.lyric` track, or null when the response omits/blanks it.
+  ///
+  /// Every track is optional: `yrc` and `romalrc` only appear for some songs.
+  static String? _lyricTrack(Map<String, dynamic> res, String key) {
+    final track = res[key];
+    if (track is! Map) return null;
+    final lyric = track['lyric'];
+    if (lyric is! String) return null;
+    return lyric.trim().isEmpty ? null : lyric;
   }
 
   // --- Library ---

@@ -37,11 +37,20 @@ void main() {
     );
   });
 
-  test('never throws on bytes that are neither UTF-8 nor valid GB18030', () {
-    // 坏文件不能让整次扫描崩掉：最后一个回退必须是宽松解码。
+  test('falls back to lenient UTF-8 on bytes that are neither encoding', () {
+    // 坏文件不能让整次扫描崩掉：最后一个回退必须是**宽松 UTF-8 解码同一段字节**，
+    // 而不是丢掉文件——所以这里断言具体结果，不只断言"不抛"。
     final bytes = <int>[0x00, 0xFF, 0xFE, 0x00, 0x41];
 
-    expect(() => LocalLyricsLoader.decodeBytes(bytes), returnsNormally);
+    // 先证明这段输入确实是坏 UTF-8（否则这条用例是空转）。
+    expect(() => utf8.decode(bytes), throwsFormatException);
+
+    final decoded = LocalLyricsLoader.decodeBytes(bytes);
+
+    expect(decoded, utf8.decode(bytes, allowMalformed: true));
+    expect(decoded, contains('A'));
+    expect(decoded, contains('\u{FFFD}'));
+    expect(decoded, isNot('[00:01.00]plain ascii'));
   });
 
   test('an empty byte list decodes to an empty string', () {

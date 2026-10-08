@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  桌面小组件的宿主声明（AppWidgetProviderInfo）。
+
+  关键取值与理由（见 docs/v1.5-w2w3-implementation-specs.md §B.2）：
+  * updatePeriodMillis 的系统下限是 30 分钟（1800000）。填更小的值不会更频繁，
+    只会白耗电 —— "跟手"的刷新靠 Dart 侧 HomeWidget.updateWidget() 主动触发。
+  * resizeMode 允许用户横向/纵向拉大；targetCellWidth/Height 是 Android 12+ 的
+    网格尺寸提示（低版本忽略，不会崩）。
+  * android:description 必须指向真实存在的字符串资源：引用缺失资源是**编译期**错误
+    （本仓库的 values/strings.xml 由同一次改动新建，含 mconnect_widget_description）。
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp"
+    android:minHeight="72dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/mconnect_widget"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:description="@string/mconnect_widget_description" />

@@ -100,6 +100,17 @@ void main() {
     expect(doc.lines.last.translation, isNull);
   });
 
+  test('clamps a negative [offset] so no line is dated before zero', () {
+    // A negative calibration must not push a timestamp below the start of the
+    // track: line matching treats "before zero" as garbage, and the per-song
+    // offset feature can now produce larger negative shifts than before.
+    const raw = '[offset:-5000]\n[00:01.00]Early';
+
+    final doc = LyricsDocument.parse(raw, LyricsFormat.lrc);
+
+    expect(doc.lines.single.timestamp, Duration.zero);
+  });
+
   test('keeps the file order of lines sharing a timestamp (stable sort)', () {
     // `List.sort` gives no stability guarantee: with enough entries the
     // underlying quicksort is free to swap the two lines of a pair, which

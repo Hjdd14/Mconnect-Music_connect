@@ -283,6 +283,109 @@ void main() {
       expect(cache.putCalls, 0);
     });
 
+    // 复核 F1 的红→绿：老实现只用一个 bool，会把"有候选但全不及格"误报成
+    // urlUnavailable；这里时长差 32s（> ±3s）→ 打分 0 → 应报 belowThreshold。
+    test('有候选但时长差 >3s → belowThreshold（不是 urlUnavailable）', () async {
+      final cache = _MemorySourceMatchCache();
+      final qq = _MatchPlatform(
+        type: PlatformType.qq,
+        results: [
+          _song(
+            'qq-long',
+            platform: PlatformType.qq,
+            name: '夜曲',
+            durationSeconds: 232,
+          ),
+        ],
+      );
+      final service = _service(cache: cache, platforms: [qq]);
+
+      final resolution = await service.resolveDetailed(
+        _song('n-13', name: '夜曲', durationSeconds: 200),
+        AudioLevel.low,
+      );
+
+      expect(
+        resolution.failure,
+        SourceMatchFailure.belowThreshold,
+        reason: '搜到了候选但时长差超容差 → 必须 belowThreshold；'
+            '老实现（单个 sawCandidate）会误报 urlUnavailable',
+      );
+      expect(cache.putCalls, 0);
+    });
+
+    // 复核 F2 的红→绿：`SourceMatchEntry.isUsableAt` 以前是零引用死代码，TTL 全靠
+    // "store 实现自觉遵守 get(now:) 契约"。这里用一个**违约的 store**（忽略 now、
+    // 过期也照返）证明服务侧现在会自己复核，过期直链不会进播放。
+    test('store 违约（忽略 now）时过期直链仍被拒（F2 纵深防御）', () async {
+      final cache = _LyingSourceMatchCache();
+      final qq = _MatchPlatform(
+        type: PlatformType.qq,
+        results: [_song('qq-fresh', platform: PlatformType.qq, name: '夜曲')],
+      );
+      final song = _song('n-14', name: '夜曲');
+      cache.entries['${song.dedupeKey}|qq'] = SourceMatchEntry(
+        songKey: song.dedupeKey,
+        targetPlatform: 'qq',
+        targetSongId: 'qq-stale',
+        url: 'https://cached.test/stale.mp3',
+        urlFetchedAt: DateTime(2025),
+        score: 0.9,
+        expiresAt: DateTime(2025), // 早已过期
+      );
+      final service = _service(cache: cache, platforms: [qq]);
+
+      final resolution = await service.resolveDetailed(song, AudioLevel.low);
+
+      expect(resolution.url, contains('qq-fresh'));
+      expect(resolution.fromCache, isFalse);
+      expect(
+        qq.searchInvocationCount,
+        1,
+        reason: '违约 store 返回的过期直链必须被服务侧复核拦下并重解析',
+      );
+    });
+
+    // 复核 F3 的核心判别断言：缓存直链播放失败 → 失效 → 下次必须重解析。
+    // 之前这条路径完全零覆盖（一条"时间上还有效、服务端已失效"的直链会被复用满
+    // 整个 20 分钟 TTL）。
+    test('invalidateCache 之后必须重解析，不再复用同一条死链（F3）', () async {
+      final cache = _MemorySourceMatchCache();
+      final song = _song('inv-svc', name: '夜曲');
+      await cache.put(
+        SourceMatchEntry(
+          songKey: song.dedupeKey,
+          targetPlatform: 'qq',
+          targetSongId: 'qq-dead',
+          url: 'https://cached.test/dead.mp3',
+          urlFetchedAt: DateTime(2026),
+          score: 0.95,
+          expiresAt: DateTime(2026, 1, 1, 1), // 仍"时间有效"
+        ),
+      );
+      final qq = _MatchPlatform(
+        type: PlatformType.qq,
+        results: [_song('qq-new', platform: PlatformType.qq, name: '夜曲')],
+      );
+      final service = _service(cache: cache, platforms: [qq]);
+
+      // ① 首次：命中缓存（死链），不搜索
+      final first = await service.resolveDetailed(song, AudioLevel.low);
+      expect(first.fromCache, isTrue);
+      expect(first.url, 'https://cached.test/dead.mp3');
+      expect(qq.searchInvocationCount, 0);
+
+      // ② 播放失败 → 失效该 (歌曲, 平台)
+      await service.invalidateCache(song, PlatformType.qq);
+      expect(cache.invalidateCalls, 1);
+
+      // ③ 下次必须重解析，拿到新直链
+      final second = await service.resolveDetailed(song, AudioLevel.low);
+      expect(second.fromCache, isFalse);
+      expect(second.url, contains('qq-new'));
+      expect(qq.searchInvocationCount, 1);
+    });
+
     test('离线模式禁用换源，不发起任何搜索', () async {
       final cache = _MemorySourceMatchCache();
       final qq = _MatchPlatform(
@@ -577,11 +680,27 @@ class _CountingService extends SourceMatchService {
   }
 }
 
+/// 故意**违反** `get(now:)` 契约的 store：忽略 TTL，过期也照返。
+///
+/// 用来证明 `SourceMatchService._readCache` 的 `isUsableAt` 复核（F2）真的拦得住。
+class _LyingSourceMatchCache extends _MemorySourceMatchCache {
+  @override
+  Future<SourceMatchEntry?> get(
+    String songKey,
+    String targetPlatform, {
+    required DateTime now,
+  }) async {
+    getCalls++;
+    return entries['$songKey|$targetPlatform'];
+  }
+}
+
 /// 与 drift DAO 同一约定的内存缓存：`expiresAt <= now` 视为不存在。
 class _MemorySourceMatchCache implements SourceMatchCacheStore {
   final entries = <String, SourceMatchEntry>{};
   int getCalls = 0;
   int putCalls = 0;
+  int invalidateCalls = 0;
 
   static String _key(String songKey, String platform) => '$songKey|$platform';
 
@@ -601,6 +720,12 @@ class _MemorySourceMatchCache implements SourceMatchCacheStore {
   Future<void> put(SourceMatchEntry entry) async {
     putCalls++;
     entries[_key(entry.songKey, entry.targetPlatform)] = entry;
+  }
+
+  @override
+  Future<void> invalidate(String songKey, String targetPlatform) async {
+    invalidateCalls++;
+    entries.remove(_key(songKey, targetPlatform));
   }
 
   @override

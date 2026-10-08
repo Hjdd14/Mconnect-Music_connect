@@ -1,12 +1,17 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mconnect/core/share/deep_link_service.dart';
+import 'package:mconnect/core/share/deep_link_wiring.dart';
 import 'package:mconnect/core/share/share_links.dart';
+import 'package:mconnect/core/transfer/transfer_providers.dart';
 import 'package:mconnect/features/library/data/my_playlists_repository.dart';
 import 'package:mconnect/features/library/presentation/providers/my_playlists_provider.dart';
 import 'package:mconnect/models/platform_type.dart';
+import 'package:mconnect/models/playlist.dart';
 import 'package:mconnect/models/song.dart';
 
 /// Link source driven by the test instead of by a platform channel.
@@ -219,4 +224,179 @@ void main() {
     expect(outcomes, hasLength(1));
     await source.close();
   });
+
+  // ---- W1-C increment 2: a shared playlist *document* is not a link ----
+
+  /// What a share sheet sends: an Android `ACTION_SEND` payload is forwarded
+  /// through `mconnect://share?text=…` by `ShareIntentHandler`, and the payload
+  /// can be an m3u8 / JSON / `歌名 - 歌手` list rather than a URL.
+  const m3u8 = '#EXTM3U\n#EXTINF:227,夜曲 - 周杰伦\n/music/ye.mp3\n';
+
+  test('分享来的 M3U8 不是链接，但会被投递到导入页而不是丢掉', () async {
+    final source = _FakeLinkSource(
+      initial: Uri.parse(ShareLinks.bridgeLink(m3u8)),
+    );
+    String? delivered;
+    final outcomes = <InboundLinkOutcome>[];
+    final service = DeepLinkService(
+      source: source,
+      handler: InboundLinkHandler(
+        playlists: playlists,
+        onTransferText: (text) => delivered = text,
+      ),
+      onOutcome: outcomes.add,
+    );
+
+    await service.start();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await service.dispose();
+    await source.close();
+
+    expect(delivered, m3u8, reason: '内容必须原样交给导入页');
+    expect(outcomes, hasLength(1));
+    expect(
+      (outcomes.single as NavigateOutcome).location,
+      ShareLinks.importPlaylistLocation,
+    );
+  });
+
+  test('分享来的纯文本歌单同样被投递', () async {
+    const lines = '夜曲 - 周杰伦\n富士山下 - 陈奕迅';
+    final source = _FakeLinkSource(
+      initial: Uri.parse(ShareLinks.bridgeLink(lines)),
+    );
+    String? delivered;
+    final outcomes = <InboundLinkOutcome>[];
+    final service = DeepLinkService(
+      source: source,
+      handler: InboundLinkHandler(
+        playlists: playlists,
+        onTransferText: (text) => delivered = text,
+      ),
+      onOutcome: outcomes.add,
+    );
+
+    await service.start();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await service.dispose();
+    await source.close();
+
+    expect(delivered, lines);
+  });
+
+  test('不含歌单的分享语仍然什么都不做（不把用户带去别处）', () async {
+    final source = _FakeLinkSource(
+      initial: Uri.parse(ShareLinks.bridgeLink('今天天气不错')),
+    );
+    String? delivered;
+    final outcomes = <InboundLinkOutcome>[];
+    final service = DeepLinkService(
+      source: source,
+      handler: InboundLinkHandler(
+        playlists: playlists,
+        onTransferText: (text) => delivered = text,
+      ),
+      onOutcome: outcomes.add,
+    );
+
+    await service.start();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await service.dispose();
+    await source.close();
+
+    expect(delivered, isNull);
+    expect(outcomes, isEmpty);
+  });
+
+  /// Bounded `testWidgets`: a hang is undiagnosable, so a never-completing
+  /// future has to fail in 30 s rather than eat the runner's 10-minute default
+  /// and stall the whole suite.
+  void widgetTest(
+    String description,
+    Future<void> Function(WidgetTester) body,
+  ) {
+    testWidgets(
+      description,
+      body,
+      timeout: const Timeout(Duration(seconds: 30)),
+    );
+  }
+
+  widgetTest('深链承接：分享的 M3U8 落进 pending 槽，导入页据此解析', (tester) async {
+    // No live stream: the cold-start path under test needs only `initialLink`,
+    // and an open broadcast controller is one more thing that can leave a future
+    // pending inside `testWidgets`' fake-async zone.
+    final source = _InitialOnlyLinkSource(
+      Uri.parse(ShareLinks.bridgeLink(m3u8)),
+    );
+    final navigated = <String>[];
+    late WidgetRef captured;
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          // The handler only needs the notifier for the *link* paths; a fake
+          // repository keeps the real one off the filesystem in a widget test.
+          myPlaylistsProvider.overrideWith(
+            (ref) => MyPlaylistsNotifier(repository: _EmptyRepository()),
+          ),
+        ],
+        child: MaterialApp(
+          home: Consumer(
+            builder: (context, ref, _) {
+              captured = ref;
+              return const SizedBox();
+            },
+          ),
+        ),
+      ),
+    );
+
+    final service = attachDeepLinkHandling(
+      captured,
+      navigate: navigated.add,
+      source: source,
+    );
+    // Always tear the subscription down, even when an assertion below fails.
+    addTearDown(service.dispose);
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(Consumer)),
+    );
+
+    // Bounded settle rather than a guessed pair of pumps: the wiring starts the
+    // listener from a post-frame callback and then resolves `initialLink()` on a
+    // microtask, so the payload may land one or two frames later. Pumping a fixed
+    // number of frames is finite by construction (it can never hang) and stops as
+    // soon as the value arrives.
+    for (var i = 0; i < 50; i++) {
+      if (container.read(pendingPlaylistTransferProvider) != null) break;
+      await tester.pump(const Duration(milliseconds: 10));
+    }
+
+    expect(container.read(pendingPlaylistTransferProvider), m3u8);
+    expect(navigated, <String>[ShareLinks.importPlaylistLocation]);
+  });
+}
+
+/// An in-memory repository so the widget test above never touches the disk.
+class _EmptyRepository extends MyPlaylistsRepository {
+  @override
+  Future<List<Playlist>> getPlaylists() async => const <Playlist>[];
+}
+
+/// A source that only ever reports the cold-start link.
+///
+/// Deliberately has no stream: [_FakeLinkSource] keeps a broadcast controller
+/// open for the tests that drive one, and the cold-start path needs none.
+class _InitialOnlyLinkSource implements LinkSource {
+  const _InitialOnlyLinkSource(this.initial);
+
+  final Uri? initial;
+
+  @override
+  Future<Uri?> initialLink() async => initial;
+
+  @override
+  Stream<Uri> links() => const Stream<Uri>.empty();
 }

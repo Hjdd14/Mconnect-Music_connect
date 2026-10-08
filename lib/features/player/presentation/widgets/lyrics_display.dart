@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../../lyrics/lyrics_display_settings.dart';
 import '../../../../lyrics/lyrics_progress.dart';
 import '../../../../lyrics/models/lyrics_line.dart';
 import '../providers/lyrics_offset_provider.dart';
@@ -41,6 +42,9 @@ class _LyricsDisplayState extends ConsumerState<LyricsDisplay>
   Duration _position = Duration.zero;
   /// Manual calibration; added to the playback position before matching lines.
   Duration _lyricsOffset = Duration.zero;
+
+  /// 当前三态，供逐字高亮用（与 UI 显示的行保持一致）。
+  LyricsDisplayMode _displayMode = LyricsDisplayMode.bilingual;
   String? _lastSongId;
   String? _progressSongId;
   LyricsDocument? _lastDocument;
@@ -87,7 +91,9 @@ class _LyricsDisplayState extends ConsumerState<LyricsDisplay>
     final player = ref.read(playerProvider);
     if (!player.isPlaying) return;
     final position = _progressEstimator.estimate(
-      player.position + _lyricsOffset,
+      // Shared with the floating overlay: one definition of "the offset is
+      // added to the playback position", so the two screens cannot drift.
+      applyLyricsOffset(player.position, _lyricsOffset),
       isPlaying: true,
       duration: player.duration,
     );
@@ -95,11 +101,15 @@ class _LyricsDisplayState extends ConsumerState<LyricsDisplay>
   }
 
   /// Played character count of the line the UI currently shows.
+  ///
+  /// Goes through [displayLineFor] so the count matches the text actually on
+  /// screen: in 仅译文 mode the original's character count would sweep past the
+  /// (different) length of the translation.
   int _playedCharactersFor(int index, Duration position) {
     final doc = _lastDocument;
     if (doc == null || index < 0 || index >= doc.lines.length) return 0;
     return playedCharacterCount(
-      doc.lines[index],
+      displayLineFor(doc.lines[index], _displayMode),
       position,
       nextTimestamp: index + 1 < doc.lines.length
           ? doc.lines[index + 1].timestamp
@@ -287,9 +297,14 @@ class _LyricsDisplayState extends ConsumerState<LyricsDisplay>
   Widget build(BuildContext context) {
     final lyricsAsync = ref.watch(lyricsProvider);
     // 手动校准：把播放位置整体平移，行匹配与逐字进度都跟着走。
+    // 用共享纯函数（悬浮窗走同一个），避免两处各写一遍 `position + offset`。
     final lyricsOffset = ref.watch(lyricsOffsetProvider);
     _lyricsOffset = lyricsOffset;
-    final position = _position + lyricsOffset;
+    final position = applyLyricsOffset(_position, lyricsOffset);
+    // 三态与字号/行距（全局偏好，落 Hive）。
+    final mode = ref.watch(lyricsDisplayModeProvider);
+    final typography = ref.watch(lyricsTypographyProvider);
+    _displayMode = mode;
     final currentSongId = ref.watch(
       playerProvider.select((s) => s.currentSong?.id),
     );
@@ -354,56 +369,77 @@ class _LyricsDisplayState extends ConsumerState<LyricsDisplay>
           });
         }
 
+        // Any word-timed format renders through WordByWordLine; `yrc` is
+        // NetEase's word-by-word track and carries the same `WordTiming` list.
         final hasWordTiming =
-            doc.format == LyricsFormat.qrc || doc.format == LyricsFormat.krc;
+            doc.format == LyricsFormat.qrc ||
+            doc.format == LyricsFormat.krc ||
+            doc.format == LyricsFormat.yrc;
 
-        return NotificationListener<ScrollNotification>(
-          onNotification: (notification) {
-            _onScrollNotification(notification);
-            return false;
-          },
-          child: ListView.builder(
-            controller: _scrollController,
-            padding: const EdgeInsets.symmetric(vertical: _listVerticalPadding),
-            itemCount: doc.lines.length,
-            itemBuilder: (context, index) {
-              final line = doc.lines[index];
-              final isCurrent = index == _currentLineIndex;
-              final playedCharacters = isCurrent
-                  ? _playedCharactersFor(index, position)
-                  : 0;
-
-              return Padding(
-                key: _itemKeys[index],
+        return Stack(
+          children: [
+            if (doc.source.isKnown)
+              Positioned(
+                top: 4,
+                right: 12,
+                child: _LyricsSourceBadge(source: doc.source),
+              ),
+            NotificationListener<ScrollNotification>(
+              onNotification: (notification) {
+                _onScrollNotification(notification);
+                return false;
+              },
+              child: ListView.builder(
+                controller: _scrollController,
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
+                  vertical: _listVerticalPadding,
                 ),
-                child: hasWordTiming
-                    ? WordByWordLine(
-                        line: line,
-                        currentPosition: position,
-                        playedCharacters: playedCharacters,
-                        progressListenable: isCurrent && isPlaying
-                            ? _playedCharacters
-                            : null,
-                        isCurrentLine: isCurrent,
-                        primaryKey: _lineAnchorKeys[index],
-                        onTap: () => _seekToLine(line),
-                      )
-                    : _PlainLyricsLine(
-                        line: line,
-                        isCurrentLine: isCurrent,
-                        playedCharacters: playedCharacters,
-                        progressListenable: isCurrent && isPlaying
-                            ? _playedCharacters
-                            : null,
-                        primaryKey: _lineAnchorKeys[index],
-                        onTap: () => _seekToLine(line),
-                      ),
-              );
-            },
-          ),
+                itemCount: doc.lines.length,
+                itemBuilder: (context, index) {
+                  final line = doc.lines[index];
+                  // 三态在这里一次性决定显示哪一行文本（含"仅译文时没有译文就
+                  // 退回原文"），避免每个渲染分支各写一套判断。
+                  final displayed = displayLineFor(line, mode);
+                  final isCurrent = index == _currentLineIndex;
+                  final playedCharacters = isCurrent
+                      ? _playedCharactersFor(index, position)
+                      : 0;
+
+                  return Padding(
+                    key: _itemKeys[index],
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 12,
+                    ),
+                    child: hasWordTiming
+                        ? WordByWordLine(
+                            line: displayed,
+                            currentPosition: position,
+                            playedCharacters: playedCharacters,
+                            progressListenable: isCurrent && isPlaying
+                                ? _playedCharacters
+                                : null,
+                            isCurrentLine: isCurrent,
+                            primaryKey: _lineAnchorKeys[index],
+                            typography: typography,
+                            onTap: () => _seekToLine(line),
+                          )
+                        : _PlainLyricsLine(
+                            line: displayed,
+                            isCurrentLine: isCurrent,
+                            playedCharacters: playedCharacters,
+                            progressListenable: isCurrent && isPlaying
+                                ? _playedCharacters
+                                : null,
+                            primaryKey: _lineAnchorKeys[index],
+                            typography: typography,
+                            onTap: () => _seekToLine(line),
+                          ),
+                  );
+                },
+              ),
+            ),
+          ],
         );
       },
     );
@@ -425,18 +461,44 @@ class _LineMetric {
   const _LineMetric({required this.index, required this.contentCenter});
 }
 
+class _LyricsSourceBadge extends StatelessWidget {
+  const _LyricsSourceBadge({required this.source});
+
+  final LyricsSource source;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        child: Text(
+          source.displayName,
+          style: TextStyle(fontSize: 11, color: colors.outline),
+        ),
+      ),
+    );
+  }
+}
+
 class _PlainLyricsLine extends StatelessWidget {
   final LyricsLine line;
   final bool isCurrentLine;
   final int playedCharacters;
   final ValueListenable<int>? progressListenable;
   final Key primaryKey;
+  final LyricsTypography typography;
   final VoidCallback? onTap;
 
   const _PlainLyricsLine({
     required this.line,
     required this.isCurrentLine,
     required this.primaryKey,
+    this.typography = const LyricsTypography(),
     this.playedCharacters = 0,
     this.progressListenable,
     this.onTap,
@@ -450,10 +512,11 @@ class _PlainLyricsLine extends StatelessWidget {
       child: AnimatedDefaultTextStyle(
         duration: const Duration(milliseconds: 200),
         style: TextStyle(
-          fontSize: isCurrentLine ? 20 : 16,
+          // 默认（typography 为默认值时）与改动前的硬编码 20/16 完全一致。
+          fontSize: typography.mainSize(current: isCurrentLine),
           fontWeight: isCurrentLine ? FontWeight.bold : FontWeight.normal,
           color: isCurrentLine ? colors.primary : colors.outline,
-          height: 1.5,
+          height: typography.lineHeight,
         ),
         textAlign: TextAlign.center,
         child: Column(
@@ -481,9 +544,12 @@ class _PlainLyricsLine extends StatelessWidget {
                   key: line.text.trim().isEmpty ? primaryKey : null,
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontSize: isCurrentLine ? 14 : 12,
+                    // 默认 = 改动前的 14 / 12。
+                    fontSize: typography.translationSize(
+                      current: isCurrentLine,
+                    ),
                     color: colors.outline,
-                    height: 1.4,
+                    height: typography.translationLineHeight,
                   ),
                 ),
               ),

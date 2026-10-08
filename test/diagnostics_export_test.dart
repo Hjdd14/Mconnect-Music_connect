@@ -16,6 +16,17 @@ const _qqSkey = 'qq-skey-abcdef1234567890';
 const _jsonToken = 'json-access-token-zyxwvu9876543210';
 const _bearerToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.bearersecretpayload.signature';
 
+/// Last.fm/Libre.fm scrobbling credentials: the session key parameter is
+/// literally `sk`, and the request signature is `api_sig`. Both are written by a
+/// scrobbler into its own request logs, so both must not survive an export.
+const _lastfmSessionKey = 'lastfm-session-key-0123456789abcdef';
+const _lastfmSignature = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
+
+/// QQ's `g_tk` (`bkn`) token. It is an **int** — `qq_api.dart` derives it from
+/// `p_skey` — so it reaches a log as an *unquoted* JSON scalar
+/// (`{"comm":{"g_tk":1893349082,…}}`), not as a quoted string.
+const _qqGtk = 1893349082;
+
 void main() {
   group('DiagnosticsRedactor', () {
     test('masks a cookie header but keeps the header name', () {
@@ -90,6 +101,108 @@ void main() {
       expect(result.text, isNot(contains('x=y')));
       expect(result.rules, contains(DiagnosticsRedactor.ruleCookieHeader));
       expect(result.rules, contains(DiagnosticsRedactor.ruleSensitiveKey));
+    });
+
+    test('masks the Last.fm session key and request signature', () {
+      // `sk` is Last.fm/Libre.fm's session-key parameter and `api_sig` its
+      // request signature. A scrobbler logs its own request parameters, so both
+      // have to be redacted before the export leaves the device.
+      final query = DiagnosticsRedactor.redact(
+        'auth.getSession?method=auth.getSession&sk=$_lastfmSessionKey'
+        '&api_sig=$_lastfmSignature',
+      );
+
+      expect(query.text, isNot(contains(_lastfmSessionKey)));
+      expect(query.text, isNot(contains(_lastfmSignature)));
+      expect(query.text, contains('sk=<redacted>'));
+      expect(query.text, contains('api_sig=<redacted>'));
+      // A non-sensitive parameter in the same query survives.
+      expect(query.text, contains('method=auth.getSession'));
+      expect(query.rules, contains(DiagnosticsRedactor.ruleSensitiveKey));
+
+      // The suffix rule also has to cover the bare name and a platform that
+      // prefixes it.
+      final bare = DiagnosticsRedactor.redact(
+        'track.scrobble?sig=$_lastfmSignature',
+      );
+      expect(bare.text, isNot(contains(_lastfmSignature)));
+      expect(bare.text, contains('sig=<redacted>'));
+    });
+
+    test('masks a JSON-style sk too', () {
+      final result = DiagnosticsRedactor.redact(
+        '{"sk":"$_lastfmSessionKey","format":"json"}',
+      );
+
+      expect(result.text, isNot(contains(_lastfmSessionKey)));
+      expect(result.text, contains('"sk":"<redacted>"'));
+      expect(result.text, contains('"format":"json"'));
+      expect(result.rules, contains(DiagnosticsRedactor.ruleSensitiveKey));
+    });
+
+    test('masks the QQ g_tk token in text and in a JSON map', () {
+      // `g_tk` is derived from `p_skey` and is logged in three shapes, so it
+      // needs the text rule **and** the unquoted-JSON rule: an int value never
+      // reaches the quoted-value rule.
+      final body = DiagnosticsRedactor.redact(
+        'response_type=code&g_tk=$_qqGtk&from_ptlogin=1',
+      );
+      expect(body.text, isNot(contains('$_qqGtk')));
+      expect(body.text, contains('g_tk=<redacted>'));
+      // A non-sensitive parameter in the same body survives.
+      expect(body.text, contains('from_ptlogin=1'));
+
+      final map = DiagnosticsRedactor.redact(
+        'musicu {"comm":{"g_tk":$_qqGtk,"platform":"yqq"}}',
+      );
+      expect(map.text, isNot(contains('$_qqGtk')));
+      expect(map.text, contains('"g_tk":"<redacted>"'));
+      expect(map.text, contains('"platform":"yqq"'));
+      expect(map.rules, contains(DiagnosticsRedactor.ruleSensitiveKey));
+
+      // The debug line that names the token next to the cookie it comes from.
+      final line = DiagnosticsRedactor.redact(
+        'QQ OAuth: p_skey=found, g_tk=$_qqGtk',
+      );
+      expect(line.text, isNot(contains('$_qqGtk')));
+      expect(line.text, contains('p_skey=<redacted>'));
+      expect(line.text, contains('g_tk=<redacted>'));
+    });
+
+    test('masks a credential key at the very start of a line', () {
+      // A recorded message can begin with the credential itself: there is no
+      // leading `?&;` or space for the pair rule to key off.
+      final start = DiagnosticsRedactor.redactText('sk=$_lastfmSessionKey');
+      expect(start, isNot(contains(_lastfmSessionKey)));
+      expect(start, contains('sk=<redacted>'));
+
+      final secondLine = DiagnosticsRedactor.redactText(
+        'line one\ng_tk=$_qqGtk',
+      );
+      expect(secondLine, isNot(contains('$_qqGtk')));
+      expect(secondLine, contains('g_tk=<redacted>'));
+    });
+
+    test('does not redact an ordinary key that merely ends with sk', () {
+      // The counter-example that makes an *exact* `sk` rule necessary: `sk` is
+      // too short and too common a suffix (`task`, `disk`, `mask`, `flask`) to
+      // be matched positionally, and masking these values would destroy the very
+      // debuggability the log exists for.
+      const line = 'scan task=5&disk=1&mask=1&flask=on';
+      final result = DiagnosticsRedactor.redact(line);
+
+      expect(result.text, line);
+      expect(result.rules, isEmpty);
+      expect(result.changed, isFalse);
+
+      // The same, at the very start of a line: `sk` would match here if it were
+      // in the suffix list instead of the exact list, and the start-of-line
+      // delimiter must not rescue it either.
+      const atLineStart = 'task=5\ndisk=1\nmask=1\nflask=on';
+      final started = DiagnosticsRedactor.redact(atLineStart);
+      expect(started.text, atLineStart);
+      expect(started.rules, isEmpty);
+      expect(started.changed, isFalse);
     });
 
     test('leaves ordinary diagnostic lines untouched', () {

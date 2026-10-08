@@ -147,6 +147,65 @@ void main() {
     expect(document.lines.single.text, '你好');
   });
 
+  test('a KRC payload with its real header tags is not downgraded to LRC', () async {
+    // The single-line fixture above cannot prove this: it has no header block,
+    // so the sniffing fallback would land on LRC and still look "fine" for many
+    // shapes. Kugou always ships `[ti:]/[ar:]/[al:]/[offset:]/[language:]`
+    // before the timed lines, and every one of those tags makes the *LRC*
+    // candidate parse zero lines — which is exactly the case that must still
+    // resolve to KRC rather than to an empty "暂无歌词".
+    const raw =
+        '[ti:测试歌]\n'
+        '[ar:测试歌手]\n'
+        '[al:测试专辑]\n'
+        '[by:测试]\n'
+        '[offset:0]\n'
+        '[language:eyJjb250ZW50IjpbXX0=]\n'
+        '[0,1200]<0,600,0>你<600,600,0>好\n'
+        '[1200,1500]<0,500,0>再<500,500,0>见<500,500,0>了';
+    final kugou = _FakeLyricsPlatform(
+      PlatformType.kugou,
+      lyrics: {'kugou-3': raw},
+    );
+
+    final document = await resolveLyricsForSong(
+      song: _song('kugou-3', platform: PlatformType.kugou),
+      platforms: [kugou],
+    );
+
+    expect(document, isNotNull);
+    expect(document!.format, LyricsFormat.krc);
+    expect(document.lines.map((line) => line.text), ['你好', '再见了']);
+    expect(document.lines.first.timestamp, const Duration(milliseconds: 0));
+    expect(document.lines.first.words, hasLength(2));
+    expect(document.lines.last.words, hasLength(3));
+  });
+
+  test('reports which platform supplied the lyrics', () async {
+    final kugou = _FakeLyricsPlatform(
+      PlatformType.kugou,
+      lyrics: {'kugou-4': '[00:01.00]来源歌'},
+    );
+
+    final document = await resolveLyricsForSong(
+      song: _song('kugou-4', platform: PlatformType.kugou),
+      platforms: [kugou],
+    );
+
+    // `RawLyrics.source` was written but never read: nothing could put a "来源"
+    // badge on screen. The document has to carry it.
+    expect(document!.source, LyricsSource.kugou);
+  });
+
+  test('a local document reports the local source', () async {
+    final document = await resolveLyricsForSong(
+      song: _song('local-2', platform: PlatformType.local),
+      localRawLyrics: '[00:01.00]本地词',
+    );
+
+    expect(document!.source, LyricsSource.local);
+  });
+
   test('keeps the fetched lyrics when the cache write fails', () async {
     final netease = _FakeLyricsPlatform(
       PlatformType.netease,
@@ -178,6 +237,130 @@ void main() {
 
     expect(document!.lines.single.text, '缓存版');
     expect(netease.requestedLyrics, isEmpty);
+  });
+
+  // --- W2-A：LRCLIB 兜底（只在无词/时间轴明显错时触发）---------------------
+
+  test('falls back to LRCLIB when every platform has no lyrics', () async {
+    // 本平台明确回答"没有歌词"。
+    final netease = _FakeLyricsPlatform(PlatformType.netease, lyrics: const {});
+
+    final document = await resolveLyricsForSong(
+      song: song,
+      platforms: [netease],
+      lrclib: (queried) async {
+        expect(queried.id, song.id);
+        return '[00:01.00]LRCLIB 版';
+      },
+    );
+
+    expect(document, isNotNull);
+    expect(document!.lines.single.text, 'LRCLIB 版');
+    expect(document.source, LyricsSource.lrclib);
+    expect(document.format, LyricsFormat.lrc);
+  });
+
+  test('does not ask LRCLIB when the platform lyrics are fine', () async {
+    final netease = _FakeLyricsPlatform(
+      PlatformType.netease,
+      lyrics: {'netease-1': '[00:01.00]晚风\n[00:04.00]下一句'},
+    );
+    var asked = 0;
+
+    final document = await resolveLyricsForSong(
+      song: song,
+      platforms: [netease],
+      lrclib: (queried) async {
+        asked++;
+        return '[00:01.00]LRCLIB 版';
+      },
+    );
+
+    expect(document!.lines.first.text, '晚风');
+    expect(asked, 0, reason: '平台有词就不要多等一个网络往返');
+  });
+
+  test('asks LRCLIB when the platform timeline is obviously off', () async {
+    // 歌长 240s，平台给的最后一行却落在 9 分钟：时间轴明显不对。
+    final netease = _FakeLyricsPlatform(
+      PlatformType.netease,
+      lyrics: {'netease-1': '[09:00.00]明显错位的词'},
+    );
+
+    final document = await resolveLyricsForSong(
+      song: song,
+      platforms: [netease],
+      lrclib: (queried) async => '[00:01.00]LRCLIB 修正版',
+    );
+
+    expect(document!.lines.single.text, 'LRCLIB 修正版');
+    expect(document.source, LyricsSource.lrclib);
+  });
+
+  test('still reports a load failure when LRCLIB has nothing either', () async {
+    final netease = _FakeLyricsPlatform(PlatformType.netease, failing: true);
+
+    await expectLater(
+      resolveLyricsForSong(
+        song: song,
+        platforms: [netease],
+        lrclib: (queried) async => null,
+      ),
+      throwsA(isA<LyricsUnavailableException>()),
+    );
+  });
+
+  test('a throwing LRCLIB never hides a usable platform result', () async {
+    // 平台的词明显错位 → 真的会去问 LRCLIB → 它抛了 → 仍必须回退到平台的词，
+    // 既不能抛出去，也不能变成"暂无歌词"。
+    final netease = _FakeLyricsPlatform(
+      PlatformType.netease,
+      lyrics: {'netease-1': '[09:00.00]平台的词（时间轴偏）'},
+    );
+
+    final document = await resolveLyricsForSong(
+      song: song,
+      platforms: [netease],
+      lrclib: (queried) async => throw StateError('lrclib down'),
+    );
+
+    expect(document, isNotNull);
+    expect(document!.lines.single.text, '平台的词（时间轴偏）');
+    expect(document.source, LyricsSource.netease);
+  });
+
+  test('a local song without any lyrics also gets the fallback', () async {
+    var asked = 0;
+
+    final document = await resolveLyricsForSong(
+      song: _song('local-9', platform: PlatformType.local),
+      localRawLyrics: null,
+      lrclib: (queried) async {
+        asked++;
+        return '[00:01.00]LRCLIB 给本地曲目的词';
+      },
+    );
+
+    expect(asked, 1);
+    expect(document!.lines.single.text, 'LRCLIB 给本地曲目的词');
+    expect(document.source, LyricsSource.lrclib);
+  });
+
+  test('a local song with usable lyrics never asks the fallback', () async {
+    var asked = 0;
+
+    final document = await resolveLyricsForSong(
+      song: _song('local-10', platform: PlatformType.local),
+      localRawLyrics: '[00:01.00]本地词',
+      lrclib: (queried) async {
+        asked++;
+        return '[00:01.00]LRCLIB 版';
+      },
+    );
+
+    expect(asked, 0);
+    expect(document!.lines.single.text, '本地词');
+    expect(document.source, LyricsSource.local);
   });
 }
 

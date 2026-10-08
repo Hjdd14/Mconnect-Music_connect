@@ -1,14 +1,19 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
+import '../../../../core/share/share_service.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/transfer/playlist_export.dart';
+import '../../../../core/transfer/transfer_format.dart';
 import '../../../../core/utils/snackbar_helper.dart';
 import '../../../../core/widgets/app_scrollbar.dart';
 import '../../../../core/widgets/async_state_view.dart';
 import '../../../../models/platform_type.dart';
 import '../../../../models/playlist.dart';
+import '../../../../models/song.dart';
 import '../providers/my_playlists_provider.dart';
 import '../providers/platform_playlists_provider.dart';
 
@@ -173,7 +178,67 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
     showInfoSnackBar(context, ok ? '已删除歌单' : '删除歌单失败');
   }
 
+  /// Opens the export chooser for [playlist], then produces the chosen payload.
+  ///
+  /// A chooser rather than four menu entries: the formats have different
+  /// audiences (a cross-service mover reads `歌名 - 歌手`, Navidrome reads m3u8,
+  /// this app reads its own JSON), so they belong on one screen where the user
+  /// can see what the options are.
   Future<void> _exportMyPlaylist(Playlist playlist) async {
+    final choice = await showModalBottomSheet<PlaylistExportChoice>(
+      context: context,
+      // The shell's nested navigator would paint this under the floating chrome
+      // — same reason as `DownloadButton._showQualityPicker`.
+      useRootNavigator: true,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        // Scrollable on purpose: `showModalBottomSheet` caps an unscrollable
+        // sheet at 9/16 of the screen, and this menu — a header plus five
+        // options — sits right on that limit on a compact phone. Same reason,
+        // and same shape, as `song_actions_sheet.dart`.
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                dense: true,
+                title: Text(
+                  '导出「${playlist.name}」',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(sheetContext).textTheme.titleSmall,
+                ),
+              ),
+              const Divider(height: 1),
+              for (final option in PlaylistExportChoice.values)
+                ListTile(
+                  dense: true,
+                  leading: Icon(_exportIcon(option)),
+                  title: Text(option.label),
+                  onTap: () => Navigator.pop(sheetContext, option),
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (choice == null || !mounted) return;
+    await _runExport(playlist, choice);
+  }
+
+  static IconData _exportIcon(PlaylistExportChoice choice) => switch (choice) {
+    PlaylistExportChoice.link => Icons.link,
+    PlaylistExportChoice.m3u8 => Icons.playlist_play,
+    PlaylistExportChoice.text => Icons.text_snippet_outlined,
+    PlaylistExportChoice.json => Icons.data_object,
+    PlaylistExportChoice.qr => Icons.qr_code_2,
+  };
+
+  Future<void> _runExport(
+    Playlist playlist,
+    PlaylistExportChoice choice,
+  ) async {
     final link = await ref
         .read(myPlaylistsProvider.notifier)
         .exportPlaylistLink(playlist.id);
@@ -182,19 +247,101 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
       showErrorSnackBar(context, '导出失败');
       return;
     }
-    await Clipboard.setData(ClipboardData(text: link));
+
+    if (choice.isRendered) {
+      await _showPlaylistQr(playlist, link);
+      return;
+    }
+
+    // The share-link payload, i.e. `buildPlaylistShareText` through the method
+    // that had no caller at all before this.
+    if (choice == PlaylistExportChoice.link) {
+      await _share(
+        (service) => service.sharePlaylist(
+          name: playlist.name,
+          songCount: playlist.songCount,
+          link: link,
+        ),
+      );
+      return;
+    }
+
+    final songs = choice.carriesSongs
+        ? await ref.read(myPlaylistsProvider.notifier).getSongs(playlist.id)
+        : const <Song>[];
     if (!mounted) return;
-    await showDialog<void>(
+
+    final content = PlaylistExport.contentFor(
+      choice,
+      name: playlist.name,
+      songs: songs,
+      link: link,
+    );
+    await _share(
+      (service) => service.sharePlaylistExport(
+        name: playlist.name,
+        content: content,
+        formatLabel: choice.label,
+      ),
+    );
+  }
+
+  /// Runs a share, reporting a failure instead of letting it escape: a platform
+  /// with no share sheet must say so rather than take the page down.
+  Future<void> _share(
+    Future<void> Function(ShareService service) run,
+  ) async {
+    try {
+      await run(ref.read(shareServiceProvider));
+    } catch (error) {
+      if (!mounted) return;
+      showErrorSnackBar(context, '分享失败：$error');
+    }
+  }
+
+  /// Renders the playlist share link as a QR code another phone can scan.
+  ///
+  /// A QR nobody can read is worse than no QR: the payload is base64url JSON of
+  /// every song, and scanning gets unreliable well before the format's own
+  /// limit, so a long playlist falls back to pointing at 「分享链接」.
+  Future<void> _showPlaylistQr(Playlist playlist, String link) async {
+    final payload = qrPayloadForPlaylistLink(link);
+    await showModalBottomSheet<void>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('已复制分享链接'),
-        content: SelectableText(link),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('确定'),
+      useRootNavigator: true,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '扫码导入「${playlist.name}」',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(sheetContext).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 16),
+                if (payload == null)
+                  const Text(
+                    '这个歌单太长，链接放不进二维码，请改用「分享链接」',
+                    textAlign: TextAlign.center,
+                  )
+                else
+                  QrImageView(
+                    data: payload,
+                    size: 220,
+                    backgroundColor: AppColors.qrBackground,
+                    // What the code encodes is what a screen reader should read
+                    // out; `QrImageView`'s default label is just "qr code".
+                    semanticsLabel: payload,
+                  ),
+              ],
+            ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -436,7 +583,7 @@ class _MyPlaylistsTab extends StatelessWidget {
                         value: 'export',
                         child: ListTile(
                           leading: Icon(Icons.ios_share),
-                          title: Text('导出链接'),
+                          title: Text('导出歌单'),
                         ),
                       ),
                       PopupMenuItem(

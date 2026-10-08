@@ -250,6 +250,85 @@ void main() {
     },
   );
 
+  // W2-B：用户设置的 fadeDuration 可达 3s，但切歌是高频交互 —— 淡出必须被
+  // `PlayerNotifier.switchFadeOutMax`(400ms) 夹住。这条断言不靠注释，直接测耗时。
+  test('切歌淡出受 400ms 上限约束（设置 3s 淡入淡出也不拖慢切歌）', () async {
+    final audio = _FakeAudioController();
+    final notifier = PlayerNotifier(
+      audioController: audio,
+      platformResolver: (_) => _FakeMusicPlatform(),
+      audioControllerFactory: () => _FakeAudioController(),
+      stuckWatchdogInterval: Duration.zero,
+      keepAliveController: const NoopPlaybackKeepAliveController(),
+    );
+    addTearDown(notifier.dispose);
+
+    notifier.setFadeOptions(enabled: true, duration: const Duration(seconds: 3));
+    await notifier.playSong(_song('fade-cap-1'));
+    await pumpEventQueue();
+
+    final watch = Stopwatch()..start();
+    await notifier.playSong(_song('fade-cap-2'));
+    watch.stop();
+
+    expect(
+      watch.elapsed,
+      lessThan(const Duration(seconds: 2)),
+      reason:
+          '切歌淡出必须用 min(fadeDuration, switchFadeOutMax=400ms)；沿用用户设置的 '
+          '3s 时这里会花掉约 3s（把 maxDuration 参数去掉这条就会红）',
+    );
+
+    // 确定性断言（不靠时钟，复核要求的）：3s 被夹到 400ms → 步进 400 ~/ 6 = 66ms。
+    expect(
+      notifier.lastSwitchFadeStepDelayForTest,
+      const Duration(milliseconds: 66),
+      reason: '步进间隔必须来自 min(fadeDuration, 400ms)，而不是 3s/6=500ms',
+    );
+
+    // min() 语义：用户设 200ms 时**不能**被抬到 400ms（否则"上限"就变成了"固定值"）。
+    notifier.setFadeOptions(
+      enabled: true,
+      duration: const Duration(milliseconds: 200),
+    );
+    await notifier.playSong(_song('fade-cap-3'));
+    await pumpEventQueue();
+    expect(
+      notifier.lastSwitchFadeStepDelayForTest,
+      const Duration(milliseconds: 33),
+      reason: '200ms/6=33ms；若被抬到 400ms 会变成 66ms',
+    );
+  });
+
+  // Wave 2-B（W2-B）：设置项叫「淡入淡出」，但 playSong 以前在 `_safeStop()` 前
+  // 从不做 1→0，所以切歌只有在旧曲被硬停 + 新曲淡入 —— 交接处会截断/爆音。
+  test('切歌时先 1→0 淡出再停掉旧曲（W2-B）', () async {
+    final audio = _FakeAudioController();
+    final notifier = PlayerNotifier(
+      audioController: audio,
+      platformResolver: (_) => _FakeMusicPlatform(),
+      audioControllerFactory: () => _FakeAudioController(),
+      stuckWatchdogInterval: Duration.zero,
+      keepAliveController: const NoopPlaybackKeepAliveController(),
+    );
+    addTearDown(notifier.dispose);
+
+    // duration: zero → 淡入淡出各只写一次音量，序列因此完全确定。
+    notifier.setFadeOptions(enabled: true, duration: Duration.zero);
+    await notifier.playSong(_song('fade-switch-1'));
+    await pumpEventQueue();
+    await notifier.playSong(_song('fade-switch-2'));
+    await pumpEventQueue();
+
+    expect(
+      audio.volumeChanges,
+      [0, 1, 0, 0, 1],
+      reason:
+          '切歌必须先写一次 0（淡出旧曲）再 stop/setUrl，然后才是新曲的淡入；'
+          '旧实现只有 [0, 1, 0, 1]（没有那次淡出）',
+    );
+  });
+
   test('equalizer settings are applied through the audio controller', () async {
     final audio = _FakeAudioController();
     final notifier = PlayerNotifier(

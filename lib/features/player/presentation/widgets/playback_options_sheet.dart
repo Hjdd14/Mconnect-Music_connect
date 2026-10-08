@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../lyrics/widgets/lyrics_options_section.dart';
 import '../providers/lyrics_offset_provider.dart';
+import '../providers/lyrics_provider.dart';
 import '../providers/player_provider.dart';
 
 /// Playback extras: speed, A-B loop, skip-silence and lyrics calibration.
@@ -152,6 +154,14 @@ class PlaybackOptionsSheet extends ConsumerWidget {
                 color: Theme.of(context).colorScheme.outline,
                 fontSize: 12,
               ),
+            ),
+            const Divider(height: 32),
+            // 三态 / 字号 / 行距 / 缓存清理（W2-A）。独立 widget：这些控件不碰
+            // player 状态，放在独立文件里也让它们可单独测。TTL 天数与清理回调都
+            // 从播放 feature 注入，`lib/lyrics` 因此不反向依赖本 feature。
+            LyricsOptionsSection(
+              purge: purgeExpiredLyricsCache,
+              cacheTtlDays: lyricsCacheTtl.inDays,
             ),
           ],
         ),

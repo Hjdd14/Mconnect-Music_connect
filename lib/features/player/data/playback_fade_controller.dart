@@ -169,10 +169,16 @@ extension PlayerFadeAndVolumeOps on PlayerNotifier {
     }
   }
 
+  /// Ramp the volume from [from] to [to] over [_fadeDuration].
+  ///
+  /// [maxDuration] caps **this** ramp only (W2-B 切歌淡出用 400ms 上限）：
+  /// 用户设置的 `fadeDuration`（200–3000ms）保留给暂停/退出/睡眠定时那类"结束播放"
+  /// 的淡出，那里等待是预期的；切歌是最高频交互，不能为了语义对称最多多等 3 秒。
   Future<void> _runFade({
     required double from,
     required double to,
     required int generation,
+    Duration? maxDuration,
   }) async {
     if (!_fadeEnabled) return;
     if (generation != _fadeGeneration) return;
@@ -180,15 +186,23 @@ extension PlayerFadeAndVolumeOps on PlayerNotifier {
       await _safeSetVolume(to);
       return;
     }
-    if (_fadeDuration == Duration.zero) {
+    final capped = maxDuration != null && _fadeDuration > maxDuration
+        ? maxDuration
+        : _fadeDuration;
+    if (capped == Duration.zero) {
       await _safeSetVolume(to);
       return;
     }
     const steps = 6;
     await _safeSetVolume(from);
     final stepDelay = Duration(
-      milliseconds: max(1, _fadeDuration.inMilliseconds ~/ steps),
+      milliseconds: max(1, capped.inMilliseconds ~/ steps),
     );
+    // 只在"带上限的那次淡出"（切歌）记录：同一次 playSong 之后的淡入不带
+    // maxDuration，不该覆盖这个观察面。
+    if (maxDuration != null) {
+      lastSwitchFadeStepDelayForTest = stepDelay;
+    }
     for (var i = 1; i <= steps; i++) {
       await Future<void>.delayed(stepDelay);
       if (generation != _fadeGeneration) return;

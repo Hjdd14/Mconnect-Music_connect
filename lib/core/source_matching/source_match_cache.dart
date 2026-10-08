@@ -57,6 +57,12 @@ abstract class SourceMatchCacheStore {
 
   Future<void> put(SourceMatchEntry entry);
 
+  /// 丢弃该 `(songKey, targetPlatform)` 的缓存（W2-B / 复核 F3）。
+  ///
+  /// 播放失败即调用：一条"时间上还有效、服务端已失效"的直链必须立刻作废，否则
+  /// 下一次失败链还会命中它，把死链复用满整个 TTL。
+  Future<void> invalidate(String songKey, String targetPlatform);
+
   /// 回收过期行；返回删掉几行。
   Future<int> purgeExpired({required DateTime now});
 }

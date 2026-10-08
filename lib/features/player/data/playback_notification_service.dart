@@ -5,6 +5,7 @@ import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart' as just_audio;
 
+import '../../../core/android_auto/audio_browse_tree.dart';
 import '../../../core/diagnostics/diagnostics_service.dart';
 import '../../../core/platform/platform_utils.dart';
 import '../../../models/song.dart';
@@ -265,7 +266,8 @@ class AudioServicePlaybackNotificationController {
 }
 
 @visibleForTesting
-class MconnectAudioHandler extends BaseAudioHandler with SeekHandler {
+class MconnectAudioHandler extends BaseAudioHandler
+    with SeekHandler, AudioBrowseTreeMixin {
   PlaybackNotificationActions? _actions;
   PlayerAudioController? _audioController;
   final List<StreamSubscription> _audioSubscriptions = [];

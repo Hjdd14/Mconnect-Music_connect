@@ -223,7 +223,11 @@ class _DiagnosticsExportTileState extends State<_DiagnosticsExportTile> {
       key: const Key('diagnostics-export-tile'),
       leading: const Icon(Icons.file_upload_outlined),
       title: Text(l.settingsExportDiagnostics),
-      subtitle: Text(l.settingsExportDiagnosticsSubtitle),
+      // 导出期间把副标题换成进度文案：原来只有一个转圈，用户看不出在做什么、
+      // 也不知道要等多久（`diagnosticsExporting` 这个 key 因此一直没人引用）。
+      subtitle: Text(
+        _busy ? l.diagnosticsExporting : l.settingsExportDiagnosticsSubtitle,
+      ),
       trailing: _busy
           ? const SizedBox(
               width: 20,
@@ -244,7 +248,7 @@ class SettingsAccountsPage extends ConsumerWidget {
     final authState = ref.watch(authProvider);
 
     return Scaffold(
-      appBar: AppBar(title: Text(context.l10n.settingsAccounts)),
+      appBar: AppBar(title: Text(context.l10n.settingsAccountsTitle)),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
@@ -298,7 +302,7 @@ class SettingsAppearancePage extends ConsumerWidget {
     final uiStyleSettings = ref.watch(uiStyleProvider);
 
     return Scaffold(
-      appBar: AppBar(title: Text(context.l10n.settingsAppearance)),
+      appBar: AppBar(title: Text(context.l10n.settingsAppearanceTitle)),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
@@ -477,7 +481,7 @@ class SettingsFloatingLyricsPage extends ConsumerWidget {
     final isWindows = Platform.isWindows;
 
     return Scaffold(
-      appBar: AppBar(title: Text(context.l10n.settingsFloatingLyrics)),
+      appBar: AppBar(title: Text(context.l10n.settingsFloatingLyricsTitle)),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
@@ -586,7 +590,7 @@ class SettingsAudioPage extends ConsumerWidget {
     );
 
     return Scaffold(
-      appBar: AppBar(title: Text(context.l10n.settingsAudio)),
+      appBar: AppBar(title: Text(context.l10n.settingsAudioTitle)),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [
@@ -754,7 +758,7 @@ class SettingsDiagnosticsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(context.l10n.settingsDiagnostics)),
+      appBar: AppBar(title: Text(context.l10n.settingsDiagnosticsTitle)),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: [

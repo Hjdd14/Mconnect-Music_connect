@@ -336,6 +336,23 @@ class QqApi {
 
   /// Get lyrics
   Future<String?> getLyric(String songMid) async {
+    final tracks = await getLyricTracks(songMid);
+    final lyric = tracks.lyric;
+    if (lyric == null || lyric.isEmpty) return null;
+    final translation = tracks.translation;
+    if (translation == null || translation.isEmpty) return lyric;
+    return '$lyric\n$translation';
+  }
+
+  /// The plain lyric endpoint's two LRC tracks, still **separate**.
+  ///
+  /// [getLyric] folds them into one string for callers that only understand one
+  /// string; the platform's `getLyricsBundle` needs them apart so the
+  /// translation stays in its own field, and so a `qrc=1` request can never mix
+  /// ciphertext into the LRC track.
+  Future<({String? lyric, String? translation})> getLyricTracks(
+    String songMid,
+  ) async {
     try {
       final res = await _dio.get(
         QqEndpoints.lyricBase,
@@ -346,22 +363,25 @@ class QqApi {
       if (data is String) {
         data = jsonDecode(data);
       }
-      if (data is Map && data['lyric'] != null) {
-        final lyric = _decodeLyricField(data['lyric']);
-        final translation = _decodeLyricField(
-          data['trans'] ?? data['translation'] ?? data['transLyric'],
-        );
-        if (lyric == null || lyric.isEmpty) return null;
-        if (translation == null || translation.isEmpty) return lyric;
-        return '$lyric\n$translation';
+      if (data is! Map || data['lyric'] == null) {
+        return (lyric: null, translation: null);
       }
-      return null;
+      return (
+        lyric: decodeLyricField(data['lyric']),
+        translation: decodeLyricField(
+          data['trans'] ?? data['translation'] ?? data['transLyric'],
+        ),
+      );
     } catch (_) {
-      return null;
+      return (lyric: null, translation: null);
     }
   }
 
-  String? _decodeLyricField(dynamic value) {
+  /// Decodes one lyric field: base64 when it is base64, the text otherwise.
+  ///
+  /// Public because the QRC path has to inspect the body before deciding whether
+  /// it is readable QRC or encrypted bytes.
+  static String? decodeLyricField(dynamic value) {
     if (value == null) return null;
     final text = value.toString();
     if (text.isEmpty) return null;
@@ -372,12 +392,26 @@ class QqApi {
     }
   }
 
-  /// Get QRC lyrics (encrypted, word-by-word)
+  /// Get QRC lyrics (encrypted, word-by-word).
+  ///
+  /// **`qrc=1` is the parameter that makes the endpoint return the QRC track** —
+  /// without it this method could never return QRC, which is why it was dead code
+  /// with no caller.
+  ///
+  /// The body is **3DES-encrypted** and this repository has no key, and does not
+  /// guess keys (see the `.qrc` note in `docs/mconnect-improvement-plan.md`).
+  /// Callers must treat the result as "maybe readable, maybe not" and keep the
+  /// plain LRC path as the guaranteed one.
   Future<Map<String, dynamic>?> getQrcLyric(String songMid) async {
     try {
       final res = await _dio.get(
         QqEndpoints.lyricBase,
-        queryParameters: {'songmid': songMid, 'format': 'json', 'nobase64': 1},
+        queryParameters: {
+          'songmid': songMid,
+          'format': 'json',
+          'nobase64': 1,
+          'qrc': 1,
+        },
       );
       dynamic data = res.data;
       if (data is String) {

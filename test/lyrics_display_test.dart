@@ -8,6 +8,7 @@ import 'package:mconnect/features/player/presentation/providers/lyrics_offset_pr
 import 'package:mconnect/features/player/presentation/providers/lyrics_provider.dart';
 import 'package:mconnect/features/player/presentation/providers/player_provider.dart';
 import 'package:mconnect/features/player/presentation/widgets/lyrics_display.dart';
+import 'package:mconnect/lyrics/lyrics_display_settings.dart';
 import 'package:mconnect/lyrics/models/lyrics_line.dart';
 import 'package:mconnect/models/artist.dart';
 import 'package:mconnect/models/platform_type.dart';
@@ -388,6 +389,167 @@ void main() {
       );
     },
   );
+
+  // --- W2-A 批次 3：三态 / 字号行距 / 来源角标 -------------------------------
+
+  const translatedDocument = LyricsDocument(
+    lines: [
+      LyricsLine(
+        timestamp: Duration.zero,
+        text: 'Hello',
+        translation: '你好',
+      ),
+      LyricsLine(timestamp: Duration(seconds: 4), text: 'World'),
+    ],
+    format: LyricsFormat.lrc,
+  );
+
+  testWidgets('bilingual mode shows both the original and the translation', (
+    tester,
+  ) async {
+    final notifier = _LyricsTestPlayerNotifier();
+
+    await _pumpLyricsDisplay(
+      tester,
+      notifier,
+      translatedDocument,
+      extraOverrides: [
+        lyricsDisplayModeProvider.overrideWith(
+          (ref) => LyricsDisplayModeNotifier(
+            initial: LyricsDisplayMode.bilingual,
+          ),
+        ),
+      ],
+    );
+
+    expect(find.text('你好'), findsOneWidget);
+    expect(find.text('World'), findsOneWidget);
+    expect(find.text('Hello', findRichText: true), findsWidgets);
+  });
+
+  testWidgets('original mode hides the translation row entirely', (
+    tester,
+  ) async {
+    final notifier = _LyricsTestPlayerNotifier();
+
+    await _pumpLyricsDisplay(
+      tester,
+      notifier,
+      translatedDocument,
+      extraOverrides: [
+        lyricsDisplayModeProvider.overrideWith(
+          (ref) => LyricsDisplayModeNotifier(
+            initial: LyricsDisplayMode.original,
+          ),
+        ),
+      ],
+    );
+
+    expect(find.text('你好'), findsNothing);
+    expect(find.text('Hello', findRichText: true), findsWidgets);
+    expect(find.text('World'), findsOneWidget);
+  });
+
+  testWidgets('translation-only mode promotes the translation to the main line', (
+    tester,
+  ) async {
+    final notifier = _LyricsTestPlayerNotifier();
+
+    await _pumpLyricsDisplay(
+      tester,
+      notifier,
+      translatedDocument,
+      extraOverrides: [
+        lyricsDisplayModeProvider.overrideWith(
+          (ref) => LyricsDisplayModeNotifier(
+            initial: LyricsDisplayMode.translationOnly,
+          ),
+        ),
+      ],
+    );
+
+    expect(find.text('Hello', findRichText: true), findsNothing);
+    expect(find.text('你好', findRichText: true), findsWidgets);
+    expect(
+      find.text('World'),
+      findsOneWidget,
+      reason: '没有译文的行必须退回原文，不能变成空行',
+    );
+  });
+
+  testWidgets('the typography setting drives the line text size and height', (
+    tester,
+  ) async {
+    final notifier = _LyricsTestPlayerNotifier();
+
+    await _pumpLyricsDisplay(
+      tester,
+      notifier,
+      translatedDocument,
+      extraOverrides: [
+        lyricsTypographyProvider.overrideWith(
+          (ref) => LyricsTypographyNotifier(
+            initial: const LyricsTypography(fontSize: 24, lineHeight: 1.8),
+          ),
+        ),
+      ],
+    );
+
+    // 当前行 = base + 4，非当前行 = base；行距直接用设定值。
+    expect(
+      _nearestAnimatedTextStyle(tester, 'Hello').style.fontSize,
+      28,
+    );
+    expect(
+      _nearestAnimatedTextStyle(tester, 'World').style.fontSize,
+      24,
+    );
+    expect(_nearestAnimatedTextStyle(tester, 'World').style.height, 1.8);
+  });
+
+  testWidgets('the default typography keeps the previous hard-coded sizes', (
+    tester,
+  ) async {
+    final notifier = _LyricsTestPlayerNotifier();
+
+    await _pumpLyricsDisplay(tester, notifier, translatedDocument);
+
+    expect(_nearestAnimatedTextStyle(tester, 'Hello').style.fontSize, 20);
+    expect(_nearestAnimatedTextStyle(tester, 'World').style.fontSize, 16);
+    expect(_nearestAnimatedTextStyle(tester, 'World').style.height, 1.5);
+  });
+
+  testWidgets('a known source is shown as a badge', (tester) async {
+    final notifier = _LyricsTestPlayerNotifier();
+
+    await _pumpLyricsDisplay(
+      tester,
+      notifier,
+      const LyricsDocument(
+        lines: [LyricsLine(timestamp: Duration.zero, text: 'Hello')],
+        format: LyricsFormat.lrc,
+        source: LyricsSource.kugou,
+      ),
+    );
+
+    expect(find.text('酷狗音乐'), findsOneWidget);
+  });
+
+  testWidgets('an unknown source shows no badge', (tester) async {
+    final notifier = _LyricsTestPlayerNotifier();
+
+    await _pumpLyricsDisplay(
+      tester,
+      notifier,
+      const LyricsDocument(
+        lines: [LyricsLine(timestamp: Duration.zero, text: 'Hello')],
+        format: LyricsFormat.lrc,
+      ),
+    );
+
+    expect(find.text('酷狗音乐'), findsNothing);
+    expect(find.text('网易云音乐'), findsNothing);
+  });
 }
 
 const _song = Song(
@@ -409,12 +571,14 @@ Future<void> _pumpLyricsDisplay(
   _LyricsTestPlayerNotifier notifier,
   LyricsDocument document, {
   bool isVisible = true,
+  List<Override> extraOverrides = const [],
 }) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
         playerProvider.overrideWith((ref) => notifier),
         lyricsProvider.overrideWith((ref) async => document),
+        ...extraOverrides,
       ],
       child: MaterialApp(
         home: Scaffold(

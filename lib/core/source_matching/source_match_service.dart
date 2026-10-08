@@ -158,6 +158,30 @@ class SourceMatchService {
     return resolution.url;
   }
 
+  /// 播放失败后立刻作废该 `(歌曲, 目标平台)` 的缓存（W2-B / 复核 F3）。
+  ///
+  /// 调用方（player 的换源失败路径）只知道"这条换源直链放不出来"，所以这里只失效
+  /// + 记诊断，不重解析；下一次失败链自然会重新走 [resolveDetailed]。不这么做的话，
+  /// 一条"时间上还有效、服务端已失效"的直链会被复用满整个 TTL（20 分钟）。
+  Future<void> invalidateCache(Song song, PlatformType targetPlatform) async {
+    final songKey = song.dedupeKey;
+    try {
+      await _cache.invalidate(songKey, targetPlatform.name);
+      _diag.record(
+        'source_match',
+        'source_match_cache_invalidated',
+        data: {'song_id': song.id, 'platform': targetPlatform.name},
+      );
+    } catch (error, stack) {
+      _diag.recordError(
+        'source_match.cacheInvalidate',
+        error,
+        stack,
+        data: {'song_key': songKey, 'platform': targetPlatform.name},
+      );
+    }
+  }
+
   Future<SourceMatchResolution> resolveDetailed(
     Song song,
     AudioLevel quality,
@@ -177,6 +201,10 @@ class SourceMatchService {
     var platformsQueried = 0;
     var bestScoreSeen = 0.0;
     var sawCandidate = false;
+    // 「过了阈值的候选」与「搜到过的候选」必须分开记：只用一个 bool 时
+    // `SourceMatchFailure.belowThreshold` 不可达（复核 F1），"有候选但时长差 >3s
+    // 得 0 分"会被误报成 urlUnavailable。
+    var passedThreshold = false;
 
     for (final platform in _targetPlatforms(song)) {
       final target = platform.platformType.name;
@@ -226,6 +254,9 @@ class SourceMatchService {
         );
         continue;
       }
+
+      // 走到这里 = 候选过了阈值（可能后面仍旧取不到直链）。
+      passedThreshold = true;
 
       final url = await _fetchUrl(platform, best.song, quality);
       if (url == null) {
@@ -279,14 +310,19 @@ class SourceMatchService {
       data: {
         'song_id': song.id,
         'platform': song.platform.name,
-        'candidates_seen': sawCandidate,
+        // 键名与值必须同型：以前这里是 `'candidates_seen': sawCandidate`，
+        // 键像计数、值是 bool，诊断消费者会误读（复核 F1 顺带项）。
+        'candidate_found': sawCandidate,
+        'passed_threshold': passedThreshold,
         'best_score': bestScoreSeen,
       },
     );
     return SourceMatchResolution.failed(
-      sawCandidate
+      passedThreshold
+          // 过了阈值却没拿到直链：取流失败。
           ? SourceMatchFailure.urlUnavailable
-          : (bestScoreSeen > 0
+          : (sawCandidate
+                // 搜到了候选但全不及格（含"时长差 >3s → 0 分"）。
                 ? SourceMatchFailure.belowThreshold
                 : SourceMatchFailure.noCandidate),
     );
@@ -425,12 +461,17 @@ class SourceMatchService {
     String targetPlatform,
   ) async {
     try {
-      return await _cache.get(
+      final cached = await _cache.get(
         songKey,
         targetPlatform,
         // 安全余量：把 now 往后挪，于是"余量内就要过期"的直链被当成过期重解析。
         now: _now().add(urlSafetyMargin),
       );
+      // 纵深防御（复核 F2）：TTL 的正确性目前**完全**押在"每个 store 实现都遵守
+      // get(now:) 契约"上。这里再用 isUsableAt 复核一次，代价是一次比较：任何
+      // store 实现违约（忘了判过期）都不会把死链放进播放。
+      if (cached != null && !cached.isUsableAt(_now())) return null;
+      return cached;
     } catch (error, stack) {
       _diag.recordError(
         'source_match.cacheGet',

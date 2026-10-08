@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android Auto 的媒体应用声明（最小内容）。
+
+  音乐类应用只需要 `media`：它让 Android Auto 把本 App 的 MediaBrowserService 当成
+  媒体源来发现。取值与三个真实项目交叉核对过（audio_service 官方示例 / AntennaPod /
+  VLC-Android），见 docs/v1.5-w2w3-implementation-specs.md §C.1。
+  不要加 `template`（那是给导航/POI/消息类用的 template app）。
+-->
+<automotiveApp>
+    <uses name="media" />
+</automotiveApp>

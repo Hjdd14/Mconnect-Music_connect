@@ -11,8 +11,15 @@ import 'models/lyrics_line.dart';
 /// and the floating overlay shifts the position the same way before it picks a
 /// line. Keeping it in one function is what stops the overlay from drifting
 /// behind the player page whenever the user calibrates.
-Duration applyLyricsOffset(Duration position, Duration offset) =>
-    position + offset;
+///
+/// The result is clamped at [Duration.zero]: a −5s calibration on a 1s position
+/// used to produce −4s, and per-song calibration makes that easy to reach. Line
+/// matching and the progress highlight both treat "before the start of the
+/// track" as garbage, so it becomes the start of the track instead.
+Duration applyLyricsOffset(Duration position, Duration offset) {
+  final shifted = position + offset;
+  return shifted.isNegative ? Duration.zero : shifted;
+}
 
 /// How many leading characters of [line] playback has already reached.
 ///

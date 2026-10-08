@@ -26,6 +26,23 @@ void main() {
     );
   });
 
+  test('applyLyricsOffset never returns a negative position', () {
+    // −5s on a 1s position used to produce −4s. Line matching treats "before
+    // zero" as garbage, and the per-song offset makes larger negative shifts
+    // reachable, so the shared function clamps at the start of the track.
+    expect(
+      applyLyricsOffset(
+        const Duration(seconds: 1),
+        const Duration(seconds: -5),
+      ),
+      Duration.zero,
+    );
+    expect(
+      applyLyricsOffset(Duration.zero, const Duration(seconds: -1)),
+      Duration.zero,
+    );
+  });
+
   test('clamps the offset to the calibration range', () {
     expect(
       clampLyricsOffset(const Duration(seconds: 30)),
@@ -62,7 +79,7 @@ void main() {
   test('adjust steps by the calibration step and persists every change', () async {
     final persisted = <int>[];
     final notifier = LyricsOffsetNotifier(
-      persist: (milliseconds) async => persisted.add(milliseconds),
+      persist: (songKey, milliseconds) async => persisted.add(milliseconds),
     );
     addTearDown(notifier.dispose);
 
@@ -80,7 +97,8 @@ void main() {
 
   test('a failing persist keeps the in-memory offset', () async {
     final notifier = LyricsOffsetNotifier(
-      persist: (milliseconds) async => throw StateError('disk full'),
+      persist: (songKey, milliseconds) async =>
+          throw StateError('disk full'),
     );
     addTearDown(notifier.dispose);
 

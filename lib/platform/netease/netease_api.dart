@@ -220,12 +220,25 @@ class NeteaseApi {
     });
   }
 
-  /// Get lyrics (GET, no encryption)
+  /// Get lyrics (GET, no encryption).
+  ///
+  /// The parameter set decides which tracks come back, verified against a real
+  /// response (see `docs/netease-lyric-shapes.md`):
+  /// * `lv` LRC, `tv` translation (`tlyric`);
+  /// * `yv`/`yrv` word-by-word (`yrc`);
+  /// * **`rv`** unlocks romanisation (`romalrc`, plus `ytlrc`/`yromalrc`) — it is
+  ///   not returned without it.
+  ///
+  /// Availability is per song, not per endpoint: a missing `yrc`/`romalrc` is
+  /// normal and every caller must treat each track as optional.
   Future<Map<String, dynamic>> getLyric(String songId) async {
     return get(NeteaseEndpoints.lyric, query: {
       'id': songId,
       'lv': -1,
       'tv': -1,
+      'yv': -1,
+      'yrv': -1,
+      'rv': -1,
     });
   }
 

@@ -1,10 +1,13 @@
 import 'dart:async';
 
+import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/database/app_database.dart';
 import '../../../../core/network/platform_http.dart';
+import '../../../../lyrics/lrclib_client.dart';
+import '../../../../lyrics/models/lyrics_bundle.dart';
 import '../../../../lyrics/models/lyrics_line.dart';
 import '../../../../models/platform_type.dart';
 import '../../../../models/song.dart';
@@ -36,19 +39,95 @@ class LyricsUnavailableException implements Exception {
   String toString() => 'LyricsUnavailableException: $message';
 }
 
-/// Raw lyrics text plus the format it should be parsed with.
+/// Raw lyric tracks for a song, plus which source supplied them.
 @immutable
 class RawLyrics {
-  final String content;
-  final LyricsFormat format;
-  final PlatformType? source;
+  final LyricsBundle bundle;
+  final LyricsSource source;
 
   const RawLyrics({
-    required this.content,
-    required this.format,
-    this.source,
+    required this.bundle,
+    this.source = LyricsSource.unknown,
   });
 }
+
+/// How long a cached lyrics row stays trustworthy before it is refetched.
+///
+/// `LyricsCache.syncedAt` used to be a **write-only** field: a cached row was
+/// served forever, so a platform correcting its own lyrics (typos, fixed
+/// timings) could never surface on a device that had already cached them.
+const Duration lyricsCacheTtl = Duration(days: 14);
+
+/// True when a row written at [syncedAtMs] is older than [ttl].
+///
+/// A timestamp in the future (clock skew, or a device whose time was corrected
+/// backwards) counts as **fresh**: calling it expired would make every play
+/// refetch and re-cache, forever.
+bool isLyricsCacheExpired(
+  int syncedAtMs, {
+  required DateTime now,
+  Duration ttl = lyricsCacheTtl,
+}) {
+  return now.millisecondsSinceEpoch - syncedAtMs >= ttl.inMilliseconds;
+}
+
+/// The cached lyrics row for [songId]/[platform], `syncedAt` included, or null.
+///
+/// A direct table read because `LyricsCacheDao` exposes neither the timestamp
+/// nor a TTL, and the database layer belongs to another workstream (`local` rows
+/// are excluded by construction: this only ever runs for streamed platforms).
+Future<({String content, String format, int syncedAt})?> readCachedLyrics(
+  String songId,
+  String platform, {
+  AppDatabase? db,
+}) async {
+  final target = db ?? database;
+  final row = await (target.select(target.lyricsCache)
+        ..where((t) => t.songId.equals(songId) & t.platform.equals(platform))
+        ..limit(1))
+      .getSingleOrNull();
+  if (row == null || row.content.isEmpty) return null;
+  return (content: row.content, format: row.format, syncedAt: row.syncedAt);
+}
+
+/// Drops every cached lyrics row older than [ttl]; returns how many went.
+///
+/// Spelled out in raw SQL like `SourceMatchCacheDao.purgeExpired`, so the sweep
+/// does not depend on the spelling of the comparison helper this drift version
+/// generates for an integer column (they were renamed across the 2.x line).
+Future<int> purgeExpiredLyricsCache({
+  AppDatabase? db,
+  DateTime? now,
+  Duration ttl = lyricsCacheTtl,
+}) async {
+  final target = db ?? database;
+  final cutoff = (now ?? DateTime.now()).subtract(ttl).millisecondsSinceEpoch;
+  final expired = await target
+      .customSelect(
+        'SELECT COUNT(*) AS expired FROM lyrics_cache WHERE synced_at <= ?',
+        variables: [Variable.withInt(cutoff)],
+        readsFrom: {target.lyricsCache},
+      )
+      .getSingle();
+  final count = expired.read<int>('expired');
+  if (count == 0) return 0;
+  await target.customStatement(
+    'DELETE FROM lyrics_cache WHERE synced_at <= ?',
+    [cutoff],
+  );
+  return count;
+}
+
+/// The badge source for [type].
+///
+/// Exhaustive on purpose: a platform added later has to decide what its badge
+/// says instead of silently reusing someone else's name.
+LyricsSource lyricsSourceForPlatform(PlatformType type) => switch (type) {
+  PlatformType.netease => LyricsSource.netease,
+  PlatformType.qq => LyricsSource.qq,
+  PlatformType.kugou => LyricsSource.kugou,
+  PlatformType.local => LyricsSource.local,
+};
 
 /// Fetches and parses lyrics for the currently playing song, with local cache.
 ///
@@ -66,15 +145,17 @@ final lyricsProvider = FutureProvider.autoDispose<LyricsDocument?>((ref) async {
       : null;
 
   ({String content, String format})? cachedLyrics;
+  int? cachedSyncedAt;
   if (song.platform != PlatformType.local) {
     try {
-      final cached = await database.lyricsCacheDao.getCachedLyricsWithFormat(
-        song.id,
-        song.platform.name,
-      );
+      final cached = await readCachedLyrics(song.id, song.platform.name);
       if (cached != null) {
-        debugPrint('LyricsProvider: cache hit, format=${cached.format}');
+        debugPrint(
+          'LyricsProvider: cache hit, format=${cached.format}, '
+          'syncedAt=${cached.syncedAt}',
+        );
         cachedLyrics = (content: cached.content, format: cached.format);
+        cachedSyncedAt = cached.syncedAt;
       }
     } catch (e) {
       // A cache read failure must never block fetching fresh lyrics.
@@ -86,6 +167,7 @@ final lyricsProvider = FutureProvider.autoDispose<LyricsDocument?>((ref) async {
     song: song,
     localRawLyrics: localRawLyrics,
     cachedLyrics: cachedLyrics,
+    cachedSyncedAt: cachedSyncedAt,
     platforms: PlatformRegistry.all,
     writeCache: song.platform == PlatformType.local
         ? null
@@ -95,6 +177,8 @@ final lyricsProvider = FutureProvider.autoDispose<LyricsDocument?>((ref) async {
             raw,
             format.name,
           ),
+    lrclib: (queried) =>
+        ref.read(lrclibClientProvider).fetchSyncedLyrics(queried),
     timeout: lyricsRequestTimeout,
   );
 });
@@ -111,28 +195,55 @@ Future<LyricsDocument?> resolveLyricsForSong({
   required Song song,
   String? localRawLyrics,
   ({String content, String format})? cachedLyrics,
+  int? cachedSyncedAt,
   List<MusicPlatform> platforms = const [],
   Future<void> Function(String raw, LyricsFormat format)? writeCache,
   Duration timeout = lyricsRequestTimeout,
+  Duration cacheTtl = lyricsCacheTtl,
+  DateTime Function()? now,
+  Future<String?> Function(Song song)? lrclib,
 }) async {
   if (song.platform == PlatformType.local) {
     final raw = localRawLyrics;
-    if (raw == null || raw.isEmpty) return null;
-    final document = LyricsDocument.parse(
-      raw,
-      _formatForPlatform(song.platform, raw),
-    );
-    return document.lines.isEmpty ? null : document;
+    if (raw != null && raw.isNotEmpty) {
+      final document = LyricsDocument.parse(
+        raw,
+        _localLyricsFormat(raw),
+        source: lyricsSourceForPlatform(song.platform),
+      );
+      if (document.lines.isNotEmpty) return document;
+    }
+    // 本地没有可用歌词（没有 .lrc / 内嵌歌词，或解析不出时间轴）时才兜底：
+    // 用户自己的文件常常一个歌词文件都没有，这里正是 LRCLIB 该上场的地方。
+    return _lrclibFallback(lrclib, song, null);
   }
 
   final cached = cachedLyrics;
   if (cached != null) {
-    final format = _parseLyricsFormat(cached.format);
-    final document = LyricsDocument.parse(cached.content, format);
-    if (document.lines.isNotEmpty) {
-      return document;
+    final syncedAt = cachedSyncedAt;
+    final expired =
+        syncedAt != null &&
+        isLyricsCacheExpired(
+          syncedAt,
+          now: (now ?? DateTime.now)(),
+          ttl: cacheTtl,
+        );
+    if (expired) {
+      debugPrint('LyricsProvider: cached lyrics older than $cacheTtl');
+    } else {
+      final format = _parseLyricsFormat(cached.format);
+      final document = LyricsDocument.parse(
+        cached.content,
+        format,
+        // The row is keyed by the *owning* platform, so a cross-source fallback
+        // that was cached under it still reports the owning platform here.
+        source: lyricsSourceForPlatform(song.platform),
+      );
+      if (document.lines.isNotEmpty) {
+        return document;
+      }
+      debugPrint('LyricsProvider: cached lyrics parsed empty, refetching');
     }
-    debugPrint('LyricsProvider: cached lyrics parsed empty, refetching');
   }
 
   final outcome = await _fetchLyricsWithFallback(
@@ -141,8 +252,21 @@ Future<LyricsDocument?> resolveLyricsForSong({
     timeout: timeout,
   );
   final raw = outcome.raw;
-  if (raw == null) {
-    if (!outcome.answered && outcome.errors.isNotEmpty) {
+  LyricsDocument? document;
+  if (raw != null) {
+    final built = buildLyricsDocument(raw.bundle, source: raw.source);
+    // Content with no timed lines is "no lyrics", not a load failure.
+    document = built.lines.isEmpty ? null : built;
+  }
+
+  // LRCLIB 兜底：平台没给出可用歌词、或时间轴明显不对时才问一次。
+  // 它在 **抛错之前** 有一次机会：三个平台都失败时，能从 LRCLIB 拿到词就
+  // 不该给用户看"歌词加载失败"。
+  final fallbackDocument = await _lrclibFallback(lrclib, song, document);
+  if (fallbackDocument != null) return fallbackDocument;
+
+  if (document == null) {
+    if (raw == null && !outcome.answered && outcome.errors.isNotEmpty) {
       throw LyricsUnavailableException(
         outcome.errorMessage(),
         causes: outcome.errors,
@@ -151,19 +275,54 @@ Future<LyricsDocument?> resolveLyricsForSong({
     return null;
   }
 
-  final document = LyricsDocument.parse(raw.content, raw.format);
-  if (document.lines.isEmpty) {
-    // The platform answered with content that carries no timed lines; treat it
-    // as "no lyrics" rather than as a load failure.
-    return null;
-  }
-
-  if (writeCache != null) {
+  final track = mainLyricsTrack(raw!.bundle);
+  if (writeCache != null && track != null) {
+    // The cache holds one string per song, so the translation is folded into it
+    // to survive a cache hit. A word-by-word row is cached verbatim: its
+    // translation track is not LRC and cannot be appended to it.
+    final translation = raw.bundle.translation;
+    final cachedContent =
+        track.format == LyricsFormat.lrc &&
+            translation != null &&
+            translation.trim().isNotEmpty
+        ? '${track.content}\n$translation'
+        : track.content;
     unawaited(
-      _writeCacheBestEffort(writeCache, raw.content, raw.format),
+      _writeCacheBestEffort(writeCache, cachedContent, track.format),
     );
   }
   return document;
+}
+
+/// Asks the fallback source, swallowing everything it throws.
+///
+/// A fallback that is down (or times out) must never turn into "歌词加载失败"
+/// when the platform path already has an answer — and never hide the platform's
+/// own error when it does not.
+///
+/// The result is deliberately **not** cached: the cache row is keyed by the
+/// owning platform, so storing a fallback under it would both mislabel the next
+/// "来源" badge and stop the platform from being retried on the next run.
+Future<LyricsDocument?> _lrclibFallback(
+  Future<String?> Function(Song song)? lrclib,
+  Song song,
+  LyricsDocument? current,
+) async {
+  if (lrclib == null) return null;
+  if (!shouldAskLrclib(current, songDuration: song.duration)) return null;
+  try {
+    final lyrics = await lrclib(song);
+    if (lyrics == null || lyrics.trim().isEmpty) return null;
+    final document = LyricsDocument.parse(
+      lyrics,
+      LyricsFormat.lrc,
+      source: LyricsSource.lrclib,
+    );
+    return document.lines.isEmpty ? null : document;
+  } catch (e) {
+    debugPrint('LyricsProvider: LRCLIB fallback failed: $e');
+    return null;
+  }
 }
 
 Future<void> _writeCacheBestEffort(
@@ -252,19 +411,24 @@ Future<_LyricsFetchOutcome> _requestLyrics(
   Duration timeout,
   List<Object> errors,
 ) async {
-  debugPrint('LyricsProvider: calling ${platform.platformType.name} getLyrics($songId)');
+  debugPrint(
+    'LyricsProvider: calling ${platform.platformType.name} getLyricsBundle($songId)',
+  );
   try {
-    final raw = await platform.getLyrics(songId).timeout(timeout);
-    if (raw == null || raw.isEmpty) {
+    final bundle = await platform.getLyricsBundle(songId).timeout(timeout);
+    if (bundle == null || bundle.isEmpty) {
       debugPrint('LyricsProvider: raw lyrics is null or empty');
       return const _LyricsFetchOutcome(answered: true);
     }
-    debugPrint('LyricsProvider: got ${raw.length} chars of lyrics');
+    debugPrint(
+      'LyricsProvider: got lrc=${bundle.lrc?.length ?? 0} '
+      'translation=${bundle.translation?.length ?? 0} '
+      'yrc=${bundle.yrc?.length ?? 0} romaji=${bundle.romaji?.length ?? 0}',
+    );
     return _LyricsFetchOutcome(
       raw: RawLyrics(
-        content: raw,
-        format: _formatForPlatform(platform.platformType, raw),
-        source: platform.platformType,
+        bundle: bundle,
+        source: lyricsSourceForPlatform(platform.platformType),
       ),
       answered: true,
     );
@@ -305,27 +469,20 @@ LyricsFormat _parseLyricsFormat(String formatStr) {
   );
 }
 
-LyricsFormat _formatForPlatform(PlatformType platformType, String raw) {
-  switch (platformType) {
-    case PlatformType.qq:
-    case PlatformType.local:
-      // Guesses, most specific first. A candidate only wins when it really
-      // parses into at least one timed line: sniffing on `[` + `<` + `,` alone
-      // sent an ordinary LRC (a smiley, a comma in the lyrics) to the KRC
-      // parser, which found nothing and blanked the whole song — "暂无歌词" for a
-      // file that was perfectly fine.
-      return LyricsDocument.sniffFormat(raw, const [
-        LyricsFormat.qrc,
-        LyricsFormat.krc,
-        LyricsFormat.lrc,
-      ]);
-    case PlatformType.kugou:
-      return LyricsDocument.sniffFormat(raw, const [
-        LyricsFormat.krc,
-        LyricsFormat.lrc,
-      ]);
-    case PlatformType.netease:
-      // NetEase always answers with plain LRC.
-      return LyricsFormat.lrc;
-  }
+/// Format of a **local** lyric payload: a `.lrc`/`.krc`/`.qrc` sidecar or an
+/// embedded tag.
+///
+/// Guesses, most specific first, and a candidate only wins when it really parses
+/// into at least one timed line: sniffing on `[` + `<` + `,` alone sent an
+/// ordinary LRC (a smiley, a comma in the lyrics) to the KRC parser, which found
+/// nothing and blanked the whole song — "暂无歌词" for a file that was fine.
+///
+/// Streamed platforms do not come through here: `LyricsBundle` carries the
+/// format, and `mainLyricsTrack` sniffs a single-payload platform's track.
+LyricsFormat _localLyricsFormat(String raw) {
+  return LyricsDocument.sniffFormat(raw, const [
+    LyricsFormat.qrc,
+    LyricsFormat.krc,
+    LyricsFormat.lrc,
+  ]);
 }

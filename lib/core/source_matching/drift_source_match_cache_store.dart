@@ -1,3 +1,9 @@
+// drift 必须**整包**导入：`&`（以及 `|` / `not()`）是 drift 的扩展成员
+// （`extension BooleanExpressionOperators on Expression<bool>`），只经 `show`
+// 组合器或只从别的库间接带进来时，扩展不在作用域里 —— 报错只会说
+// "The operator '&' isn't defined for the type 'Expression<bool>'"，很容易误判。
+import 'package:drift/drift.dart';
+
 import '../database/app_database.dart';
 import 'source_match_cache.dart';
 
@@ -47,6 +53,19 @@ class DriftSourceMatchCacheStore implements SourceMatchCacheStore {
       urlFetchedAt: entry.urlFetchedAt,
       score: entry.score,
     );
+  }
+
+  @override
+  Future<void> invalidate(String songKey, String targetPlatform) {
+    final dao = _daoOf();
+    // 只删一行（主键就是 (songKey, targetPlatform)）。DAO 没有单行删除方法，
+    // 这里用 drift 的 delete 语句，与 DAO 内部 `clearAll` 的写法一致。
+    return (dao.delete(dao.sourceMatchCaches)..where(
+          (table) =>
+              table.songKey.equals(songKey) &
+              table.targetPlatform.equals(targetPlatform),
+        ))
+        .go();
   }
 
   @override

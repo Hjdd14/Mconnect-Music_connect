@@ -3320,3 +3320,117 @@ drift **v3 → v4**：新表 `track_ratings`（评分，**无索引**：只有 5
 2. **写路径的容错必须与读路径对称。** `_load` 有 try/catch、`setEnabled` 没有同等保护 → "读失败只降级、写失败上抛"。最终修法比补 catch 更彻底：`setEnabled` 改**同步 void**，`Hive.box(...)` 同步取（未打开则同步抛、同步吃掉），`put` fire-and-forget，**一个 Future 都不创建**，物理消除"未处理 zone 错误"。
 3. **`ReorderableListView` 的合成手势不能用"拖几行 = 位移几行"的直觉来写**（这条建议由 W1-D 提出、我批准记入本文档）：`_insertIndex` 是**空隙下标**（`_handleReorderItem` 会 `newIndex > oldIndex → newIndex -= 1`）、**多事件会累积推高下标**、且 `d ∈ [1h, 1.5h]` 是一个"**不换位**"的洞。正确写法：**一个 move 事件、位移 0.75×行高**（落在 `[0.5h, 1h)` 正中），且**放手后必须 `pumpAndSettle()`**（`onReorder` 由 250ms 落位动画的 status listener 在 `isDismissed` 时触发，`pump()` 一帧不够）。本仓 `playlist_detail_page` 的既有重排实现与本页同源，将来写同类用例直接照这条。
 4. **`part of` + `extension` 的拆分有硬性上限**：`StateNotifier.state` 是 `@protected` + `@visibleForTesting`，extension 访问它会产生两倍警告（0-issue 门禁直接不可达）；Dart 的 extension **不能声明 static**。所以"行为搬出去、状态留在 facade"这个形态需要 ①facade 加一个私有访问器（`_s`）②静态成员留在 facade 并限定调用 ③`part` 路径相对 part 所在目录**从 facade 起算要多一级**。这三条与"逐字节纯移动"是矛盾的，commit message 与 §31 已如实写成"机械移动 + 3 处可解释重命名"。
+
+### 32.9 第二次独立复核（`lyrics-metadata`，只读）+ i18n 迁移地图（`external-research`）
+
+**复核结论：Wave 1 可以算完成（Pass）**。它独立验证通过了三条硬约束，并**修正了我 4 处说法**：
+
+| 独立验证通过 | 证据 |
+|---|---|
+| **换源合规**（用户硬要求） | `PlatformType` 只有 local/netease/qq/kugou；`PlatformRegistry.register` 全仓只有 3 处、全在 `main.dart:69-71`；`_targetPlatforms` 排除主平台 + local + 未登录 ⇒ **无任何外部音源入口** |
+| **两道门禁的断言不空转** | 离线与关开关的用例都**先构造了一个"会返回匹配候选"的平台**，再断言 `searchInvocationCount == 0`；离线那条还断 `cache.getCalls == 0`，证明门禁在**缓存读之前**就返回 |
+| **part 拆分是搬迁不是重写** | 从 4 个 part 抽出 **50 个私有成员名**逐一比对拆分前 facade → **0 个缺失**；全子系统只有 **1 处 `state =`**（facade `_setState`）；`+126 行` 的疑点定位为"顶层类 `_AudioMutex` 随文件搬迁" |
+| **批量不删音频文件** | `removeSelected` 只有两次 SQL 删除、无任何文件系统调用；负向断言用**真实临时文件**断 `exists()==true` **且** `length()==4` ⇒ 换成 `File.delete()` **真会红** |
+| **v4 迁移四条路径收敛** | fresh / v1→v4 / v2→v4 / v3→v4 手推全部一致；`_v3IndexStatements` 已移除 `local_tracks_path` + 升级路径 `DROP INDEX IF EXISTS`；13 表 / 12 DAO 与文档一致，且护栏是**从代码推导再比文档**而非硬编码 |
+
+**它修正了我 4 处说法（我照实记账，不改原文）**：
+1. **"`onCreate`/`onUpgrade` 字面同构"不准确**，应为**效果同构**：`onCreate` 总是跑 `_createV3Indexes`，`onUpgrade` 只在 `from<3` 时跑（v3→v4 不重放），两者效果相同靠"v3 库在自己的升级里已经建过" + parity 测试锁住。措辞已按此更正。
+2. **task-14 的写作用域与它自身需求自相矛盾（C1）**：scope 括号写"`player_screen.dart` 只允许加队列入口"，而需求正文要求"播放页显示来源角标"——owner 按需求实现（约 35 行 `_SourceBadge`）且**有用例**。**这是我的任务描述内部打架，不是 owner 越界**；教训：**scope 括号不要写得比需求更严**。
+3. **W0 接缝在 W1 被改形**：`CrossSourceResolver` 从 `Future<String?>` 改成 `Future<CrossSourceResult?>`（为带 `platform`/`fromCache` 以支撑来源角标）。改动合理且在 W1 的 scope 内，但**回看 W0-A 的交付会以为它自相矛盾**——已在此记明。
+4. **`task-14/15/16` 之外的 5 组文件无法归属（C2）**：v4 schema+本地库（实为 task-17/W2-C）、CI（Lead 侧）、两份 docs（Lead）。**复核者读不到 task-17/24 的描述**，属可见性问题而非越界——后续给 scope 时把"同波全部任务"一并列出。
+
+**它挖出的 3 个真问题（已派给 W2-B，不影响已收口的 Wave 1 门禁）**：
+- **F1（可证的死分支）**：`SourceMatchFailure.belowThreshold` **不可达**（`bestScoreSeen > 0` 蕴含 `sawCandidate == true`，而该分支只在 `sawCandidate == false` 时求值），同时"有候选但全不及格"被**误报成 `urlUnavailable`**。目前 `failure` 无生产消费者所以是潜在问题，但一旦渲染给用户就会给出错误原因。**这是本轮最有价值的代码发现。**
+- **F2**：`SourceMatchEntry.isUsableAt` **零引用**（死代码）⇒ TTL 正确性 100% 押在"每个 store 都遵守 `get(now:)` 契约"上，缺一道零成本的纵深防御。
+- **F3（会放大重试）**：无失败驱动的缓存失效 ⇒ 死链复用满 20 分钟；且 player 的 `qualities` 循环对**每个音质档都调一次 resolver**、而服务**内部已降档** ⇒ **同一个死 URL 最多被顺序重试 8 次**。**这条路径完全没有测试覆盖。**
+- 附：`maxDuration` 上限**只有一条耗时断言**（`< 2s`，分辨不出 400ms 与 1000ms），且**没有用例锁 `min()` 语义**（用户设 200ms 不该被抬到 400ms）。
+
+**它给脱敏器（task-23）补了一条我漏掉的真实凭证**：**`g_tk`** —— `qq_api.dart:489` 直接 `debugPrint`、`:527` 拼进 URL、`:562` **放进 JSON 映射**（走规则 4），而 `p_skey`/`skey` 在名单里、`g_tk` 不在。并把"加 `sk` 后缀会误伤 `task`/`disk`/`mask`"从"可能"证成**必然**（后缀匹配 + 非贪婪前缀 `*?` ⇒ `?task=1` 里 `*?` 吃掉 `ta`、`sk` 命中）。另指出**规则 3 要求前置分隔符**，所以**一行纯 `sk=abc` 即使加进名单也不会被脱敏**——第二个必须一并处理的点。它给了三条路径，其中**最强的是把导出路径改成 `crash_reporter.dart` 那种白名单**（结构上"无论新键叫什么都不会漏"）。
+
+**i18n 地图（task-26）修正了计划里的一个数字**：
+- **审计的"778 处 / 79 文件"复现不出来。** 把候选口径全试一遍后，**权威口径 = 850 处 / 95 文件**（`lib/**` 排除 `lib/l10n/**`，非注释行上的含 CJK 字符串字面量）；`781/86`（减去 `lib/platform/**`）最接近审计值 ⇒ **审计很可能把平台层排除了**，而平台层既有该迁的、也有**必须保留**的解析常量。
+- **基线的移动性被实测出来**：同一条命令在分析期间给出 **836 → 849 → 850**（工作树从 33 个 dirty 涨到 38）。⇒ **结论：写进 CI 之前必须先在工作树干净时冻结基线**，把 778 写进护栏一定会和脚本打架。
+- 其余可直接执行：B0（修 `l10n.yaml` 里指向**不存在**的 `test/l10n_arb_test.dart` 的注释 + 落地护栏 + 清 6 个孤儿键）→ B1 共享层 70 → B3 Top-20 重复横切 → B4~B10；**`test/**` 有 2464 处 CJK / 346 处中文断言，页面测试断言一律不改**（`l10n.dart` 无 delegate 时回落到中文，这正是现有设计让测试零改动通过的原因）；≈190 处在无 `BuildContext` 的层需"错误码 + UI 翻译"或"provider 注入"；放开 `en` 的门槛定义为**带 `i18n-exempt:` 标记的行数**（当前 7），而不是"还剩 N 处"这种可谈判的数字。
+
+**W3-B 增补（两次复核共同指出的"有代码、无页面级用例"）**：`settings_page` 的「自动换源」开关**没有 widget 用例点它**；本地库多选批量**只有 provider 级用例、没有页面级用例**（模式可照抄 `playlist_detail_interactions_test.dart` 的同类多选）。两条都记入 W3-B。
+
+### 32.10 task-23 收口：`g_tk` 是 `int`，所以"把键名加进名单"**并不够**（本轮最隐蔽的一条）
+
+我给的指令是"把 `g_tk` 加进 `sensitiveKeys`"。owner 在实现时**去读了源码**，发现这个前提**不成立**：
+```dart
+// qq_api.dart:487
+final gTk = pSkey != null ? _hash5381(pSkey) : 5381;   // ← int（:614 定义 int _hash5381）
+// qq_api.dart:562
+'comm': {'g_tk': gTk, 'platform': 'yqq', …}            // jsonEncode → {"g_tk":5381} 值【没有引号】
+```
+而**规则 4 的正则要求值带引号**（`"key"\s*:\s*"`）⇒ `{"g_tk":5381}` **根本不匹配**。他 grep 了全部 10 处，发现 `:658 :713 :765 :803 :842` **五处都是 `'g_tk': 5381` 的 int map 字面量** —— 也就是说**无引号值才是主要形态**，`g_tk` 那一处不是孤例。
+⇒ 于是新增了**规则 4b**：`"key": <无引号标量>`（替换值加引号以保持 JSON 形状合法，并排除 `"`/`[`/`{` 起始——引号已由规则 4 处理、`[`/`{` 是结构不是凭证）。
+
+**这条的教训比修复本身重要**：**"把键名加进敏感名单"只对"值形态已知"的路径有效**。一份脱敏器如果只按"键名 + 某种值形态"匹配，那么换一种值形态（这里是 int 而不是 string）就会**静默漏掉**——而它看起来"已经修好了"。所以 owner 在交付里同时给了**回滚点**（`diagnostics_redactor.dart:179-201` 一个 `_apply` 块）与**三条更强的路径**：短键锚定匹配、值形状兜底（长不透明串一律脱敏）、以及**导出路径改白名单**（`crash_reporter.dart` 的 `crashSafeDataKeys` 已是正确先例，且**结构上不可能漏**）。
+
+**同时确认的两条既存问题（非本轮引入，刻意未改）**：`design`/`assign`/`cosign` 早已被既有的 **`sign`** 后缀命中、`monkey`/`hockey` 被 **`key`** 命中（⇒ 我在 task-23 里写的"`design` 末三字符是 `ign`、不受影响"对 `sig` 成立，**对 `sign` 不成立**）；嵌套 `"key": {…}` / `[…]` 在规则 4/4b 下都不脱敏——这正是**白名单路径**要解决的那一类。
+
+**实测（Lead 跑）**：`test/diagnostics_export_test.dart` → **`+25 All tests passed!`**。owner 另用"把实现 `git stash` 回 HEAD 再跑"的方式取到**未变异红**（该文件已在 HEAD 提交）——这比手工改坏一行更干净，值得作为后续"取发布版对照红"的标准手法。
+
+### 32.11 Wave 2 期间被队友纠正的派工前提（**我写错的地方，逐条留存**）
+
+派工里出现的事实错误如果只留在聊天记录里，下一个实现者会照着错前提写代码。逐条记下（含纠正者与证据）：
+
+1. **`(service, event_id)` 不是唯一索引（我写错了）** —— playback-core 核对生成物后指出：`app_database.g.dart:6406-6408` 是 `CREATE INDEX scrobble_queue_service_event ON scrobble_queue (service, event_id)`，**普通索引**；`@TableIndex`（`app_database.dart:355-356`）**没有 `unique: true`**。去重真正落在 **`ScrobbleQueueDao.enqueue()` 的 SELECT**（`app_database.dart:1690-1694`，命中即 `return false`，且 `sent`/`dropped` 行**故意保留**以防重发，`:344-346` 注释已说明）。⇒ 正确表述是"**去重依赖 `enqueue` 契约 + 协调器不重复 claim**"，不是"依赖唯一约束"。这条直接改变了实现做法。
+2. **`home_widget` 的 platforms 只有 android+ios（我要求从源头核实后才采信）** —— 读 pub cache 的 `home_widget-0.10.0/pubspec.yaml`：`platforms:` 下**只有 `android:` 与 `ios:`**，无 windows/linux/macos/web ⇒ **Windows 上不会编译失败，但插件不注册、任何调用抛 `MissingPluginException`**。所以 `lib/features/widget` 的 facade 守护是**必需**，不是保险。已加依赖（`^0.10.0`，lock 解析 0.10.0）。
+3. **`url_launcher` / `package_info_plus` 都不在 pubspec 里（我按规格默认它们存在）**：
+   - `url_launcher` **已加**（`^6.3.1` → 6.3.3）。但 **Android 11+ 必须在 manifest 里加 `<queries>`（VIEW intent），否则 `launchUrl` 会静默失败**——这条已交 `android/**` 的当前 owner（W3-A）落地。
+   - `package_info_plus` **不加**：它要求 **AGP ≥ 8.12.1**，而本仓库是 **8.11.1**（`android/settings.gradle.kts:22`），而计划明令不得为依赖顺手升工具链。⇒ 运行时版本一律用 `AppConstants.appVersion`（规范化后拼 UA / `additional_info`），并仍在"版本单一来源"那条 follow-up 里。
+4. **drift 的 `&`/`|`/`not()` 是扩展成员，会被 `show` 挡在作用域外（同一个坑本轮踩了两次）** —— `extension BooleanExpressionOperators on Expression<bool>`（`drift/src/runtime/query_builder/expressions/bools.dart:4`）。若文件写 `import 'package:drift/drift.dart' show Variable;`，**扩展不在作用域**，报错却是 `The operator '&' isn't defined for the type 'Expression<bool>'`——**极易误判为"drift 不支持 `&`"**。fix-lyrics 与 fix-playback 各中一次；现在两处都改成整包 import 并把病因写进注释。
+   ⇒ **教训**：遇到"某个显然存在的操作符/方法未定义"，先怀疑**作用域**（`show`/`hide`/间接带入/扩展），而不是怀疑语言或库。
+
+**另外两处记账**：
+- **W2-D 的第 9 项（年度报告/Wrapped + 分享卡片）从 task-19 移出**：规格 A 节确实没有这部分内容（owner grep `Wrapped`/`年度` 无命中），且"分享卡片"要动 `lib/core/share/**`（ux-parity 持有）。改为独立任务，排在共享层交接之后。
+- **`user.getInfo` 作为 `测试连接` 探针**（零副作用、不带 `user` 参数即查当前会话账号）+ 备选 `user.getRecentTracks&limit=1`：规格未给"已有 sk 的校验"端点，故**标【需联网验证】**；Maloja 的 `<instance>/apis/listenbrainz` 同样标注。
+
+---
+
+## 33. 阶段 v1.5-W2/W3 · Wave 2–3 中期收口（Wave 2-A/W2-B/W2-C 部分 + Wave 3-A/3-C/3-D B0）
+
+### 33.1 门禁（Lead 实跑，波次边界）
+
+- `flutter analyze --no-pub` → **`No issues found!`**
+- `flutter test --no-pub -j 1` → **`+1528 ~10: All tests passed!`**（1528 passed / 10 skipped / **0 failed**；Wave 1 收口时 1315 ⇒ **本轮净增 +213**）
+- `flutter build apk --debug` → **`√ Built build\app\outputs\flutter-apk\app-debug.apk`**（验证 W3-A 的 manifest / Kotlin / XML 与两个新插件）
+- `flutter build windows --debug` → **`√ Built build\windows\x64\runner\Debug\mconnect.exe`**（验证 `home_widget` / `url_launcher` **没有**破坏桌面端）
+- i18n 预算：**`total=942 files=103 exempt=0`**，`headroom=0`（硬棘轮）—— 我另用文档里的 PowerShell 命令独立复算，**同为 942/103**，确认这条护栏不空转。
+
+### 33.2 本轮落地的内容
+
+| 流 | 内容 |
+|---|---|
+| **W2-A 歌词**（task-20，除分享图外完成） | 网易云 `yrc`(逐字)/`romalrc`(罗马音)（参数补 `yv/yrv/rv`，`docs/netease-lyric-shapes.md` 是实测依据）；QQ `qrc=1` 参数修复 + 死路径收口（加密则静默回退 LRC）；**LRCLIB 兜底**（`/api/search` + 时长就近挑选，容差 5s 或 5%，失败一律返回 null）；按歌偏移持久化（`lyrics_offsets`，键 `<platform>:<id>`，先置 0 再读）；歌词缓存 TTL 14 天 + 清理入口；三态（原文/双语/仅译文）+ 字号/行距；来源角标；`applyLyricsOffset` 播放页与悬浮窗共用（W0-V 的收尾项） |
+| **W2-B 播放**（task-21，部分） | 切歌淡出 + **400ms 上限**（`min(fadeDuration, 400ms)`，附 66ms/33ms 确定性断言）；**F1** 可证的死分支修复（`belowThreshold` 此前不可达、且"有候选但全不及格"被误报成 `urlUnavailable`）；**F2** TTL 纵深防御 + 故意违约的假 store；**F3 源侧**（`invalidate` / `invalidateCache`）+ 每失败链只调一次 resolver（消除同一死链重试 8 次）；Windows EQ 静默失效改记诊断；AudioBrowseTreeMixin 接入（修 Android Auto EP-1/EP-2 的根因） |
+| **W2-C 本地库**（task-17，部分） | drift v4（`track_ratings` / `scrobble_queue` / 删冗余索引）+ 4 条等式 parity；查询层（多 token AND / 6 排序 / 3 筛选 / total order）；评分与播放次数（实时聚合，物化列只重算不自增）；**Android 歌词永不刷新**真修（SAF 拿不到 mtime ⇒ 改内容比对）；歌词候选发现（`lyrics/` 子目录 + `歌手 - 歌名` 模糊匹配，O(N) 词干索引）；**`local_music_page` UI 908 行**（搜索/排序/筛选/多选批量 + 三态走冻结契约） |
+| **W3-A Android 集成** | 桌面小组件（RemoteViews + facade 守护 + **`pluginCallCount == 0`** 的结构性证明）+ Android Auto browse tree；manifest 的 `<queries>` **并入**已有块（schema 只允许一个）；三个按钮改用 `ACTION_MEDIA_BUTTON` 显式组件广播（不依赖 Flutter 进程） |
+| **W3-C 工程护栏** | 崩溃上报（默认纯本地，**没 DSN 时远端接缝一次都不被调用**；`data` 白名单）+ 安装器（VC++ 运行库检测 / 中文 `.isl` 用 `#if FileExists` 包住 / 去重）+ **`PROJECT.md`/`CHANGELOG.md` 纳入版本控制** + P0 漂移修正（含 §8 全量对齐 pubspec） |
+| **W3-D B0**（i18n 地基） | 修 `l10n.yaml` 指向不存在文件的注释；**预算护栏** `test/i18n_budget_test.dart`（总数/文件数不涨 + by area 打印）；**6 个孤儿键清零**（5 个 `*Title` 反向接线 + `diagnosticsExporting` 接线）；`l10n_test` 加"孤儿键阈值 0"与"en 值不得含 CJK" |
+| **W2-D scrobble**（task-19，阶段 1 + 协调器） | 一套客户端两个 transport（`LastFmCompatible` 换 baseUrl 覆盖 Last.fm/Libre.fm/GNU FM + `ListenBrainzNative` Token）；`api_sig`（含 `artist[10] < artist[2]` 字典序与 int 一致性）；`playing_now` 严禁 `listened_at`、UA 硬要求、1.2s 串行泵；`ScrobbleCoordinator` + **去重核心用例**（正对 `enqueue` 的 SELECT 契约，不是唯一索引） |
+| **task-23 安全** | 脱敏器补 `sig` 后缀 + `exactSensitiveKeys = {sk, g_tk}` + **规则 4b**（见 §32.10） |
+
+### 33.3 本轮新增的工程语义坑（都是"对框架语义做了未经证实的假设"）
+
+1. **`implements` 不继承成员实现**（只有 `extends`/`with` 才继承）：owner 把 `recordSongStarted` 写成接口里的**具体方法**并以为两个实现能继承 —— 但两者都是 `implements`，编译器照旧报"缺实现"。**修法**：要么在实现里各委托一次，要么改 `extends`。这是本轮**第二次**同族错误（第一次是 `DailyStatsCompanion.custom`）。
+2. **Adapter 看到的 `data` 形态不随 content type 变化**：两个 transport 递进来的**都是 `Map`**，一个 JSON、一个 urlencoded 表单 ⇒ 解析必须按 **content type** 分流。按 Dart 类型分流的结果是 LB 绿、Last.fm 红（8 条 `Actual: null`）。
+3. **drift 的 `&`/`|`/`not()` 是扩展成员，会被 `show` 挡在作用域外**（`extension BooleanExpressionOperators on Expression<bool>`）：报错却是 `The operator '&' isn't defined`，极易误判为"drift 不支持"。本轮**两个 owner 各中一次**。
+4. **`pumpAndSettle` 的默认 timeout 就是 10 分钟**：页面只要有**常驻**动画（`AsyncStateView.loading` 的 shimmer、播放层看门狗）就会吃满 ⇒ 一条测试停摆 10 分钟、卡住整个 `flutter test`。**纪律**：页面有常驻动画时一律用**有界 pump**（本例 60×16ms）并对 widget 用例加 `Timeout(30s)`。实测：`local_music_page_test` 从 **10:02 → 6s**。
+5. **真 I/O 不能出现在 `testWidgets` 的 fake-async body 里**：`await Directory.systemTemp.createTemp(...)` 的完成回调永不被驱动 ⇒ 30 秒超时且**看不出原因**。**最干净的修法是同步 API**（`createTempSync`/`writeAsBytesSync`/`existsSync`），既不需要 `runAsync`，也没有"runAsync 里不能 pump"的混用风险；**teardown 一并同步**，否则它会变成下一处挂点。
+
+### 33.4 方法论沉淀：用**探针**终结"猜"
+
+本轮有一个**连续四轮**没查出的缺陷（导入页 `未匹配` 那节找不到）。终结它的不是再想一个假设，而是**临时探针**：改测试文件插入 `debugPrint` → 跑 → **逐字节还原并 SHA256 校验**（三次，全部 `restored byte-identical: True`）。三步就给出了完整事实链：
+
+1. `PROBE_INPUT` / `PROBE_DECODE` 证明**输入与解析都对**（三行进、三条出）；
+2. `PROBE_VIEWPORT: Size(768.0, 283.0)` 揭露报告区**只有 283px**；
+3. `PROBE_BEFORE`（空）→ `PROBE_AFTER_SCROLL: 未匹配 (1),没有的歌 - 歌手3` 证明**该节在滚动前根本没被构建**，并且**我上一轮加的 `scrollCacheExtent.pixels(2000)` 实测无效**。
+
+⇒ **纪律**：`find.text` 找不到某个 widget 时，先问"它**被构建**了吗"，而不是先问"它的文案对不对"。**必须**用能区分"数据层 / 构建层 / 文案层"的探针，并且**探针必须还原 + 校验哈希**（这条同时防止探针污染后续变异验证：本轮 fix-lyrics 在 `lyrics_bundle.dart` 上就报告过 `file changed since it was read`，并主动停手等我还原）。
+
+### 33.5 一处台账更正（我自己的归因错了）
+
+我曾把 `scrobble_lastfm_test` 里两条 `unnecessary_string_interpolations` 归给 fix-playback。**owner 明确否认并说明理由**（他全程未碰 `lib/features/scrobble/**` 及其测试），核对后确认那两条来自 **playback-core** 的编辑。归因错了不会影响修复，但会污染教训沉淀——**owner 有权要求更正，且应当要求**。

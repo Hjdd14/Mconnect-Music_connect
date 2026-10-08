@@ -1,4 +1,26 @@
-enum LyricsFormat { lrc, qrc, krc, unknown }
+enum LyricsFormat { lrc, qrc, krc, yrc, unknown }
+
+/// Where a document's text came from, for the "来源" badge.
+///
+/// Deliberately its own enum instead of `PlatformType`: [lrclib] is a fallback
+/// source with no platform at all, and `lib/lyrics/**` must not depend on the
+/// app's model layer.
+enum LyricsSource {
+  netease('网易云音乐'),
+  qq('QQ音乐'),
+  kugou('酷狗音乐'),
+  local('本地音乐'),
+  lrclib('LRCLIB'),
+  unknown('');
+
+  /// Shown in the badge. Hard-coded like the rest of the player widgets; the
+  /// l10n pass (W3-D) owns `lib/l10n/**`, not this.
+  final String displayName;
+
+  const LyricsSource(this.displayName);
+
+  bool get isKnown => this != LyricsSource.unknown;
+}
 
 class WordTiming {
   final String word;
@@ -27,6 +49,13 @@ class LyricsLine {
 
   bool get hasWordTiming => words != null && words!.isNotEmpty;
   bool get hasTranslation => translation != null && translation!.trim().isNotEmpty;
+
+  LyricsLine withTranslation(String? translation) => LyricsLine(
+    timestamp: timestamp,
+    text: text,
+    translation: translation ?? this.translation,
+    words: words,
+  );
 }
 
 class LyricsDocument {
@@ -35,23 +64,34 @@ class LyricsDocument {
   final List<LyricsLine> lines;
   final LyricsFormat format;
 
+  /// Which source supplied the text, or [LyricsSource.unknown] for a document
+  /// built in code (fakes, tests, an empty placeholder).
+  final LyricsSource source;
+
   const LyricsDocument({
     this.title,
     this.artist,
     this.lines = const [],
     this.format = LyricsFormat.unknown,
+    this.source = LyricsSource.unknown,
   });
 
-  factory LyricsDocument.parse(String content, LyricsFormat format) {
+  factory LyricsDocument.parse(
+    String content,
+    LyricsFormat format, {
+    LyricsSource source = LyricsSource.unknown,
+  }) {
     switch (format) {
       case LyricsFormat.lrc:
-        return _parseLrc(content);
+        return _parseLrc(content, source);
       case LyricsFormat.krc:
-        return _parseKrc(content);
+        return _parseKrc(content, source);
       case LyricsFormat.qrc:
-        return _parseQrc(content);
+        return _parseQrc(content, source);
+      case LyricsFormat.yrc:
+        return _parseYrc(content, source);
       default:
-        return _parseLrc(content);
+        return _parseLrc(content, source);
     }
   }
 
@@ -86,7 +126,7 @@ class LyricsDocument {
   }
 
   /// Parse standard LRC format (NetEase, basic QQ)
-  static LyricsDocument _parseLrc(String content) {
+  static LyricsDocument _parseLrc(String content, LyricsSource source) {
     final lines = <LyricsLine>[];
     String? title;
     String? artist;
@@ -135,10 +175,12 @@ class LyricsDocument {
         final ms = msStr.length == 2 ? int.parse(msStr) * 10 : int.parse(msStr);
         final base = Duration(minutes: min, seconds: sec, milliseconds: ms);
 
+        // `[offset:]` may push a timestamp before the start of the track; a
+        // negative position is meaningless downstream (line matching, the
+        // progress highlight), so it becomes zero.
+        final shiftedMs = base.inMilliseconds + offsetMs;
         lines.add(LyricsLine(
-          timestamp: Duration(
-            milliseconds: base.inMilliseconds + offsetMs,
-          ),
+          timestamp: Duration(milliseconds: shiftedMs < 0 ? 0 : shiftedMs),
           text: text,
         ));
       }
@@ -151,6 +193,7 @@ class LyricsDocument {
       artist: artist,
       lines: mergedLines,
       format: LyricsFormat.lrc,
+      source: source,
     );
   }
 
@@ -219,7 +262,7 @@ class LyricsDocument {
   }
 
   /// Parse KRC format (Kugou - decrypted content)
-  static LyricsDocument _parseKrc(String content) {
+  static LyricsDocument _parseKrc(String content, LyricsSource source) {
     final lines = <LyricsLine>[];
     final lineRegex = RegExp(r'\[(\d+),(\d+)\]');
     final wordRegex = RegExp(r'<(\d+),(\d+),\d+>([^<]+)');
@@ -262,11 +305,78 @@ class LyricsDocument {
     return LyricsDocument(
       lines: sorted,
       format: LyricsFormat.krc,
+      source: source,
+    );
+  }
+
+  /// Parse NetEase's word-by-word `yrc` format.
+  ///
+  /// Shape, as observed on a real response (see `docs/netease-lyric-shapes.md`):
+  ///
+  /// ```text
+  /// [startMs,durMs](chunkStartMs,chunkDurMs,flags)text
+  /// ```
+  ///
+  /// * the leading `[start,dur]` has **no colons**, so this is not LRC and the
+  ///   LRC regex never matches it — routing it to the LRC parser loses the whole
+  ///   song silently;
+  /// * every `(start,dur,flags)` triple is one chunk **relative to the line
+  ///   start**, and a line carries one triple per chunk: that is the word-by-word
+  ///   timing;
+  /// * the first lines of a real payload are credits (`制作人`, `作词`, …), not the
+  ///   first sung line, so nothing here may assume line 0 is the first lyric.
+  ///
+  /// A missing/empty `yrc` is normal (only 2 of 8 probed tracks had one) — the
+  /// caller must always be able to fall back to `lrc`.
+  static LyricsDocument _parseYrc(String content, LyricsSource source) {
+    final lines = <LyricsLine>[];
+    final lineRegex = RegExp(r'^\[(\d+),(\d+)\]');
+    final chunkRegex = RegExp(r'\((\d+),(\d+),(\d+)\)([^(]*)');
+
+    for (final rawLine in content.split('\n')) {
+      final lineMatch = lineRegex.firstMatch(rawLine);
+      if (lineMatch == null) continue;
+
+      final lineStartMs = int.parse(lineMatch.group(1)!);
+      final rest = rawLine.substring(lineMatch.end);
+
+      final words = <WordTiming>[];
+      final textBuffer = StringBuffer();
+      for (final chunk in chunkRegex.allMatches(rest)) {
+        final chunkStartMs = int.parse(chunk.group(1)!);
+        final chunkDurationMs = int.parse(chunk.group(2)!);
+        final chunkText = chunk.group(4)!;
+        textBuffer.write(chunkText);
+        if (chunkText.isEmpty) continue;
+        words.add(
+          WordTiming(
+            word: chunkText,
+            start: Duration(milliseconds: lineStartMs + chunkStartMs),
+            duration: Duration(milliseconds: chunkDurationMs),
+          ),
+        );
+      }
+
+      final text = textBuffer.toString().trim();
+      if (text.isEmpty) continue;
+      lines.add(
+        LyricsLine(
+          timestamp: Duration(milliseconds: lineStartMs),
+          text: text,
+          words: words.isNotEmpty ? words : null,
+        ),
+      );
+    }
+
+    return LyricsDocument(
+      lines: _stableSortByTimestamp(lines),
+      format: LyricsFormat.yrc,
+      source: source,
     );
   }
 
   /// Parse QRC format (QQ Music - decrypted content)
-  static LyricsDocument _parseQrc(String content) {
+  static LyricsDocument _parseQrc(String content, LyricsSource source) {
     // QRC format is XML-like with word timing
     final lines = <LyricsLine>[];
     final lineRegex = RegExp(r'<L\s+T="(\d+)"\s+D="(\d+)">(.*?)</L>');
@@ -302,6 +412,7 @@ class LyricsDocument {
     return LyricsDocument(
       lines: sorted,
       format: LyricsFormat.qrc,
+      source: source,
     );
   }
 }

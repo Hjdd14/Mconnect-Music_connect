@@ -330,6 +330,14 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   static const _playbackEndTolerance = Duration(seconds: 5);
   static const _maxPlaybackRecoveryAttemptsPerSong = 2;
 
+  /// 切歌淡出的**上限**（W2-B）。
+  ///
+  /// 用户设置的 `fadeDuration`（200–3000ms）只用于暂停/退出/睡眠定时那种"结束播放"
+  /// 的淡出（等待是预期的）；切歌是最高频交互，为了语义对称让它最多多等 3 秒是
+  /// 用可感知的卡顿换对称性，不值得。锁定用例：
+  /// `player_provider_test.dart` 的「切歌淡出受 400ms 上限约束」。
+  static const switchFadeOutMax = Duration(milliseconds: 400);
+
   PlayerAudioController? _audioController;
   final MusicPlatform Function(PlatformType) _platformResolver;
   final PlayerAudioController Function() _audioControllerFactory;
@@ -380,6 +388,13 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   bool _isSwitchingQuality = false;
   bool _restoredSourceNeedsLoad = false;
   bool _isDisposed = false;
+
+  /// 上一次**带上限**的淡出（切歌）实际使用的步进间隔（W2-B）。
+  ///
+  /// 给测试一个确定性观察面：耗时断言分辨不出 400ms 与 1000ms，也锁不住
+  /// "用户设 200ms 时不该被抬到 400ms"的 `min()` 语义；断言这个值可以。
+  @visibleForTesting
+  Duration? lastSwitchFadeStepDelayForTest;
   int _lastPositionSecond = -1;
   int _playRequestId = 0;
   int _qualityRequestId = 0;
@@ -1102,6 +1117,28 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         debugPrint('playSong: got url=$previewUrl');
         if (requestId != _playRequestId) return null;
 
+        // 切歌淡出（W2-B）：设置项叫「淡入淡出」，但这里以前**只有淡入** —— 上一首
+        // 是直接 stop 掉的，交接处会截断/爆音。用同一个 fadeGeneration，所以中途
+        // 又来了新的 playSong 时这次淡出会自动作废（generation 在锁内已 ++）。
+        //
+        // 只在这一处淡出：换音质（switchQuality）与恢复播放都是同一首歌的续播，
+        // 淡出会造成歌曲中间突然变轻，反而像 bug。
+        // 只在"确实有东西在播"时做：第一首歌没有可淡出的对象，否则会多写一次
+        // volume=0（既有 W0-A 淡入淡出用例断言的序列会因此变形）。
+        final fadingController = _audioController;
+        if (_fadeEnabled &&
+            fadingController != null &&
+            fadingController.playing) {
+          await _runFade(
+            from: 1,
+            to: 0,
+            generation: fadeGeneration,
+            // 切歌上限 400ms（W2-B）：用户把淡入淡出设成 3s 也不能让切歌等 3s。
+            maxDuration: switchFadeOutMax,
+          );
+          if (requestId != _playRequestId) return null;
+        }
+
         // CRITICAL: stop() before setUrl() to release the previous platform player
         await _safeStop();
         if (requestId != _playRequestId) return null;
@@ -1266,10 +1303,11 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   Future<bool> _retryPlaybackWithCrossSource(_PlaybackFailure failure) async {
     final resolver = _crossSourceResolver;
     if (resolver == null) return false;
-    final qualities = <AudioLevel>[
-      failure.quality,
-      ..._lowerQualityLevels(failure.quality),
-    ];
+    // (b) 每次失败链**只调一次** resolver：SourceMatchService 内部已经
+    // "同音质 → 逐级降档"取流，这里再按档位循环一次是重复劳动；而且第一次 resolve
+    // 已经把直链写进缓存 —— 后续档位会命中同一条**刚失败**的直链，同一死链被顺序
+    // 重试最多 8 次（复核 F3 实测推演）。保留 qualities 变量只为让余下逻辑不变。
+    final qualities = <AudioLevel>[failure.quality];
     for (final quality in qualities) {
       if (!mounted || failure.requestId != _playRequestId) return false;
       DiagnosticsService.instance.record(

@@ -188,6 +188,13 @@ class LocalMusicState {
   /// local index, so a tick survives a re-sort or a rescan that reorders rows.
   final Set<String> selectedPaths;
 
+  /// True while the page shows its multi-select chrome.
+  ///
+  /// Deliberately not derived from [selectedPaths]: "in selection mode with
+  /// nothing ticked yet" is a real state — the action bar has to be on screen
+  /// (so 全选 is reachable) before the first row is ticked.
+  final bool selectionMode;
+
   const LocalMusicState({
     this.songs = const [],
     this.tracks = const [],
@@ -205,6 +212,7 @@ class LocalMusicState {
     this.ratings = const {},
     this.playCounts = const {},
     this.selectedPaths = const {},
+    this.selectionMode = false,
   });
 
   LocalMusicState copyWith({
@@ -224,6 +232,7 @@ class LocalMusicState {
     Map<String, int>? ratings,
     Map<String, int>? playCounts,
     Set<String>? selectedPaths,
+    bool? selectionMode,
   }) {
     return LocalMusicState(
       songs: songs ?? this.songs,
@@ -242,6 +251,7 @@ class LocalMusicState {
       ratings: ratings ?? this.ratings,
       playCounts: playCounts ?? this.playCounts,
       selectedPaths: selectedPaths ?? this.selectedPaths,
+      selectionMode: selectionMode ?? this.selectionMode,
     );
   }
 
@@ -272,7 +282,12 @@ class LocalMusicState {
   /// True when the user changed something, so the UI can offer "清除筛选".
   bool get isQueryActive => !query.isDefault;
 
-  bool get isSelecting => selectedPaths.isNotEmpty;
+  /// True while the page shows its multi-select chrome.
+  ///
+  /// [selectionMode] alone is enough (and is what makes 全选 reachable before the
+  /// first tick); a non-empty [selectedPaths] also implies it, so a state that was
+  /// built with ticks but no explicit mode still renders the bar.
+  bool get isSelecting => selectionMode || selectedPaths.isNotEmpty;
 
   int get selectedCount => selectedPaths.length;
 
@@ -485,6 +500,18 @@ class LocalMusicNotifier extends StateNotifier<LocalMusicState> {
 
   // --- Multi-select and batch actions ---------------------------------------
 
+  /// Enters or leaves multi-select. Leaving always drops the ticks, so the next
+  /// entry starts clean instead of acting on a stale selection.
+  void setSelectionMode(bool enabled) {
+    if (enabled == state.selectionMode && (enabled || state.selectedPaths.isEmpty)) {
+      return;
+    }
+    state = state.copyWith(
+      selectionMode: enabled,
+      selectedPaths: enabled ? state.selectedPaths : const {},
+    );
+  }
+
   void toggleSelected(String path) {
     final next = {...state.selectedPaths};
     if (!next.remove(path)) next.add(path);
@@ -500,8 +527,7 @@ class LocalMusicNotifier extends StateNotifier<LocalMusicState> {
   }
 
   void clearSelection() {
-    if (state.selectedPaths.isEmpty) return;
-    state = state.copyWith(selectedPaths: const {});
+    state = state.copyWith(selectedPaths: const {}, selectionMode: false);
   }
 
   /// Removes the ticked rows **from the library index only**.
@@ -509,9 +535,9 @@ class LocalMusicNotifier extends StateNotifier<LocalMusicState> {
   /// This is the one destructive batch action, and it deliberately cannot touch
   /// the user's audio: it deletes `local_tracks` rows (and their cached lyrics)
   /// and nothing else — no `File.delete`, no SAF delete, no path is ever handed
-  /// to the filesystem. A removed row comes back on the next scan, which is the
-  /// property that makes this safe to offer without a confirmation dialog that
-  /// explains what "delete" means.
+  /// to the filesystem. A removed row comes back on the next scan. That property
+  /// is what makes the confirmation dialog honest when it says the audio file is
+  /// untouched.
   ///
   /// Returns how many rows went away.
   Future<int> removeSelected() async {
@@ -531,6 +557,7 @@ class LocalMusicNotifier extends StateNotifier<LocalMusicState> {
       tracks: remaining,
       songs: [for (final track in remaining) track.toSong()],
       selectedPaths: const {},
+      selectionMode: false,
     );
     return paths.length;
   }

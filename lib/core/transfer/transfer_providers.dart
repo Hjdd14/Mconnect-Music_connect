@@ -26,6 +26,11 @@ class _UnusedSourceMatchCacheStore implements SourceMatchCacheStore {
   @override
   Future<void> put(SourceMatchEntry entry) async {}
 
+  // 接口新增 `invalidate` 后的连带实现（W2-B / F3）：本 store 只借打分、从不写
+  // 缓存，故这里是 no-op —— 不是漏写。
+  @override
+  Future<void> invalidate(String songKey, String targetPlatform) async {}
+
   @override
   Future<int> purgeExpired({required DateTime now}) async => 0;
 }

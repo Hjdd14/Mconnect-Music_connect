@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  小组件用到的字符串。落在 res/values/strings.xml 里（本轮新建）。
+
+  为什么不用 Dart 侧文案：小组件的首次渲染可能发生在 App 从未启动过的时候
+  （用户刚把组件拖到桌面 → 系统立刻调 onUpdate），此时 SharedPreferences 里还没有
+  任何 widgetData。Kotlin 侧必须有一份**不带 Flutter**的兜底文案，否则组件是空白
+  （见 docs/v1.5-w2w3-implementation-specs.md §B.3）。
+-->
+<resources>
+    <string name="mconnect_widget_description">Mconnect 播放控制</string>
+    <string name="mconnect_widget_idle">Mconnect</string>
+    <string name="mconnect_widget_open_hint">未在播放 · 点击打开</string>
+    <string name="mconnect_widget_previous">上一首</string>
+    <string name="mconnect_widget_play_pause">播放或暂停</string>
+    <string name="mconnect_widget_next">下一首</string>
+</resources>
