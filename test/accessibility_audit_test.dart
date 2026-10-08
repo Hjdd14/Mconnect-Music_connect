@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mconnect/features/album/presentation/pages/album_page.dart';
+import 'package:mconnect/features/artist/presentation/pages/artist_page.dart';
 import 'package:mconnect/features/discovery/presentation/pages/recommendations_page.dart';
 import 'package:mconnect/features/discovery/presentation/providers/recommendations_provider.dart';
 import 'package:mconnect/models/album.dart';
@@ -110,6 +111,19 @@ void main() {
       reason: 'TalkBack 必须听到"刷新"，否则它只会念"按钮"',
     );
 
+    // **Controlled experiment (W3-B).** Does `Icon(semanticLabel: '刷新')` reach
+    // the **label** channel of a node (`IconButton` may or may not absorb its
+    // child's semantics)? If this passes, the icon's label does merge up into the
+    // button and BOTH channels carry the name — keep it, and both assertions
+    // stand. If it fails, `semanticLabel` is inert and must be removed again
+    // together with this expectation (the tooltip channel remains the carrier),
+    // and the finding recorded here rather than left as a guess.
+    expect(
+      find.bySemanticsLabel('刷新'),
+      findsOneWidget,
+      reason: '实验：Icon(semanticLabel:) 是否让 label 通道也拿到"刷新"',
+    );
+
     // Disposed INSIDE the body: the framework verifies at the end of the body,
     // BEFORE `addTearDown` callbacks run, so a teardown-based dispose is too late
     // ("A SemanticsHandle was active at the end of the test").
@@ -159,6 +173,54 @@ void main() {
         coverData.label,
         isNot(contains('未完成')),
         reason: '专辑名由相邻文本念出；塞进图片标签会让同一信息念两遍',
+      );
+    } finally {
+      handle.dispose();
+    }
+  });
+
+  widgetTest('歌手头像是"图片 + 角色标签"，且标签里不含歌手名', (tester) async {
+    final handle = tester.ensureSemantics();
+    try {
+      registerFake(
+        FakeContentPlatform(
+          type: PlatformType.qq,
+          artist: const Artist(id: 'ar1', name: '陈奕迅'),
+          artistTopSongs: const <Song>[_albumSong],
+        ),
+      );
+
+      await tester.pumpWidget(
+        const ProviderScope(
+          child: MaterialApp(
+            home: ArtistPage(
+              platform: PlatformType.qq,
+              artistId: 'ar1',
+              artistName: '陈奕迅',
+            ),
+          ),
+        ),
+      );
+      for (var i = 0; i < 30; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+
+      // `findsOneWidget` is correct here (not `findsNWidgets`): the avatar is
+      // rendered once, by `_ArtistHeader` (`artist_page.dart:207`), and the album
+      // shelf beside it draws its own covers — a different role with its own
+      // label. A repeated-avatar list would need a parent-scoped finder instead.
+      final avatar = tester.getSemantics(find.bySemanticsLabel('歌手头像'));
+      final avatarData = avatar.getSemanticsData();
+      expect(
+        avatarData.flagsCollection.isImage,
+        isTrue,
+        reason: '头像是图，不是装饰',
+      );
+      expect(avatarData.label, '歌手头像');
+      expect(
+        avatarData.label,
+        isNot(contains('陈奕迅')),
+        reason: '歌手名由相邻文本念出；塞进图片标签会让同一信息念两遍',
       );
     } finally {
       handle.dispose();

@@ -1327,6 +1327,18 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'删除'**
   String get commonDelete;
+
+  /// No description provided for @libraryPlaylistLoadFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'加载歌单失败'**
+  String get libraryPlaylistLoadFailed;
+
+  /// No description provided for @libraryPlaylistsEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'暂无歌单，或当前平台未登录'**
+  String get libraryPlaylistsEmpty;
 }
 
 class _AppLocalizationsDelegate

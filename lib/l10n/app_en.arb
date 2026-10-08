@@ -264,5 +264,8 @@
   "libraryDeletePlaylistConfirm": "Delete \"{name}\"?",
   "libraryPlaylistDeleted": "Playlist deleted",
   "libraryDeletePlaylistFailed": "Couldn't delete the playlist",
-  "commonDelete": "Delete"
+  "commonDelete": "Delete",
+
+  "libraryPlaylistLoadFailed": "Couldn't load the playlists",
+  "libraryPlaylistsEmpty": "No playlists yet, or you are not signed in on this platform"
 }

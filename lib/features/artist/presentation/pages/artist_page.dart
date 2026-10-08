@@ -273,18 +273,32 @@ class _Avatar extends StatelessWidget {
       color: accent.withValues(alpha: 0.12),
       child: Icon(Icons.person, color: accent, size: 40),
     );
-    return ClipOval(
-      child: url == null || url!.isEmpty
-          ? placeholder
-          : CachedNetworkImage(
-              imageUrl: url!,
-              width: 96,
-              height: 96,
-              memCacheWidth: 192,
-              fit: BoxFit.cover,
-              placeholder: (_, _) => placeholder,
-              errorWidget: (_, _, _) => placeholder,
-            ),
+    // Same pattern as the album cover (`album_page.dart`): a **role-only** label,
+    // no artist name (the name is read as adjacent text, so repeating it here
+    // would make a screen reader say it twice), and `container: true` so the
+    // artwork gets its OWN node — a non-container `Semantics` merges upward into
+    // the nearest enclosing node instead.
+    //
+    // The whole slot is wrapped (placeholder included, no `avatarUrl` in the
+    // fixture) because the role is the same whether or not the image loaded —
+    // which also keeps `CachedNetworkImage` out of the widget test entirely.
+    return Semantics(
+      container: true,
+      image: true,
+      label: '歌手头像',
+      child: ClipOval(
+        child: url == null || url!.isEmpty
+            ? placeholder
+            : CachedNetworkImage(
+                imageUrl: url!,
+                width: 96,
+                height: 96,
+                memCacheWidth: 192,
+                fit: BoxFit.cover,
+                placeholder: (_, _) => placeholder,
+                errorWidget: (_, _, _) => placeholder,
+              ),
+      ),
     );
   }
 }

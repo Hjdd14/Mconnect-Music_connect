@@ -674,4 +674,10 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get commonDelete => '删除';
+
+  @override
+  String get libraryPlaylistLoadFailed => '加载歌单失败';
+
+  @override
+  String get libraryPlaylistsEmpty => '暂无歌单，或当前平台未登录';
 }

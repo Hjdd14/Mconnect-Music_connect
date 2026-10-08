@@ -101,7 +101,15 @@ class _RecommendationsPageState extends ConsumerState<RecommendationsPage>
           // upward into the button; that needs its own verified round.
           IconButton(
             tooltip: '刷新',
-            icon: const Icon(Icons.refresh),
+            // **Controlled experiment (W3-B).** `Icon(semanticLabel:)` is
+            // supposed to put the text into the **label** channel — what a screen
+            // reader announces as the button's content description — unlike
+            // `tooltip`, which lands in the **tooltip** channel. Whether it
+            // survives `IconButton`'s own semantics (i.e. actually reaches the
+            // button's node) is what the audit test measures. If that assertion
+            // fails, this `semanticLabel` is inert and gets removed again rather
+            // than left in as a guess.
+            icon: const Icon(Icons.refresh, semanticLabel: '刷新'),
             onPressed: () => ref
                 .read(recommendationsProvider.notifier)
                 .loadRecommendations(),

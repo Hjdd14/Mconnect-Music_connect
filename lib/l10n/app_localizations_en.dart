@@ -698,4 +698,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get commonDelete => 'Delete';
+
+  @override
+  String get libraryPlaylistLoadFailed => 'Couldn\'t load the playlists';
+
+  @override
+  String get libraryPlaylistsEmpty =>
+      'No playlists yet, or you are not signed in on this platform';
 }

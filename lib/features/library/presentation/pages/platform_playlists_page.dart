@@ -445,7 +445,7 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
           }
           if (error != null && playlists.isEmpty) {
             return AsyncStateView.error(
-              title: '加载歌单失败',
+              title: l.libraryPlaylistLoadFailed,
               message: error,
               onRetry: () => ref
                   .read(platformPlaylistsProvider.notifier)
@@ -453,7 +453,7 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
             );
           }
           if (playlists.isEmpty) {
-            return const AsyncStateView.empty(title: '暂无歌单，或当前平台未登录');
+            return AsyncStateView.empty(title: l.libraryPlaylistsEmpty);
           }
           return Column(
             children: [
