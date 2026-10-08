@@ -68,8 +68,11 @@ const
   只检查这两个 DLL 在不在，**不查注册表版本号**：版本号判断容易把"装了更新的运行
   库"误判成缺失，而 DLL 存在与否才是产物真正的依赖。
 
-  `{sys}`：本脚本声明了 ArchitecturesInstallIn64BitMode=x64compatible，安装程序以
-  64 位进程运行，因此 {sys} 就是 C:\Windows\System32（64 位 DLL 所在处）。 }
+  The installer declares ArchitecturesInstallIn64BitMode=x64compatible, so it runs
+  as a 64-bit process and the sys constant resolves to C:\Windows\System32, which is
+  where the 64-bit DLLs live. Write it as "the sys constant" here rather than as a
+  brace-enclosed literal: Inno's preprocessor scans braces even inside Pascal
+  comments and rejects the script with "Syntax error" on that line. }
 function VCRuntimeMissing(): Boolean;
 begin
   Result := (not FileExists(ExpandConstant('{sys}\msvcp140.dll')))

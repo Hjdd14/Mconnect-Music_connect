@@ -97,21 +97,46 @@ if (-not $SkipWindows) {
 $installerPath = $null
 if (-not $SkipWindows -and -not $SkipInstaller) {
   Write-Step 'Inno Setup'
-  $iscc = @(
+  # Look in the machine-wide install dirs AND the user-level one. Inno Setup's
+  # per-user installer puts ISCC.exe under %LOCALAPPDATA%\Programs, which is NOT on
+  # PATH and NOT under Program Files - checking only the two paths below silently
+  # skipped a build on a machine where Inno Setup 6.7.3 was in fact installed.
+  $isccCandidates = @(
     'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
-    'C:\Program Files\Inno Setup 6\ISCC.exe'
-  ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+    'C:\Program Files\Inno Setup 6\ISCC.exe',
+    (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe')
+  )
+  # Registry as a last resort, for an install placed somewhere unusual.
+  foreach ($root in @(
+      'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+      'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall',
+      'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall')) {
+    Get-ChildItem $root -ErrorAction SilentlyContinue | ForEach-Object {
+      $props = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+      if ($props.DisplayName -like '*Inno Setup*' -and $props.InstallLocation) {
+        $isccCandidates += (Join-Path $props.InstallLocation 'ISCC.exe')
+      }
+    }
+  }
+  $iscc = $isccCandidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
 
   if ($null -eq $iscc) {
     Write-Host 'ISCC.exe not found: skipping the installer (install Inno Setup 6 to include it).' -ForegroundColor Yellow
   } else {
+    Write-Host "using $iscc"
     & $iscc 'installer/mconnect.iss'
     Assert-ExitCode 'ISCC'
-    $installerPath = Join-Path $repo "installer/Mconnect-Setup-$versionName.exe"
+    # mconnect.iss writes next to the Windows build output, not into installer/.
+    $installerPath = Join-Path $repo "build/windows/x64/Mconnect-Setup-$versionName.exe"
     if (-not (Test-Path $installerPath)) {
-      # mconnect.iss may write elsewhere; report instead of guessing silently.
-      Write-Host "installer not at the expected path ($installerPath) - check [Setup] OutputDir in mconnect.iss" -ForegroundColor Yellow
-      $installerPath = $null
+      # Fall back to wherever it actually landed, rather than reporting nothing.
+      $found = Get-ChildItem (Join-Path $repo 'build') -Filter "Mconnect-Setup-$versionName.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+      if ($found) {
+        $installerPath = $found.FullName
+      } else {
+        Write-Host "installer not found under build/ - check [Setup] OutputDir in mconnect.iss" -ForegroundColor Yellow
+        $installerPath = $null
+      }
     }
   }
 }
