@@ -234,7 +234,8 @@ class DownloadManager {
         case FileSystemDownloadDestination():
           dir = destination.directory;
       }
-      filePath = '${dir.path}/${task.fileName}';
+      filePath =
+          await _recordedPathOrNull(task) ?? '${dir.path}/${task.fileName}';
 
       // Get download URL (throws typed ApiExceptions since Wave 1).
       final platform = PlatformRegistry.get(task.song.platform);
@@ -482,9 +483,22 @@ class DownloadManager {
     }
   }
 
-  /// How many bytes of [file] can be reused: its current length when the
-  /// transfer never finished, 0 when there is nothing (or it already is
-  /// complete, or the server cannot be asked for a range).
+  /// How many bytes of [file] can be reused: its length when this task can
+  /// account for exactly those bytes, otherwise 0 (start over).
+  ///
+  /// [DownloadTask.downloadedBytes] is the app's own record of what it wrote. The
+  /// file has to be *exactly* that long; anything else means the bytes are not
+  /// provably this task's — a file another task left behind (the pre-W0-C name
+  /// collided across qualities), a file something else truncated or replaced, or
+  /// a length no progress update ever saw. Appending onto those bytes produces a
+  /// file that still passes the size check and plays as noise, so a mismatch
+  /// restarts from byte 0 instead of resuming.
+  ///
+  /// Deliberate trade-off: a process killed without a pause/failure event can
+  /// leave the file longer than the last recorded progress, and that attempt will
+  /// restart. Correctness over re-downloaded bytes — the pause, failure, cancel
+  /// and completion paths all persist the exact byte count, so a graceful stop
+  /// still resumes.
   Future<int> _resumeOffset(File file, DownloadTask task) async {
     try {
       if (!await file.exists()) return 0;
@@ -492,9 +506,33 @@ class DownloadManager {
       if (existing <= 0) return 0;
       final expected = task.totalBytes;
       if (expected != null && existing >= expected) return 0;
+      final recorded = task.downloadedBytes;
+      if (recorded <= 0 || existing != recorded) return 0;
       return existing;
     } catch (_) {
       return 0;
+    }
+  }
+
+  /// [DownloadTask.filePath] when it is a plain filesystem path whose file is
+  /// still there, else null.
+  ///
+  /// Used to keep a task on the path it already recorded. Rows written before
+  /// the file name carried the quality hold e.g. `歌手 - 歌名.mp3`; re-deriving
+  /// the name would abandon a valid partial file, and for a completed row it
+  /// would point away from the file the user actually has. A file the user
+  /// deleted is not reused — the download falls back to the derived name.
+  Future<String?> _recordedPathOrNull(DownloadTask task) async {
+    final recorded = task.filePath;
+    if (recorded == null ||
+        recorded.trim().isEmpty ||
+        isDocumentUri(recorded)) {
+      return null;
+    }
+    try {
+      return await File(recorded).exists() ? recorded : null;
+    } catch (_) {
+      return null;
     }
   }
 

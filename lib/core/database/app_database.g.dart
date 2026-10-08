@@ -104,6 +104,34 @@ class LocalTracksDaoManager {
       $$LocalTracksTableTableManager(_db.attachedDatabase, _db.localTracks);
 }
 
+mixin _$LyricsOffsetDaoMixin on DatabaseAccessor<AppDatabase> {
+  $LyricsOffsetsTable get lyricsOffsets => attachedDatabase.lyricsOffsets;
+  LyricsOffsetDaoManager get managers => LyricsOffsetDaoManager(this);
+}
+
+class LyricsOffsetDaoManager {
+  final _$LyricsOffsetDaoMixin _db;
+  LyricsOffsetDaoManager(this._db);
+  $$LyricsOffsetsTableTableManager get lyricsOffsets =>
+      $$LyricsOffsetsTableTableManager(_db.attachedDatabase, _db.lyricsOffsets);
+}
+
+mixin _$SourceMatchCacheDaoMixin on DatabaseAccessor<AppDatabase> {
+  $SourceMatchCachesTable get sourceMatchCaches =>
+      attachedDatabase.sourceMatchCaches;
+  SourceMatchCacheDaoManager get managers => SourceMatchCacheDaoManager(this);
+}
+
+class SourceMatchCacheDaoManager {
+  final _$SourceMatchCacheDaoMixin _db;
+  SourceMatchCacheDaoManager(this._db);
+  $$SourceMatchCachesTableTableManager get sourceMatchCaches =>
+      $$SourceMatchCachesTableTableManager(
+        _db.attachedDatabase,
+        _db.sourceMatchCaches,
+      );
+}
+
 mixin _$ToplistsCacheDaoMixin on DatabaseAccessor<AppDatabase> {
   $ToplistsCacheTable get toplistsCache => attachedDatabase.toplistsCache;
   ToplistsCacheDaoManager get managers => ToplistsCacheDaoManager(this);
@@ -1946,6 +1974,28 @@ class $LocalTracksTable extends LocalTracks
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _lyricsMtimeMeta = const VerificationMeta(
+    'lyricsMtime',
+  );
+  @override
+  late final GeneratedColumn<int> lyricsMtime = GeneratedColumn<int>(
+    'lyrics_mtime',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _lyricsSizeMeta = const VerificationMeta(
+    'lyricsSize',
+  );
+  @override
+  late final GeneratedColumn<int> lyricsSize = GeneratedColumn<int>(
+    'lyrics_size',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     path,
@@ -1958,6 +2008,8 @@ class $LocalTracksTable extends LocalTracks
     trackNumber,
     coverPath,
     scannedAt,
+    lyricsMtime,
+    lyricsSize,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -2040,6 +2092,21 @@ class $LocalTracksTable extends LocalTracks
         scannedAt.isAcceptableOrUnknown(data['scanned_at']!, _scannedAtMeta),
       );
     }
+    if (data.containsKey('lyrics_mtime')) {
+      context.handle(
+        _lyricsMtimeMeta,
+        lyricsMtime.isAcceptableOrUnknown(
+          data['lyrics_mtime']!,
+          _lyricsMtimeMeta,
+        ),
+      );
+    }
+    if (data.containsKey('lyrics_size')) {
+      context.handle(
+        _lyricsSizeMeta,
+        lyricsSize.isAcceptableOrUnknown(data['lyrics_size']!, _lyricsSizeMeta),
+      );
+    }
     return context;
   }
 
@@ -2089,6 +2156,14 @@ class $LocalTracksTable extends LocalTracks
         DriftSqlType.int,
         data['${effectivePrefix}scanned_at'],
       ),
+      lyricsMtime: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}lyrics_mtime'],
+      ),
+      lyricsSize: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}lyrics_size'],
+      ),
     );
   }
 
@@ -2109,6 +2184,15 @@ class LocalTrack extends DataClass implements Insertable<LocalTrack> {
   final int? trackNumber;
   final String? coverPath;
   final int? scannedAt;
+
+  /// `(mtime, size)` of the sidecar lyric file this row's lyrics were read
+  /// from, so replacing a `.lrc` in place is noticed and re-read (schema v3).
+  ///
+  /// Null on rows written before v3: those are re-read once and stamped, which
+  /// is also what repairs a library scanned by a build that never looked at the
+  /// sidecar's timestamp at all.
+  final int? lyricsMtime;
+  final int? lyricsSize;
   const LocalTrack({
     required this.path,
     required this.mtime,
@@ -2120,6 +2204,8 @@ class LocalTrack extends DataClass implements Insertable<LocalTrack> {
     this.trackNumber,
     this.coverPath,
     this.scannedAt,
+    this.lyricsMtime,
+    this.lyricsSize,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -2145,6 +2231,12 @@ class LocalTrack extends DataClass implements Insertable<LocalTrack> {
     }
     if (!nullToAbsent || scannedAt != null) {
       map['scanned_at'] = Variable<int>(scannedAt);
+    }
+    if (!nullToAbsent || lyricsMtime != null) {
+      map['lyrics_mtime'] = Variable<int>(lyricsMtime);
+    }
+    if (!nullToAbsent || lyricsSize != null) {
+      map['lyrics_size'] = Variable<int>(lyricsSize);
     }
     return map;
   }
@@ -2173,6 +2265,12 @@ class LocalTrack extends DataClass implements Insertable<LocalTrack> {
       scannedAt: scannedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(scannedAt),
+      lyricsMtime: lyricsMtime == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lyricsMtime),
+      lyricsSize: lyricsSize == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lyricsSize),
     );
   }
 
@@ -2192,6 +2290,8 @@ class LocalTrack extends DataClass implements Insertable<LocalTrack> {
       trackNumber: serializer.fromJson<int?>(json['trackNumber']),
       coverPath: serializer.fromJson<String?>(json['coverPath']),
       scannedAt: serializer.fromJson<int?>(json['scannedAt']),
+      lyricsMtime: serializer.fromJson<int?>(json['lyricsMtime']),
+      lyricsSize: serializer.fromJson<int?>(json['lyricsSize']),
     );
   }
   @override
@@ -2208,6 +2308,8 @@ class LocalTrack extends DataClass implements Insertable<LocalTrack> {
       'trackNumber': serializer.toJson<int?>(trackNumber),
       'coverPath': serializer.toJson<String?>(coverPath),
       'scannedAt': serializer.toJson<int?>(scannedAt),
+      'lyricsMtime': serializer.toJson<int?>(lyricsMtime),
+      'lyricsSize': serializer.toJson<int?>(lyricsSize),
     };
   }
 
@@ -2222,6 +2324,8 @@ class LocalTrack extends DataClass implements Insertable<LocalTrack> {
     Value<int?> trackNumber = const Value.absent(),
     Value<String?> coverPath = const Value.absent(),
     Value<int?> scannedAt = const Value.absent(),
+    Value<int?> lyricsMtime = const Value.absent(),
+    Value<int?> lyricsSize = const Value.absent(),
   }) => LocalTrack(
     path: path ?? this.path,
     mtime: mtime ?? this.mtime,
@@ -2233,6 +2337,8 @@ class LocalTrack extends DataClass implements Insertable<LocalTrack> {
     trackNumber: trackNumber.present ? trackNumber.value : this.trackNumber,
     coverPath: coverPath.present ? coverPath.value : this.coverPath,
     scannedAt: scannedAt.present ? scannedAt.value : this.scannedAt,
+    lyricsMtime: lyricsMtime.present ? lyricsMtime.value : this.lyricsMtime,
+    lyricsSize: lyricsSize.present ? lyricsSize.value : this.lyricsSize,
   );
   LocalTrack copyWithCompanion(LocalTracksCompanion data) {
     return LocalTrack(
@@ -2252,6 +2358,12 @@ class LocalTrack extends DataClass implements Insertable<LocalTrack> {
           : this.trackNumber,
       coverPath: data.coverPath.present ? data.coverPath.value : this.coverPath,
       scannedAt: data.scannedAt.present ? data.scannedAt.value : this.scannedAt,
+      lyricsMtime: data.lyricsMtime.present
+          ? data.lyricsMtime.value
+          : this.lyricsMtime,
+      lyricsSize: data.lyricsSize.present
+          ? data.lyricsSize.value
+          : this.lyricsSize,
     );
   }
 
@@ -2267,7 +2379,9 @@ class LocalTrack extends DataClass implements Insertable<LocalTrack> {
           ..write('durationMs: $durationMs, ')
           ..write('trackNumber: $trackNumber, ')
           ..write('coverPath: $coverPath, ')
-          ..write('scannedAt: $scannedAt')
+          ..write('scannedAt: $scannedAt, ')
+          ..write('lyricsMtime: $lyricsMtime, ')
+          ..write('lyricsSize: $lyricsSize')
           ..write(')'))
         .toString();
   }
@@ -2284,6 +2398,8 @@ class LocalTrack extends DataClass implements Insertable<LocalTrack> {
     trackNumber,
     coverPath,
     scannedAt,
+    lyricsMtime,
+    lyricsSize,
   );
   @override
   bool operator ==(Object other) =>
@@ -2298,7 +2414,9 @@ class LocalTrack extends DataClass implements Insertable<LocalTrack> {
           other.durationMs == this.durationMs &&
           other.trackNumber == this.trackNumber &&
           other.coverPath == this.coverPath &&
-          other.scannedAt == this.scannedAt);
+          other.scannedAt == this.scannedAt &&
+          other.lyricsMtime == this.lyricsMtime &&
+          other.lyricsSize == this.lyricsSize);
 }
 
 class LocalTracksCompanion extends UpdateCompanion<LocalTrack> {
@@ -2312,6 +2430,8 @@ class LocalTracksCompanion extends UpdateCompanion<LocalTrack> {
   final Value<int?> trackNumber;
   final Value<String?> coverPath;
   final Value<int?> scannedAt;
+  final Value<int?> lyricsMtime;
+  final Value<int?> lyricsSize;
   final Value<int> rowid;
   const LocalTracksCompanion({
     this.path = const Value.absent(),
@@ -2324,6 +2444,8 @@ class LocalTracksCompanion extends UpdateCompanion<LocalTrack> {
     this.trackNumber = const Value.absent(),
     this.coverPath = const Value.absent(),
     this.scannedAt = const Value.absent(),
+    this.lyricsMtime = const Value.absent(),
+    this.lyricsSize = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   LocalTracksCompanion.insert({
@@ -2337,6 +2459,8 @@ class LocalTracksCompanion extends UpdateCompanion<LocalTrack> {
     this.trackNumber = const Value.absent(),
     this.coverPath = const Value.absent(),
     this.scannedAt = const Value.absent(),
+    this.lyricsMtime = const Value.absent(),
+    this.lyricsSize = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : path = Value(path),
        mtime = Value(mtime),
@@ -2352,6 +2476,8 @@ class LocalTracksCompanion extends UpdateCompanion<LocalTrack> {
     Expression<int>? trackNumber,
     Expression<String>? coverPath,
     Expression<int>? scannedAt,
+    Expression<int>? lyricsMtime,
+    Expression<int>? lyricsSize,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -2365,6 +2491,8 @@ class LocalTracksCompanion extends UpdateCompanion<LocalTrack> {
       if (trackNumber != null) 'track_number': trackNumber,
       if (coverPath != null) 'cover_path': coverPath,
       if (scannedAt != null) 'scanned_at': scannedAt,
+      if (lyricsMtime != null) 'lyrics_mtime': lyricsMtime,
+      if (lyricsSize != null) 'lyrics_size': lyricsSize,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -2380,6 +2508,8 @@ class LocalTracksCompanion extends UpdateCompanion<LocalTrack> {
     Value<int?>? trackNumber,
     Value<String?>? coverPath,
     Value<int?>? scannedAt,
+    Value<int?>? lyricsMtime,
+    Value<int?>? lyricsSize,
     Value<int>? rowid,
   }) {
     return LocalTracksCompanion(
@@ -2393,6 +2523,8 @@ class LocalTracksCompanion extends UpdateCompanion<LocalTrack> {
       trackNumber: trackNumber ?? this.trackNumber,
       coverPath: coverPath ?? this.coverPath,
       scannedAt: scannedAt ?? this.scannedAt,
+      lyricsMtime: lyricsMtime ?? this.lyricsMtime,
+      lyricsSize: lyricsSize ?? this.lyricsSize,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -2430,6 +2562,12 @@ class LocalTracksCompanion extends UpdateCompanion<LocalTrack> {
     if (scannedAt.present) {
       map['scanned_at'] = Variable<int>(scannedAt.value);
     }
+    if (lyricsMtime.present) {
+      map['lyrics_mtime'] = Variable<int>(lyricsMtime.value);
+    }
+    if (lyricsSize.present) {
+      map['lyrics_size'] = Variable<int>(lyricsSize.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -2449,6 +2587,8 @@ class LocalTracksCompanion extends UpdateCompanion<LocalTrack> {
           ..write('trackNumber: $trackNumber, ')
           ..write('coverPath: $coverPath, ')
           ..write('scannedAt: $scannedAt, ')
+          ..write('lyricsMtime: $lyricsMtime, ')
+          ..write('lyricsSize: $lyricsSize, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -4219,6 +4359,757 @@ class SmartPlaylistSnapshotsCompanion
   }
 }
 
+class $LyricsOffsetsTable extends LyricsOffsets
+    with TableInfo<$LyricsOffsetsTable, LyricsOffsetRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $LyricsOffsetsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _songKeyMeta = const VerificationMeta(
+    'songKey',
+  );
+  @override
+  late final GeneratedColumn<String> songKey = GeneratedColumn<String>(
+    'song_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _offsetMsMeta = const VerificationMeta(
+    'offsetMs',
+  );
+  @override
+  late final GeneratedColumn<int> offsetMs = GeneratedColumn<int>(
+    'offset_ms',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<int> updatedAt = GeneratedColumn<int>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [songKey, offsetMs, updatedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'lyrics_offsets';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<LyricsOffsetRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('song_key')) {
+      context.handle(
+        _songKeyMeta,
+        songKey.isAcceptableOrUnknown(data['song_key']!, _songKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_songKeyMeta);
+    }
+    if (data.containsKey('offset_ms')) {
+      context.handle(
+        _offsetMsMeta,
+        offsetMs.isAcceptableOrUnknown(data['offset_ms']!, _offsetMsMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {songKey};
+  @override
+  LyricsOffsetRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return LyricsOffsetRow(
+      songKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}song_key'],
+      )!,
+      offsetMs: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}offset_ms'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $LyricsOffsetsTable createAlias(String alias) {
+    return $LyricsOffsetsTable(attachedDatabase, alias);
+  }
+}
+
+class LyricsOffsetRow extends DataClass implements Insertable<LyricsOffsetRow> {
+  final String songKey;
+  final int offsetMs;
+  final int updatedAt;
+  const LyricsOffsetRow({
+    required this.songKey,
+    required this.offsetMs,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['song_key'] = Variable<String>(songKey);
+    map['offset_ms'] = Variable<int>(offsetMs);
+    map['updated_at'] = Variable<int>(updatedAt);
+    return map;
+  }
+
+  LyricsOffsetsCompanion toCompanion(bool nullToAbsent) {
+    return LyricsOffsetsCompanion(
+      songKey: Value(songKey),
+      offsetMs: Value(offsetMs),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory LyricsOffsetRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return LyricsOffsetRow(
+      songKey: serializer.fromJson<String>(json['songKey']),
+      offsetMs: serializer.fromJson<int>(json['offsetMs']),
+      updatedAt: serializer.fromJson<int>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'songKey': serializer.toJson<String>(songKey),
+      'offsetMs': serializer.toJson<int>(offsetMs),
+      'updatedAt': serializer.toJson<int>(updatedAt),
+    };
+  }
+
+  LyricsOffsetRow copyWith({String? songKey, int? offsetMs, int? updatedAt}) =>
+      LyricsOffsetRow(
+        songKey: songKey ?? this.songKey,
+        offsetMs: offsetMs ?? this.offsetMs,
+        updatedAt: updatedAt ?? this.updatedAt,
+      );
+  LyricsOffsetRow copyWithCompanion(LyricsOffsetsCompanion data) {
+    return LyricsOffsetRow(
+      songKey: data.songKey.present ? data.songKey.value : this.songKey,
+      offsetMs: data.offsetMs.present ? data.offsetMs.value : this.offsetMs,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('LyricsOffsetRow(')
+          ..write('songKey: $songKey, ')
+          ..write('offsetMs: $offsetMs, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(songKey, offsetMs, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is LyricsOffsetRow &&
+          other.songKey == this.songKey &&
+          other.offsetMs == this.offsetMs &&
+          other.updatedAt == this.updatedAt);
+}
+
+class LyricsOffsetsCompanion extends UpdateCompanion<LyricsOffsetRow> {
+  final Value<String> songKey;
+  final Value<int> offsetMs;
+  final Value<int> updatedAt;
+  final Value<int> rowid;
+  const LyricsOffsetsCompanion({
+    this.songKey = const Value.absent(),
+    this.offsetMs = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  LyricsOffsetsCompanion.insert({
+    required String songKey,
+    this.offsetMs = const Value.absent(),
+    required int updatedAt,
+    this.rowid = const Value.absent(),
+  }) : songKey = Value(songKey),
+       updatedAt = Value(updatedAt);
+  static Insertable<LyricsOffsetRow> custom({
+    Expression<String>? songKey,
+    Expression<int>? offsetMs,
+    Expression<int>? updatedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (songKey != null) 'song_key': songKey,
+      if (offsetMs != null) 'offset_ms': offsetMs,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  LyricsOffsetsCompanion copyWith({
+    Value<String>? songKey,
+    Value<int>? offsetMs,
+    Value<int>? updatedAt,
+    Value<int>? rowid,
+  }) {
+    return LyricsOffsetsCompanion(
+      songKey: songKey ?? this.songKey,
+      offsetMs: offsetMs ?? this.offsetMs,
+      updatedAt: updatedAt ?? this.updatedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (songKey.present) {
+      map['song_key'] = Variable<String>(songKey.value);
+    }
+    if (offsetMs.present) {
+      map['offset_ms'] = Variable<int>(offsetMs.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<int>(updatedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('LyricsOffsetsCompanion(')
+          ..write('songKey: $songKey, ')
+          ..write('offsetMs: $offsetMs, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $SourceMatchCachesTable extends SourceMatchCaches
+    with TableInfo<$SourceMatchCachesTable, SourceMatchCacheRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SourceMatchCachesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _songKeyMeta = const VerificationMeta(
+    'songKey',
+  );
+  @override
+  late final GeneratedColumn<String> songKey = GeneratedColumn<String>(
+    'song_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _targetPlatformMeta = const VerificationMeta(
+    'targetPlatform',
+  );
+  @override
+  late final GeneratedColumn<String> targetPlatform = GeneratedColumn<String>(
+    'target_platform',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _targetSongIdMeta = const VerificationMeta(
+    'targetSongId',
+  );
+  @override
+  late final GeneratedColumn<String> targetSongId = GeneratedColumn<String>(
+    'target_song_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _urlMeta = const VerificationMeta('url');
+  @override
+  late final GeneratedColumn<String> url = GeneratedColumn<String>(
+    'url',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _urlFetchedAtMeta = const VerificationMeta(
+    'urlFetchedAt',
+  );
+  @override
+  late final GeneratedColumn<int> urlFetchedAt = GeneratedColumn<int>(
+    'url_fetched_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _scoreMeta = const VerificationMeta('score');
+  @override
+  late final GeneratedColumn<double> score = GeneratedColumn<double>(
+    'score',
+    aliasedName,
+    false,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _expiresAtMeta = const VerificationMeta(
+    'expiresAt',
+  );
+  @override
+  late final GeneratedColumn<int> expiresAt = GeneratedColumn<int>(
+    'expires_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    songKey,
+    targetPlatform,
+    targetSongId,
+    url,
+    urlFetchedAt,
+    score,
+    expiresAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'source_match_caches';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SourceMatchCacheRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('song_key')) {
+      context.handle(
+        _songKeyMeta,
+        songKey.isAcceptableOrUnknown(data['song_key']!, _songKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_songKeyMeta);
+    }
+    if (data.containsKey('target_platform')) {
+      context.handle(
+        _targetPlatformMeta,
+        targetPlatform.isAcceptableOrUnknown(
+          data['target_platform']!,
+          _targetPlatformMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_targetPlatformMeta);
+    }
+    if (data.containsKey('target_song_id')) {
+      context.handle(
+        _targetSongIdMeta,
+        targetSongId.isAcceptableOrUnknown(
+          data['target_song_id']!,
+          _targetSongIdMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_targetSongIdMeta);
+    }
+    if (data.containsKey('url')) {
+      context.handle(
+        _urlMeta,
+        url.isAcceptableOrUnknown(data['url']!, _urlMeta),
+      );
+    }
+    if (data.containsKey('url_fetched_at')) {
+      context.handle(
+        _urlFetchedAtMeta,
+        urlFetchedAt.isAcceptableOrUnknown(
+          data['url_fetched_at']!,
+          _urlFetchedAtMeta,
+        ),
+      );
+    }
+    if (data.containsKey('score')) {
+      context.handle(
+        _scoreMeta,
+        score.isAcceptableOrUnknown(data['score']!, _scoreMeta),
+      );
+    }
+    if (data.containsKey('expires_at')) {
+      context.handle(
+        _expiresAtMeta,
+        expiresAt.isAcceptableOrUnknown(data['expires_at']!, _expiresAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_expiresAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {songKey, targetPlatform};
+  @override
+  SourceMatchCacheRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SourceMatchCacheRow(
+      songKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}song_key'],
+      )!,
+      targetPlatform: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}target_platform'],
+      )!,
+      targetSongId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}target_song_id'],
+      )!,
+      url: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}url'],
+      ),
+      urlFetchedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}url_fetched_at'],
+      ),
+      score: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}score'],
+      )!,
+      expiresAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}expires_at'],
+      )!,
+    );
+  }
+
+  @override
+  $SourceMatchCachesTable createAlias(String alias) {
+    return $SourceMatchCachesTable(attachedDatabase, alias);
+  }
+}
+
+class SourceMatchCacheRow extends DataClass
+    implements Insertable<SourceMatchCacheRow> {
+  final String songKey;
+  final String targetPlatform;
+  final String targetSongId;
+
+  /// Last resolved stream URL, or null when only the identity was cached.
+  final String? url;
+
+  /// When [url] was fetched, for "is this still worth trying" diagnostics.
+  final int? urlFetchedAt;
+
+  /// Match confidence in `[0, 1]`, so a weak match can be re-evaluated first.
+  final double score;
+
+  /// Epoch ms after which the row must be re-resolved.
+  final int expiresAt;
+  const SourceMatchCacheRow({
+    required this.songKey,
+    required this.targetPlatform,
+    required this.targetSongId,
+    this.url,
+    this.urlFetchedAt,
+    required this.score,
+    required this.expiresAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['song_key'] = Variable<String>(songKey);
+    map['target_platform'] = Variable<String>(targetPlatform);
+    map['target_song_id'] = Variable<String>(targetSongId);
+    if (!nullToAbsent || url != null) {
+      map['url'] = Variable<String>(url);
+    }
+    if (!nullToAbsent || urlFetchedAt != null) {
+      map['url_fetched_at'] = Variable<int>(urlFetchedAt);
+    }
+    map['score'] = Variable<double>(score);
+    map['expires_at'] = Variable<int>(expiresAt);
+    return map;
+  }
+
+  SourceMatchCachesCompanion toCompanion(bool nullToAbsent) {
+    return SourceMatchCachesCompanion(
+      songKey: Value(songKey),
+      targetPlatform: Value(targetPlatform),
+      targetSongId: Value(targetSongId),
+      url: url == null && nullToAbsent ? const Value.absent() : Value(url),
+      urlFetchedAt: urlFetchedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(urlFetchedAt),
+      score: Value(score),
+      expiresAt: Value(expiresAt),
+    );
+  }
+
+  factory SourceMatchCacheRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SourceMatchCacheRow(
+      songKey: serializer.fromJson<String>(json['songKey']),
+      targetPlatform: serializer.fromJson<String>(json['targetPlatform']),
+      targetSongId: serializer.fromJson<String>(json['targetSongId']),
+      url: serializer.fromJson<String?>(json['url']),
+      urlFetchedAt: serializer.fromJson<int?>(json['urlFetchedAt']),
+      score: serializer.fromJson<double>(json['score']),
+      expiresAt: serializer.fromJson<int>(json['expiresAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'songKey': serializer.toJson<String>(songKey),
+      'targetPlatform': serializer.toJson<String>(targetPlatform),
+      'targetSongId': serializer.toJson<String>(targetSongId),
+      'url': serializer.toJson<String?>(url),
+      'urlFetchedAt': serializer.toJson<int?>(urlFetchedAt),
+      'score': serializer.toJson<double>(score),
+      'expiresAt': serializer.toJson<int>(expiresAt),
+    };
+  }
+
+  SourceMatchCacheRow copyWith({
+    String? songKey,
+    String? targetPlatform,
+    String? targetSongId,
+    Value<String?> url = const Value.absent(),
+    Value<int?> urlFetchedAt = const Value.absent(),
+    double? score,
+    int? expiresAt,
+  }) => SourceMatchCacheRow(
+    songKey: songKey ?? this.songKey,
+    targetPlatform: targetPlatform ?? this.targetPlatform,
+    targetSongId: targetSongId ?? this.targetSongId,
+    url: url.present ? url.value : this.url,
+    urlFetchedAt: urlFetchedAt.present ? urlFetchedAt.value : this.urlFetchedAt,
+    score: score ?? this.score,
+    expiresAt: expiresAt ?? this.expiresAt,
+  );
+  SourceMatchCacheRow copyWithCompanion(SourceMatchCachesCompanion data) {
+    return SourceMatchCacheRow(
+      songKey: data.songKey.present ? data.songKey.value : this.songKey,
+      targetPlatform: data.targetPlatform.present
+          ? data.targetPlatform.value
+          : this.targetPlatform,
+      targetSongId: data.targetSongId.present
+          ? data.targetSongId.value
+          : this.targetSongId,
+      url: data.url.present ? data.url.value : this.url,
+      urlFetchedAt: data.urlFetchedAt.present
+          ? data.urlFetchedAt.value
+          : this.urlFetchedAt,
+      score: data.score.present ? data.score.value : this.score,
+      expiresAt: data.expiresAt.present ? data.expiresAt.value : this.expiresAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SourceMatchCacheRow(')
+          ..write('songKey: $songKey, ')
+          ..write('targetPlatform: $targetPlatform, ')
+          ..write('targetSongId: $targetSongId, ')
+          ..write('url: $url, ')
+          ..write('urlFetchedAt: $urlFetchedAt, ')
+          ..write('score: $score, ')
+          ..write('expiresAt: $expiresAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    songKey,
+    targetPlatform,
+    targetSongId,
+    url,
+    urlFetchedAt,
+    score,
+    expiresAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SourceMatchCacheRow &&
+          other.songKey == this.songKey &&
+          other.targetPlatform == this.targetPlatform &&
+          other.targetSongId == this.targetSongId &&
+          other.url == this.url &&
+          other.urlFetchedAt == this.urlFetchedAt &&
+          other.score == this.score &&
+          other.expiresAt == this.expiresAt);
+}
+
+class SourceMatchCachesCompanion extends UpdateCompanion<SourceMatchCacheRow> {
+  final Value<String> songKey;
+  final Value<String> targetPlatform;
+  final Value<String> targetSongId;
+  final Value<String?> url;
+  final Value<int?> urlFetchedAt;
+  final Value<double> score;
+  final Value<int> expiresAt;
+  final Value<int> rowid;
+  const SourceMatchCachesCompanion({
+    this.songKey = const Value.absent(),
+    this.targetPlatform = const Value.absent(),
+    this.targetSongId = const Value.absent(),
+    this.url = const Value.absent(),
+    this.urlFetchedAt = const Value.absent(),
+    this.score = const Value.absent(),
+    this.expiresAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SourceMatchCachesCompanion.insert({
+    required String songKey,
+    required String targetPlatform,
+    required String targetSongId,
+    this.url = const Value.absent(),
+    this.urlFetchedAt = const Value.absent(),
+    this.score = const Value.absent(),
+    required int expiresAt,
+    this.rowid = const Value.absent(),
+  }) : songKey = Value(songKey),
+       targetPlatform = Value(targetPlatform),
+       targetSongId = Value(targetSongId),
+       expiresAt = Value(expiresAt);
+  static Insertable<SourceMatchCacheRow> custom({
+    Expression<String>? songKey,
+    Expression<String>? targetPlatform,
+    Expression<String>? targetSongId,
+    Expression<String>? url,
+    Expression<int>? urlFetchedAt,
+    Expression<double>? score,
+    Expression<int>? expiresAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (songKey != null) 'song_key': songKey,
+      if (targetPlatform != null) 'target_platform': targetPlatform,
+      if (targetSongId != null) 'target_song_id': targetSongId,
+      if (url != null) 'url': url,
+      if (urlFetchedAt != null) 'url_fetched_at': urlFetchedAt,
+      if (score != null) 'score': score,
+      if (expiresAt != null) 'expires_at': expiresAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SourceMatchCachesCompanion copyWith({
+    Value<String>? songKey,
+    Value<String>? targetPlatform,
+    Value<String>? targetSongId,
+    Value<String?>? url,
+    Value<int?>? urlFetchedAt,
+    Value<double>? score,
+    Value<int>? expiresAt,
+    Value<int>? rowid,
+  }) {
+    return SourceMatchCachesCompanion(
+      songKey: songKey ?? this.songKey,
+      targetPlatform: targetPlatform ?? this.targetPlatform,
+      targetSongId: targetSongId ?? this.targetSongId,
+      url: url ?? this.url,
+      urlFetchedAt: urlFetchedAt ?? this.urlFetchedAt,
+      score: score ?? this.score,
+      expiresAt: expiresAt ?? this.expiresAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (songKey.present) {
+      map['song_key'] = Variable<String>(songKey.value);
+    }
+    if (targetPlatform.present) {
+      map['target_platform'] = Variable<String>(targetPlatform.value);
+    }
+    if (targetSongId.present) {
+      map['target_song_id'] = Variable<String>(targetSongId.value);
+    }
+    if (url.present) {
+      map['url'] = Variable<String>(url.value);
+    }
+    if (urlFetchedAt.present) {
+      map['url_fetched_at'] = Variable<int>(urlFetchedAt.value);
+    }
+    if (score.present) {
+      map['score'] = Variable<double>(score.value);
+    }
+    if (expiresAt.present) {
+      map['expires_at'] = Variable<int>(expiresAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SourceMatchCachesCompanion(')
+          ..write('songKey: $songKey, ')
+          ..write('targetPlatform: $targetPlatform, ')
+          ..write('targetSongId: $targetSongId, ')
+          ..write('url: $url, ')
+          ..write('urlFetchedAt: $urlFetchedAt, ')
+          ..write('score: $score, ')
+          ..write('expiresAt: $expiresAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -4234,6 +5125,25 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $DailyStatsTable dailyStats = $DailyStatsTable(this);
   late final $SmartPlaylistSnapshotsTable smartPlaylistSnapshots =
       $SmartPlaylistSnapshotsTable(this);
+  late final $LyricsOffsetsTable lyricsOffsets = $LyricsOffsetsTable(this);
+  late final $SourceMatchCachesTable sourceMatchCaches =
+      $SourceMatchCachesTable(this);
+  late final Index listeningHistoryListenedAt = Index(
+    'listening_history_listened_at',
+    'CREATE INDEX listening_history_listened_at ON listening_history (listened_at)',
+  );
+  late final Index localTracksPath = Index(
+    'local_tracks_path',
+    'CREATE INDEX local_tracks_path ON local_tracks (path)',
+  );
+  late final Index playEventsSongPlatform = Index(
+    'play_events_song_platform',
+    'CREATE INDEX play_events_song_platform ON play_events (song_id, platform)',
+  );
+  late final Index playEventsStartedAt = Index(
+    'play_events_started_at',
+    'CREATE INDEX play_events_started_at ON play_events (started_at)',
+  );
   late final SongsDao songsDao = SongsDao(this as AppDatabase);
   late final HistoryDao historyDao = HistoryDao(this as AppDatabase);
   late final LikesDao likesDao = LikesDao(this as AppDatabase);
@@ -4242,6 +5152,12 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   );
   late final StatsDao statsDao = StatsDao(this as AppDatabase);
   late final LocalTracksDao localTracksDao = LocalTracksDao(
+    this as AppDatabase,
+  );
+  late final LyricsOffsetDao lyricsOffsetDao = LyricsOffsetDao(
+    this as AppDatabase,
+  );
+  late final SourceMatchCacheDao sourceMatchCacheDao = SourceMatchCacheDao(
     this as AppDatabase,
   );
   late final ToplistsCacheDao toplistsCacheDao = ToplistsCacheDao(
@@ -4263,6 +5179,12 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     playEvents,
     dailyStats,
     smartPlaylistSnapshots,
+    lyricsOffsets,
+    sourceMatchCaches,
+    listeningHistoryListenedAt,
+    localTracksPath,
+    playEventsSongPlatform,
+    playEventsStartedAt,
   ];
 }
 
@@ -5170,6 +6092,8 @@ typedef $$LocalTracksTableCreateCompanionBuilder =
       Value<int?> trackNumber,
       Value<String?> coverPath,
       Value<int?> scannedAt,
+      Value<int?> lyricsMtime,
+      Value<int?> lyricsSize,
       Value<int> rowid,
     });
 typedef $$LocalTracksTableUpdateCompanionBuilder =
@@ -5184,6 +6108,8 @@ typedef $$LocalTracksTableUpdateCompanionBuilder =
       Value<int?> trackNumber,
       Value<String?> coverPath,
       Value<int?> scannedAt,
+      Value<int?> lyricsMtime,
+      Value<int?> lyricsSize,
       Value<int> rowid,
     });
 
@@ -5243,6 +6169,16 @@ class $$LocalTracksTableFilterComposer
 
   ColumnFilters<int> get scannedAt => $composableBuilder(
     column: $table.scannedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get lyricsMtime => $composableBuilder(
+    column: $table.lyricsMtime,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get lyricsSize => $composableBuilder(
+    column: $table.lyricsSize,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -5305,6 +6241,16 @@ class $$LocalTracksTableOrderingComposer
     column: $table.scannedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get lyricsMtime => $composableBuilder(
+    column: $table.lyricsMtime,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get lyricsSize => $composableBuilder(
+    column: $table.lyricsSize,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$LocalTracksTableAnnotationComposer
@@ -5351,6 +6297,16 @@ class $$LocalTracksTableAnnotationComposer
 
   GeneratedColumn<int> get scannedAt =>
       $composableBuilder(column: $table.scannedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get lyricsMtime => $composableBuilder(
+    column: $table.lyricsMtime,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get lyricsSize => $composableBuilder(
+    column: $table.lyricsSize,
+    builder: (column) => column,
+  );
 }
 
 class $$LocalTracksTableTableManager
@@ -5394,6 +6350,8 @@ class $$LocalTracksTableTableManager
                 Value<int?> trackNumber = const Value.absent(),
                 Value<String?> coverPath = const Value.absent(),
                 Value<int?> scannedAt = const Value.absent(),
+                Value<int?> lyricsMtime = const Value.absent(),
+                Value<int?> lyricsSize = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => LocalTracksCompanion(
                 path: path,
@@ -5406,6 +6364,8 @@ class $$LocalTracksTableTableManager
                 trackNumber: trackNumber,
                 coverPath: coverPath,
                 scannedAt: scannedAt,
+                lyricsMtime: lyricsMtime,
+                lyricsSize: lyricsSize,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -5420,6 +6380,8 @@ class $$LocalTracksTableTableManager
                 Value<int?> trackNumber = const Value.absent(),
                 Value<String?> coverPath = const Value.absent(),
                 Value<int?> scannedAt = const Value.absent(),
+                Value<int?> lyricsMtime = const Value.absent(),
+                Value<int?> lyricsSize = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => LocalTracksCompanion.insert(
                 path: path,
@@ -5432,6 +6394,8 @@ class $$LocalTracksTableTableManager
                 trackNumber: trackNumber,
                 coverPath: coverPath,
                 scannedAt: scannedAt,
+                lyricsMtime: lyricsMtime,
+                lyricsSize: lyricsSize,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -6388,6 +7352,425 @@ typedef $$SmartPlaylistSnapshotsTableProcessedTableManager =
       SmartPlaylistSnapshot,
       PrefetchHooks Function()
     >;
+typedef $$LyricsOffsetsTableCreateCompanionBuilder =
+    LyricsOffsetsCompanion Function({
+      required String songKey,
+      Value<int> offsetMs,
+      required int updatedAt,
+      Value<int> rowid,
+    });
+typedef $$LyricsOffsetsTableUpdateCompanionBuilder =
+    LyricsOffsetsCompanion Function({
+      Value<String> songKey,
+      Value<int> offsetMs,
+      Value<int> updatedAt,
+      Value<int> rowid,
+    });
+
+class $$LyricsOffsetsTableFilterComposer
+    extends Composer<_$AppDatabase, $LyricsOffsetsTable> {
+  $$LyricsOffsetsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get songKey => $composableBuilder(
+    column: $table.songKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get offsetMs => $composableBuilder(
+    column: $table.offsetMs,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$LyricsOffsetsTableOrderingComposer
+    extends Composer<_$AppDatabase, $LyricsOffsetsTable> {
+  $$LyricsOffsetsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get songKey => $composableBuilder(
+    column: $table.songKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get offsetMs => $composableBuilder(
+    column: $table.offsetMs,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$LyricsOffsetsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $LyricsOffsetsTable> {
+  $$LyricsOffsetsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get songKey =>
+      $composableBuilder(column: $table.songKey, builder: (column) => column);
+
+  GeneratedColumn<int> get offsetMs =>
+      $composableBuilder(column: $table.offsetMs, builder: (column) => column);
+
+  GeneratedColumn<int> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$LyricsOffsetsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $LyricsOffsetsTable,
+          LyricsOffsetRow,
+          $$LyricsOffsetsTableFilterComposer,
+          $$LyricsOffsetsTableOrderingComposer,
+          $$LyricsOffsetsTableAnnotationComposer,
+          $$LyricsOffsetsTableCreateCompanionBuilder,
+          $$LyricsOffsetsTableUpdateCompanionBuilder,
+          (
+            LyricsOffsetRow,
+            BaseReferences<_$AppDatabase, $LyricsOffsetsTable, LyricsOffsetRow>,
+          ),
+          LyricsOffsetRow,
+          PrefetchHooks Function()
+        > {
+  $$LyricsOffsetsTableTableManager(_$AppDatabase db, $LyricsOffsetsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$LyricsOffsetsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$LyricsOffsetsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$LyricsOffsetsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> songKey = const Value.absent(),
+                Value<int> offsetMs = const Value.absent(),
+                Value<int> updatedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => LyricsOffsetsCompanion(
+                songKey: songKey,
+                offsetMs: offsetMs,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String songKey,
+                Value<int> offsetMs = const Value.absent(),
+                required int updatedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => LyricsOffsetsCompanion.insert(
+                songKey: songKey,
+                offsetMs: offsetMs,
+                updatedAt: updatedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$LyricsOffsetsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $LyricsOffsetsTable,
+      LyricsOffsetRow,
+      $$LyricsOffsetsTableFilterComposer,
+      $$LyricsOffsetsTableOrderingComposer,
+      $$LyricsOffsetsTableAnnotationComposer,
+      $$LyricsOffsetsTableCreateCompanionBuilder,
+      $$LyricsOffsetsTableUpdateCompanionBuilder,
+      (
+        LyricsOffsetRow,
+        BaseReferences<_$AppDatabase, $LyricsOffsetsTable, LyricsOffsetRow>,
+      ),
+      LyricsOffsetRow,
+      PrefetchHooks Function()
+    >;
+typedef $$SourceMatchCachesTableCreateCompanionBuilder =
+    SourceMatchCachesCompanion Function({
+      required String songKey,
+      required String targetPlatform,
+      required String targetSongId,
+      Value<String?> url,
+      Value<int?> urlFetchedAt,
+      Value<double> score,
+      required int expiresAt,
+      Value<int> rowid,
+    });
+typedef $$SourceMatchCachesTableUpdateCompanionBuilder =
+    SourceMatchCachesCompanion Function({
+      Value<String> songKey,
+      Value<String> targetPlatform,
+      Value<String> targetSongId,
+      Value<String?> url,
+      Value<int?> urlFetchedAt,
+      Value<double> score,
+      Value<int> expiresAt,
+      Value<int> rowid,
+    });
+
+class $$SourceMatchCachesTableFilterComposer
+    extends Composer<_$AppDatabase, $SourceMatchCachesTable> {
+  $$SourceMatchCachesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get songKey => $composableBuilder(
+    column: $table.songKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get targetPlatform => $composableBuilder(
+    column: $table.targetPlatform,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get targetSongId => $composableBuilder(
+    column: $table.targetSongId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get url => $composableBuilder(
+    column: $table.url,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get urlFetchedAt => $composableBuilder(
+    column: $table.urlFetchedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get score => $composableBuilder(
+    column: $table.score,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get expiresAt => $composableBuilder(
+    column: $table.expiresAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$SourceMatchCachesTableOrderingComposer
+    extends Composer<_$AppDatabase, $SourceMatchCachesTable> {
+  $$SourceMatchCachesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get songKey => $composableBuilder(
+    column: $table.songKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get targetPlatform => $composableBuilder(
+    column: $table.targetPlatform,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get targetSongId => $composableBuilder(
+    column: $table.targetSongId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get url => $composableBuilder(
+    column: $table.url,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get urlFetchedAt => $composableBuilder(
+    column: $table.urlFetchedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get score => $composableBuilder(
+    column: $table.score,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get expiresAt => $composableBuilder(
+    column: $table.expiresAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$SourceMatchCachesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SourceMatchCachesTable> {
+  $$SourceMatchCachesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get songKey =>
+      $composableBuilder(column: $table.songKey, builder: (column) => column);
+
+  GeneratedColumn<String> get targetPlatform => $composableBuilder(
+    column: $table.targetPlatform,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get targetSongId => $composableBuilder(
+    column: $table.targetSongId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get url =>
+      $composableBuilder(column: $table.url, builder: (column) => column);
+
+  GeneratedColumn<int> get urlFetchedAt => $composableBuilder(
+    column: $table.urlFetchedAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<double> get score =>
+      $composableBuilder(column: $table.score, builder: (column) => column);
+
+  GeneratedColumn<int> get expiresAt =>
+      $composableBuilder(column: $table.expiresAt, builder: (column) => column);
+}
+
+class $$SourceMatchCachesTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $SourceMatchCachesTable,
+          SourceMatchCacheRow,
+          $$SourceMatchCachesTableFilterComposer,
+          $$SourceMatchCachesTableOrderingComposer,
+          $$SourceMatchCachesTableAnnotationComposer,
+          $$SourceMatchCachesTableCreateCompanionBuilder,
+          $$SourceMatchCachesTableUpdateCompanionBuilder,
+          (
+            SourceMatchCacheRow,
+            BaseReferences<
+              _$AppDatabase,
+              $SourceMatchCachesTable,
+              SourceMatchCacheRow
+            >,
+          ),
+          SourceMatchCacheRow,
+          PrefetchHooks Function()
+        > {
+  $$SourceMatchCachesTableTableManager(
+    _$AppDatabase db,
+    $SourceMatchCachesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SourceMatchCachesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SourceMatchCachesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SourceMatchCachesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> songKey = const Value.absent(),
+                Value<String> targetPlatform = const Value.absent(),
+                Value<String> targetSongId = const Value.absent(),
+                Value<String?> url = const Value.absent(),
+                Value<int?> urlFetchedAt = const Value.absent(),
+                Value<double> score = const Value.absent(),
+                Value<int> expiresAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SourceMatchCachesCompanion(
+                songKey: songKey,
+                targetPlatform: targetPlatform,
+                targetSongId: targetSongId,
+                url: url,
+                urlFetchedAt: urlFetchedAt,
+                score: score,
+                expiresAt: expiresAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String songKey,
+                required String targetPlatform,
+                required String targetSongId,
+                Value<String?> url = const Value.absent(),
+                Value<int?> urlFetchedAt = const Value.absent(),
+                Value<double> score = const Value.absent(),
+                required int expiresAt,
+                Value<int> rowid = const Value.absent(),
+              }) => SourceMatchCachesCompanion.insert(
+                songKey: songKey,
+                targetPlatform: targetPlatform,
+                targetSongId: targetSongId,
+                url: url,
+                urlFetchedAt: urlFetchedAt,
+                score: score,
+                expiresAt: expiresAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$SourceMatchCachesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $SourceMatchCachesTable,
+      SourceMatchCacheRow,
+      $$SourceMatchCachesTableFilterComposer,
+      $$SourceMatchCachesTableOrderingComposer,
+      $$SourceMatchCachesTableAnnotationComposer,
+      $$SourceMatchCachesTableCreateCompanionBuilder,
+      $$SourceMatchCachesTableUpdateCompanionBuilder,
+      (
+        SourceMatchCacheRow,
+        BaseReferences<
+          _$AppDatabase,
+          $SourceMatchCachesTable,
+          SourceMatchCacheRow
+        >,
+      ),
+      SourceMatchCacheRow,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -6413,4 +7796,8 @@ class $AppDatabaseManager {
         _db,
         _db.smartPlaylistSnapshots,
       );
+  $$LyricsOffsetsTableTableManager get lyricsOffsets =>
+      $$LyricsOffsetsTableTableManager(_db, _db.lyricsOffsets);
+  $$SourceMatchCachesTableTableManager get sourceMatchCaches =>
+      $$SourceMatchCachesTableTableManager(_db, _db.sourceMatchCaches);
 }

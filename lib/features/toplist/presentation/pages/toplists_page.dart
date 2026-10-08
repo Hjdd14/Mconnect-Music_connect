@@ -5,7 +5,9 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/network/platform_http.dart';
 import '../../../../core/theme/platform_accent.dart';
+import '../../../../core/utils/snackbar_helper.dart';
 import '../../../../core/widgets/app_scrollbar.dart';
+import '../../../../core/widgets/async_state_view.dart';
 import '../../../../models/audio_quality.dart';
 import '../../../../models/platform_type.dart';
 import '../../../../models/song.dart';
@@ -63,40 +65,61 @@ class _ToplistsPageState extends ConsumerState<ToplistsPage> {
       body: RefreshIndicator(
         onRefresh: () => ref.read(toplistsProvider.notifier).refresh(),
         child: AppScrollbar(
-          builder: (controller) => ListView(
+          builder: (controller) => CustomScrollView(
             controller: controller,
-            padding: const EdgeInsets.only(bottom: 24),
-            children: [
-              _HotChartCard(
-                meta: state.qqHotToplist,
-                onTap: () => _openChart(
-                  PlatformType.qq,
-                  qqHotToplistId,
-                  state.qqHotToplist?.name ?? qqHotToplistName,
+            // `CustomScrollView` has no `padding` parameter (unlike `ListView`),
+            // so the old list's 24 px bottom clearance is a trailing spacer
+            // sliver instead.
+            // Always scrollable: a viewport-sized child is not draggable under
+            // the default physics, which would make the empty state's
+            // 「下拉刷新重试」 an instruction the user cannot follow.
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverToBoxAdapter(
+                child: _HotChartCard(
+                  meta: state.qqHotToplist,
+                  onTap: () => _openChart(
+                    PlatformType.qq,
+                    qqHotToplistId,
+                    state.qqHotToplist?.name ?? qqHotToplistName,
+                  ),
                 ),
               ),
               if (state.isLoading && !state.hasAnyData)
-                const Padding(
-                  padding: EdgeInsets.all(32),
-                  child: Center(child: CircularProgressIndicator()),
+                // `hasScrollBody: true` is required, not cosmetic: the skeleton
+                // is a `ListView`, and `SliverFillRemaining`'s non-scroll-body
+                // variant asks its child for intrinsic dimensions during layout
+                // — which a viewport cannot answer.
+                const SliverAsyncStateView(
+                  hasScrollBody: true,
+                  child: AsyncStateView.loading(skeleton: true),
                 ),
               for (final platform in platforms)
-                _PlatformSection(
-                  platform: platform,
-                  toplists: state.toplistsForPlatform(platform),
-                  error: state.errorForPlatform(platform),
-                  offline: state.isOffline(platform),
-                  onRetry: () => ref.read(toplistsProvider.notifier).refresh(),
-                  onOpen: (toplist) => _openChart(
-                    platform,
-                    toplist.id,
-                    toplist.name,
+                SliverToBoxAdapter(
+                  child: _PlatformSection(
+                    platform: platform,
+                    toplists: state.toplistsForPlatform(platform),
+                    error: state.errorForPlatform(platform),
+                    offline: state.isOffline(platform),
+                    onRetry: () =>
+                        ref.read(toplistsProvider.notifier).refresh(),
+                    onOpen: (toplist) =>
+                        _openChart(platform, toplist.id, toplist.name),
                   ),
                 ),
               if (!state.isLoading &&
                   !state.hasAnyData &&
                   state.errorsByPlatform.isEmpty)
-                const _EmptyHint(text: '暂无榜单数据，下拉刷新重试'),
+                const SliverAsyncStateView(
+                  child: AsyncStateView.empty(
+                    title: '暂无榜单数据',
+                    message: '下拉刷新重试',
+                  ),
+                ),
+              // 24 px bottom clearance, as the previous `ListView(padding: …)`
+              // had (kept last so it also gives the empty/loading state a
+              // scrollable extent).
+              const SliverToBoxAdapter(child: SizedBox(height: 24)),
             ],
           ),
         ),
@@ -394,7 +417,7 @@ class _PlatformError extends StatelessWidget {
               style: TextStyle(fontSize: 12, color: cs.onErrorContainer),
             ),
           ),
-          TextButton(onPressed: onRetry, child: const Text('重试')),
+          ElevatedButton(onPressed: onRetry, child: const Text('重试')),
         ],
       ),
     );
@@ -413,25 +436,6 @@ class _OfflineBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(4),
       ),
       child: const Text('离线缓存', style: TextStyle(fontSize: 10)),
-    );
-  }
-}
-
-class _EmptyHint extends StatelessWidget {
-  const _EmptyHint({required this.text});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(40),
-      child: Center(
-        child: Text(
-          text,
-          style: TextStyle(color: Theme.of(context).colorScheme.outline),
-        ),
-      ),
     );
   }
 }
@@ -532,18 +536,18 @@ class _ToplistDetailPageState extends ConsumerState<ToplistDetailPage> {
         ],
       ),
       body: async.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => _DetailError(
-          error: error,
+        loading: () => const AsyncStateView.loading(),
+        error: (error, _) => AsyncStateView.error(
+          title: '加载失败',
+          message: apiExceptionOf(error).message,
           onRetry: () => ref.invalidate(toplistSongsProvider(_key)),
         ),
         data: (ranked) {
           if (ranked.isEmpty) {
-            return _DetailError(
-              error: null,
-              message: '该榜单暂无歌曲',
-              onRetry: () => ref.invalidate(toplistSongsProvider(_key)),
-            );
+            // An empty chart is not a failure: `AsyncStateView.empty` offers no
+            // retry (the contract has no retry-less error), and the refresh
+            // path stays the AppBar button plus pull-to-refresh below.
+            return const AsyncStateView.empty(title: '该榜单暂无歌曲');
           }
           final songs = ranked.map((r) => r.song).toList();
           return RefreshIndicator(
@@ -593,13 +597,10 @@ class _ToplistDetailPageState extends ConsumerState<ToplistDetailPage> {
         .cacheSongs(songs, quality: AudioLevel.low);
     if (!mounted) return;
     final started = report.started + report.queued;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          '已加入离线缓存 $started 首'
-          '${report.skipped > 0 ? '，跳过 ${report.skipped} 首' : ''}',
-        ),
-      ),
+    showSuccessSnackBar(
+      context,
+      '已加入离线缓存 $started 首'
+      '${report.skipped > 0 ? '，跳过 ${report.skipped} 首' : ''}',
     );
   }
 }
@@ -735,38 +736,5 @@ class _ChartHeader extends StatelessWidget {
         .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
         .replaceAll(RegExp(r'<[^>]+>'), '')
         .trim();
-  }
-}
-
-class _DetailError extends StatelessWidget {
-  const _DetailError({
-    required this.error,
-    required this.onRetry,
-    this.message,
-  });
-
-  final Object? error;
-  final VoidCallback onRetry;
-  final String? message;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final text = message ?? apiExceptionOf(error!).message;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.error_outline, size: 48, color: cs.outline),
-            const SizedBox(height: 12),
-            Text(text, textAlign: TextAlign.center),
-            const SizedBox(height: 12),
-            ElevatedButton(onPressed: onRetry, child: const Text('重试')),
-          ],
-        ),
-      ),
-    );
   }
 }

@@ -463,6 +463,318 @@ void main() {
       );
     });
   });
+
+  group('v3 query shapes', () {
+    test('hourHistogram buckets in SQL exactly like the Dart version did', () async {
+      // The reference implementation below is the pre-v3 Dart bucketing, kept in
+      // the test on purpose: the SQL rewrite has to agree with it bucket for
+      // bucket, including the local-time zone rules SQLite's `'localtime'` and
+      // `DateTime.toLocal()` each apply.
+      final base = DateTime(2026, 5, 30);
+      await _insertEvent(
+        db,
+        'a',
+        base.add(const Duration(hours: 9, minutes: 5)),
+        60000,
+      );
+      await _insertEvent(
+        db,
+        'b',
+        base.add(const Duration(hours: 9, minutes: 55)),
+        30000,
+      );
+      await _insertEvent(
+        db,
+        'c',
+        base.add(const Duration(hours: 23, minutes: 59)),
+        10000,
+      );
+      await _insertEvent(db, 'd', base.add(const Duration(days: 1)), 5000);
+      await _insertEvent(
+        db,
+        'e',
+        base.add(const Duration(days: 1, hours: 12)),
+        2000,
+      );
+
+      final histogram = await db.statsDao.hourHistogram();
+
+      expect(histogram, hasLength(24), reason: 'every bucket is always reported');
+      expect(histogram.map((row) => row.hour), List.generate(24, (i) => i));
+
+      final reference = await _dartHourHistogram(db);
+      expect(
+        [for (final row in histogram) (row.playCount, row.listenMs)],
+        [for (final row in reference) (row.playCount, row.listenMs)],
+        reason: "SQLite 'localtime' must agree with Dart toLocal() in all 24 buckets",
+      );
+
+      // Sanity on the seeded hours, so an all-zero agreement cannot pass.
+      expect(histogram[9].playCount, 2);
+      expect(histogram[9].listenMs, 90000);
+      expect(histogram[23].playCount, 1);
+      expect(histogram[23].listenMs, 10000);
+      expect(histogram[0].playCount, 1);
+      expect(histogram[12].playCount, 1);
+    });
+
+    test('hourHistogram is empty-but-complete with no events', () async {
+      final histogram = await db.statsDao.hourHistogram();
+      expect(histogram, hasLength(24));
+      expect(histogram.every((row) => row.playCount == 0), isTrue);
+      expect(histogram.every((row) => row.listenMs == 0), isTrue);
+    });
+
+    test('a bulk restore inserts in one batch and folds the roll-up per group', () async {
+      final base = DateTime(2026, 5, 30, 8);
+      await db.statsDao.recordPlayStart(
+        songId: 'existing',
+        platform: 'netease',
+        startedAt: base,
+      );
+      final existingRows = await db.statsDao.allPlayEvents();
+      // `recordPlayStart` has already put one play into `base`'s day, so the
+      // restore's contribution must be measured **as a delta** on top of it —
+      // comparing absolute totals would silently credit the payload with a play
+      // the fixture itself created.
+      final rollUpBefore = await _dayRollUp(db);
+      final baseDay = StatsDao.dayKey(base);
+      expect(rollUpBefore[baseDay]!.plays, 1);
+      expect(
+        rollUpBefore[baseDay]!.listenMs,
+        0,
+        reason: 'recordPlayStart adds a play but no listened time',
+      );
+
+      // 600 distinct events over ~15 days and 6 songs, with mixed platforms so
+      // the roll-up grouping has to keep (day, song, platform) apart.
+      final payload = <PlayEvent>[
+        for (var i = 0; i < 600; i++)
+          PlayEvent(
+            id: 0,
+            songId: 'song-${i % 6}',
+            platform: i.isEven ? 'netease' : 'qq',
+            startedAt: base.add(Duration(minutes: i * 37)).millisecondsSinceEpoch,
+            endedAt: null,
+            durationListened: 1000 + i,
+            completedRatio: 0.5,
+            source: 'play',
+          ),
+      ];
+      // One row that is already in the table and one duplicate inside the
+      // payload: both must be skipped, and neither may touch the roll-up.
+      payload
+        ..add(existingRows.single)
+        ..add(payload.first);
+
+      final inserted = await db.statsDao.restorePlayEvents(payload);
+
+      expect(
+        inserted,
+        600,
+        reason: 'the existing row and the in-payload duplicate are both skipped',
+      );
+      expect(await db.statsDao.countPlayEvents(), 601);
+
+      // What the 600 inserted events must contribute, per day.
+      final expectedDelta = <String, ({int plays, int listenMs})>{};
+      for (final row in payload.take(600)) {
+        final day = StatsDao.dayKey(
+          DateTime.fromMillisecondsSinceEpoch(row.startedAt),
+        );
+        final current = expectedDelta[day] ?? (plays: 0, listenMs: 0);
+        expectedDelta[day] = (
+          plays: current.plays + 1,
+          listenMs: current.listenMs + row.durationListened,
+        );
+      }
+
+      final rollUpAfter = await _dayRollUp(db);
+      expect(
+        rollUpAfter.keys.toSet(),
+        {...rollUpBefore.keys, ...expectedDelta.keys},
+        reason: 'no day may appear with a roll-up the payload never played on',
+      );
+      for (final entry in expectedDelta.entries) {
+        final start = rollUpBefore[entry.key] ?? (plays: 0, listenMs: 0);
+        expect(
+          rollUpAfter[entry.key]!.plays - start.plays,
+          entry.value.plays,
+          reason: '${entry.key}: plays added by the payload',
+        );
+        expect(
+          rollUpAfter[entry.key]!.listenMs - start.listenMs,
+          entry.value.listenMs,
+          reason: '${entry.key}: listened ms added by the payload',
+        );
+      }
+      // The pre-existing play is still on its own row: 1 (recordPlayStart) + 26
+      // payload events before midnight. This pins the absolute the delta above
+      // is relative to, so the test cannot pass by shifting both sides.
+      expect(rollUpAfter[baseDay]!.plays, 27);
+      expect(expectedDelta[baseDay]!.plays, 26);
+
+      // Re-importing the whole payload stays a no-op, including for the roll-up.
+      expect(await db.statsDao.restorePlayEvents(payload), 0);
+      expect(await db.statsDao.countPlayEvents(), 601);
+      expect(await _dayRollUp(db), rollUpAfter);
+    });
+
+    test('restoring an empty list does nothing', () async {
+      expect(await db.statsDao.restorePlayEvents(const []), 0);
+      expect(await db.statsDao.countPlayEvents(), 0);
+      expect(await db.select(db.dailyStats).get(), isEmpty);
+    });
+  });
+
+  group('v3 table DAOs', () {
+    test('lyrics offsets are per song, and zero clears the row', () async {
+      final at = DateTime(2026, 5, 30, 12);
+      await db.lyricsOffsetDao.set(
+        'netease:s1',
+        const Duration(milliseconds: 750),
+        at: at,
+      );
+      await db.lyricsOffsetDao.set('qq:s2', const Duration(milliseconds: -500));
+
+      expect(
+        await db.lyricsOffsetDao.get('netease:s1'),
+        const Duration(milliseconds: 750),
+      );
+      expect(
+        (await db.lyricsOffsetDao.row('netease:s1'))!.updatedAt,
+        at.millisecondsSinceEpoch,
+      );
+      // One song's correction must not move another song's lyrics.
+      expect(
+        await db.lyricsOffsetDao.get('qq:s2'),
+        const Duration(milliseconds: -500),
+      );
+      expect(await db.lyricsOffsetDao.get('kugou:missing'), Duration.zero);
+
+      // A zero offset is "no offset": the row is removed, not stored as 0.
+      await db.lyricsOffsetDao.set('qq:s2', Duration.zero);
+      expect(await db.lyricsOffsetDao.row('qq:s2'), isNull);
+      expect(await db.select(db.lyricsOffsets).get(), hasLength(1));
+
+      expect(await db.lyricsOffsetDao.clear('netease:s1'), 1);
+      expect(await db.lyricsOffsetDao.get('netease:s1'), Duration.zero);
+    });
+
+    test('source matches expire, purge, clamp and replace', () async {
+      final fetched = DateTime(2026, 5, 30, 12);
+      await db.sourceMatchCacheDao.put(
+        songKey: 'qq:s1',
+        targetPlatform: 'netease',
+        targetSongId: 'n1',
+        url: 'https://example.test/a.mp3',
+        urlFetchedAt: fetched,
+        expiresAt: fetched.add(const Duration(hours: 2)),
+        score: 0.87,
+      );
+
+      final cached = await db.sourceMatchCacheDao.get(
+        'qq:s1',
+        'netease',
+        now: fetched,
+      );
+      expect(cached!.targetSongId, 'n1');
+      expect(cached.url, 'https://example.test/a.mp3');
+      expect(cached.urlFetchedAt, fetched.millisecondsSinceEpoch);
+      expect(cached.score, closeTo(0.87, 1e-9));
+
+      // Past the expiry the row is invisible (never handed out as a stream URL)
+      // but still stored, and a sweep can reclaim it.
+      final later = fetched.add(const Duration(hours: 3));
+      expect(
+        await db.sourceMatchCacheDao.get('qq:s1', 'netease', now: later),
+        isNull,
+      );
+      expect(await db.sourceMatchCacheDao.row('qq:s1', 'netease'), isNotNull);
+      expect(await db.sourceMatchCacheDao.purgeExpired(now: later), 1);
+      expect(await db.sourceMatchCacheDao.row('qq:s1', 'netease'), isNull);
+
+      // Identity-only rows (no url yet) are legal, and scores are clamped.
+      await db.sourceMatchCacheDao.put(
+        songKey: 'qq:s2',
+        targetPlatform: 'kugou',
+        targetSongId: 'k1',
+        expiresAt: fetched,
+        score: 4.2,
+      );
+      final identityOnly = await db.sourceMatchCacheDao.row('qq:s2', 'kugou');
+      expect(identityOnly!.url, isNull);
+      expect(identityOnly.urlFetchedAt, isNull);
+      expect(identityOnly.score, 1.0);
+
+      // A second put for the same pair replaces instead of duplicating.
+      await db.sourceMatchCacheDao.put(
+        songKey: 'qq:s1',
+        targetPlatform: 'netease',
+        targetSongId: 'n2',
+        expiresAt: fetched.add(const Duration(days: 1)),
+      );
+      expect(
+        (await db.sourceMatchCacheDao.row('qq:s1', 'netease'))!.targetSongId,
+        'n2',
+      );
+      expect(await db.select(db.sourceMatchCaches).get(), hasLength(2));
+      expect(await db.sourceMatchCacheDao.clearAll(), 2);
+      expect(await db.sourceMatchCacheDao.purgeExpired(), 0);
+    });
+  });
+}
+
+/// `day → (plays, listenMs)` from the daily roll-up.
+///
+/// Used for delta assertions: a test that seeds a play of its own (through
+/// `recordPlayStart`) must compare the roll-up *before* and *after* the call it
+/// is testing, or the fixture's own play gets credited to the code under test.
+Future<Map<String, ({int plays, int listenMs})>> _dayRollUp(
+  AppDatabase db,
+) async {
+  return {
+    for (final row in await db.statsDao.dailySeries(limit: 100))
+      row.day: (plays: row.playCount, listenMs: row.listenMs),
+  };
+}
+
+/// Inserts one play event directly, with full control over its timestamp and
+/// listened time (the DAO's own record path decides those itself).
+Future<void> _insertEvent(
+  AppDatabase db,
+  String songId,
+  DateTime startedAt,
+  int listenMs,
+) async {
+  await db.into(db.playEvents).insert(
+    PlayEventsCompanion.insert(
+      songId: songId,
+      platform: 'netease',
+      startedAt: startedAt.millisecondsSinceEpoch,
+      durationListened: Value(listenMs),
+    ),
+  );
+}
+
+/// The pre-v3 implementation of `hourHistogram`, kept as the reference the SQL
+/// rewrite has to match: read every row, bucket it by the local hour.
+Future<List<({int hour, int playCount, int listenMs})>> _dartHourHistogram(
+  AppDatabase db,
+) async {
+  final events = await db.statsDao.allPlayEvents();
+  final plays = List<int>.filled(24, 0);
+  final listenMs = List<int>.filled(24, 0);
+  for (final event in events) {
+    final hour =
+        DateTime.fromMillisecondsSinceEpoch(event.startedAt).toLocal().hour;
+    plays[hour] += 1;
+    listenMs[hour] += event.durationListened;
+  }
+  return [
+    for (var hour = 0; hour < 24; hour++)
+      (hour: hour, playCount: plays[hour], listenMs: listenMs[hour]),
+  ];
 }
 
 Song _song(String id, {Duration duration = const Duration(minutes: 3)}) {

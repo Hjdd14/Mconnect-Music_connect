@@ -224,6 +224,127 @@ void main() {
     await tester.pump();
 
     expect(find.text('暂无内容'), findsOneWidget);
+
+    // W0-F: the empty state is now the shared `AsyncStateView.empty`, so its
+    // body copy uses the theme's secondary-text role instead of `outline`
+    // (contract rule 2 — `outline` is a border colour and fails contrast), and
+    // it offers no retry (rule 3 — an empty list is not a failure).
+    final context = tester.element(find.text('暂无内容'));
+    final scheme = Theme.of(context).colorScheme;
+    expect(
+      tester.widget<Text>(find.text('暂无内容')).style?.color,
+      scheme.onSurfaceVariant,
+    );
+    expect(find.text('重试'), findsNothing);
+  });
+
+  testWidgets('two completed rows on one file are reported, never modified', (
+    tester,
+  ) async {
+    // W0-C reports a shared file path instead of acting on it: the app must
+    // never rename or delete the user's own files. This hint is the only place
+    // that report reaches the user, so without it the protection is invisible.
+    final sharedPath = p.join(
+      'D:',
+      'MconnectTestDownloads',
+      'netease',
+      'mp3',
+      'Artist - Song.mp3',
+    );
+    DownloadTask completedRow(String id, {bool offlineCache = false}) =>
+        DownloadTask(
+          id: id,
+          song: _song,
+          quality: AudioLevel.low,
+          status: DownloadStatus.completed,
+          progress: 1,
+          downloadedBytes: 10,
+          totalBytes: 10,
+          filePath: sharedPath,
+          createdAt: DateTime(2026, 5, 29),
+          completedAt: DateTime(2026, 5, 29),
+          isOfflineCache: offlineCache,
+        );
+    final first = completedRow('netease_s1_low');
+    final second = completedRow('netease_s1_low_cache', offlineCache: true);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          downloadProvider.overrideWith(
+            (ref) => DownloadNotifier(
+              manager: DownloadManager(
+                directoryService: _directoryService(
+                  store: _MemoryDownloadDirectoryStore(),
+                ),
+              ),
+              // The duplicate report is derived from `initialState.tasks` by the
+              // notifier itself, so nothing here has to fake the state.
+              initialState: DownloadState(tasks: [first, second]),
+              taskStore: _MemoryDownloadTaskStore([first, second]),
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: DownloadPage()),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.text('已完成 (2)'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('与其他记录共用同一文件'), findsNWidgets(2));
+
+    // The rows still point at exactly the paths they had: no rename, no delete,
+    // no dialog. The UI only tells.
+    expect(first.filePath, sharedPath);
+    expect(second.filePath, sharedPath);
+  });
+
+  testWidgets('a removal that kept a shared file says so, then acknowledges', (
+    tester,
+  ) async {
+    // W0-C leaves the file on disk when another completed row still claims it and
+    // publishes the path as a one-shot notice. Before this wiring the row simply
+    // vanished, the file looked deleted, and the flag was never cleared — so the
+    // notice would re-fire on every rebuild.
+    const keptPath = '/shared/Artist - Song.mp3';
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          downloadProvider.overrideWith(
+            (ref) => DownloadNotifier(
+              manager: DownloadManager(
+                directoryService: _directoryService(
+                  store: _MemoryDownloadDirectoryStore(),
+                ),
+              ),
+              initialState: const DownloadState(keptSharedFilePath: keptPath),
+              taskStore: _MemoryDownloadTaskStore(const []),
+            ),
+          ),
+        ],
+        child: const MaterialApp(home: DownloadPage()),
+      ),
+    );
+    // The page has no `fireImmediately`, so the notice is picked up by the
+    // one-shot `read` in `build`; its work (the SnackBar and the acknowledge) is
+    // deferred to the end of that frame, so the second pump renders the result.
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      find.text('已删除这条记录，但文件仍被另一条记录使用，已保留'),
+      findsOneWidget,
+    );
+    expect(find.byType(SnackBar), findsOneWidget);
+
+    // Acknowledgement is observable: the one-shot flag is back to null, which is
+    // what stops the notice repeating.
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(DownloadPage)),
+    );
+    expect(container.read(downloadProvider).keptSharedFilePath, isNull);
   });
 
   // ---- v1.4.1 directory guard: the sheet must never freeze or stay silent ----

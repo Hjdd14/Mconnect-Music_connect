@@ -114,14 +114,18 @@ void main() {
     expect(badges.map((badge) => badge.isNew), [null, null, null, true, null]);
   });
 
-  testWidgets('空榜单给出说明与重试', (tester) async {
+  testWidgets('空榜单给出说明，且空态不提供重试（空态不是失败）', (tester) async {
     final empty = FakeContentPlatform(type: PlatformType.qq);
     await tester.pumpWidget(wrap(qq: empty));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(find.text('该榜单暂无歌曲'), findsOneWidget);
-    expect(find.text('重试'), findsOneWidget);
+    // 契约变更（W0-E）：空态走 `AsyncStateView.empty`，按契约（rule 3）空态没有
+    // 重试按钮 —— 重试属于「加载失败」。刷新入口仍然是 AppBar 的刷新按钮与
+    // 下拉刷新，所以空态并非死胡同。
+    expect(find.text('重试'), findsNothing);
+    expect(find.byIcon(Icons.refresh), findsOneWidget);
   });
 
   testWidgets('加载失败给出错误信息与重试', (tester) async {

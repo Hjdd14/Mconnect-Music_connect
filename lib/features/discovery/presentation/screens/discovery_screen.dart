@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../core/widgets/app_scrollbar.dart';
+import '../../../../core/widgets/async_state_view.dart';
 import '../../../../models/platform_type.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../player/presentation/providers/player_provider.dart';
@@ -106,38 +107,47 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
               ],
             ),
             const SizedBox(height: 8),
-            Expanded(
-              child: recState.isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : recState.hasData
-                  ? _RecommendationGrid(
-                      recState: recState,
-                      platformColor: _platformColor,
-                    )
-                  : Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.music_note,
-                            size: 48,
-                            color: Theme.of(context).colorScheme.outlineVariant,
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            recState.error ?? '登录后查看更多',
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.outline,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-            ),
+            Expanded(child: _recommendationsArea(recState)),
           ],
         ),
       ),
+    );
+  }
+
+  /// The 歌单推荐 area below the three compact entries.
+  ///
+  /// A *failure* and *nothing to show* are deliberately different states here.
+  /// The page used to render `recState.error ?? '登录后查看更多'` in a single
+  /// branch, which meant a platform that had actually thrown was presented as
+  /// "not signed in" — with no way to try again. Now a real per-platform failure
+  /// gets `AsyncStateView.error` (retry mandatory, per the shared contract) and
+  /// everything else stays an `empty` state whose copy is unchanged.
+  Widget _recommendationsArea(PlaylistRecommendationsState recState) {
+    if (recState.isLoading) return const AsyncStateView.loading();
+    if (recState.hasData) {
+      return _RecommendationGrid(
+        recState: recState,
+        platformColor: _platformColor,
+      );
+    }
+
+    // `errorsByPlatform` is non-empty only when a platform call actually threw —
+    // the provider also reports "请先登录平台账号" / "暂无推荐内容" through
+    // `error`, but with no per-platform failure recorded. Classifying on that
+    // (rather than on the message text) keeps the two apart.
+    final message = recState.error;
+    if (recState.errorsByPlatform.isNotEmpty && message != null) {
+      return AsyncStateView.error(
+        title: message,
+        onRetry: () => ref
+            .read(playlistRecommendationsProvider.notifier)
+            .loadRecommendations(),
+      );
+    }
+
+    return AsyncStateView.empty(
+      title: message ?? '登录后查看更多',
+      icon: Icons.music_note,
     );
   }
 }

@@ -188,6 +188,10 @@ List<Map<String, Object?>> _walkLocalMusic(
         record['durationMs'] = metadata.durationMs;
         record['trackNumber'] = metadata.trackNumber;
         record['coverPath'] = metadata.coverPath;
+        // The container's own lyrics tag (`USLT`, `©lyr`, …). The reconciler
+        // keeps it only for tracks where no sidecar `.lrc`/`.krc`/`.qrc`
+        // decoded, and stores it with the `embedded` source marker.
+        record['embeddedLyrics'] = metadata.lyrics;
       }
     }
     records.add(record);

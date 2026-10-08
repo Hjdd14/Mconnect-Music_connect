@@ -95,6 +95,9 @@ void main() {
       song: _song,
       quality: AudioLevel.low,
       totalBytes: body.length,
+      // The task recorded 12000 bytes, and the file on disk is exactly that
+      // long: this is the only shape a resume is allowed to trust (W0-C).
+      downloadedBytes: 12000,
       createdAt: DateTime(2026, 1, 1),
     );
     final path = await expectedPath(task);
@@ -135,6 +138,9 @@ void main() {
       song: _song,
       quality: AudioLevel.low,
       totalBytes: body.length,
+      // The task's own record of what it wrote; a resume is only allowed when
+      // the bytes on disk are exactly this many (see W0-C resume defence).
+      downloadedBytes: 12000,
       createdAt: DateTime(2026, 1, 1),
     );
     final path = await expectedPath(task);
@@ -154,6 +160,94 @@ void main() {
 
     expect(server.rangeHeaders, contains('bytes=12000-'));
     expect(File(path).readAsBytesSync(), body);
+  });
+
+  test('a partial file this task cannot account for is replaced, never resumed',
+      () async {
+    // W0-C: before the file name carried the quality, three tasks for one song
+    // shared `<root>/netease/mp3/歌手 - 歌名.mp3`. The second task found the
+    // first task's 12000 bytes and asked for `bytes=12000-`, appending its own
+    // stream onto *their* bytes — a file that passes the length check and plays
+    // as noise. A file the task never wrote (its own record is 0 bytes) must be
+    // replaced from byte 0 instead.
+    final body = List<int>.generate(30000, (index) => index % 251);
+    server.body = body;
+
+    final task = DownloadTask(
+      id: 'netease_s1_low',
+      song: _song,
+      quality: AudioLevel.low,
+      totalBytes: body.length,
+      createdAt: DateTime(2026, 1, 1),
+    );
+    final path = await expectedPath(task);
+    await File(path).writeAsBytes(List<int>.filled(12000, 9));
+
+    final manager = managerWith();
+    final notifier = DownloadNotifier(
+      manager: manager,
+      initialState: DownloadState(tasks: [task]),
+      taskStore: MemoryDownloadTaskStore([]),
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.startWaitingTask(task.id);
+    await _waitFor(
+      () => notifier.state.tasks.single.status == DownloadStatus.completed,
+    );
+
+    expect(
+      server.rangeHeaders,
+      [null],
+      reason: '记录为 0 字节的任务不得把盘上别人的字节数当作续传 offset',
+    );
+    expect(File(path).readAsBytesSync(), body);
+  });
+
+  test('a row resumes the path it already recorded, not a newly derived name',
+      () async {
+    // 存量用户的文件叫 `歌手 - 歌名.mp3`；只有新下载才会带上音质后缀。任务记录里
+    // 已经有那个路径，续传就必须落在同一个文件上 —— 不能在旁边再造一个同名新文件，
+    // 也不能把已经在盘上的字节丢掉从头下。
+    final body = List<int>.generate(12000, (index) => index % 251);
+    server.body = body;
+
+    final legacyDir = Directory(p.join(tempDir.path, 'legacy'));
+    await legacyDir.create(recursive: true);
+    final legacyPath = p.join(legacyDir.path, 'Artist - Song.mp3');
+    await File(legacyPath).writeAsBytes(body.sublist(0, 5000));
+
+    final task = DownloadTask(
+      id: 'netease_s1_low',
+      song: _song,
+      quality: AudioLevel.low,
+      totalBytes: body.length,
+      downloadedBytes: 5000,
+      filePath: legacyPath,
+      createdAt: DateTime(2026, 1, 1),
+    );
+
+    final manager = managerWith();
+    final notifier = DownloadNotifier(
+      manager: manager,
+      initialState: DownloadState(tasks: [task]),
+      taskStore: MemoryDownloadTaskStore([]),
+    );
+    addTearDown(notifier.dispose);
+
+    await notifier.startWaitingTask(task.id);
+    await _waitFor(
+      () => notifier.state.tasks.single.status == DownloadStatus.completed,
+    );
+
+    expect(server.rangeHeaders, contains('bytes=5000-'));
+    expect(File(legacyPath).readAsBytesSync(), body);
+    expect(notifier.state.tasks.single.filePath, legacyPath);
+    expect(
+      File(await expectedPath(task)).existsSync(),
+      isFalse,
+      reason: '不得在旧文件旁边再生成一个带新后缀的文件',
+    );
   });
 
   test('a truncated body fails with a network failure and keeps the partial file',

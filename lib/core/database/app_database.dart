@@ -38,6 +38,11 @@ class Songs extends Table {
   Set<Column> get primaryKey => {id, platform};
 }
 
+/// `HistoryDao._newest` and `HistoryDao.getRecentHistory` both order by
+/// [listenedAt] (the first one inside a transaction, on every recorded listen),
+/// which without an index is a full table scan plus a sort over the whole
+/// history.
+@TableIndex(name: 'listening_history_listened_at', columns: {#listenedAt})
 @DataClassName('ListeningHistoryEntry')
 class ListeningHistory extends Table {
   IntColumn get id => integer().autoIncrement()();
@@ -89,6 +94,13 @@ class LyricsCache extends Table {
 /// Persisted so a rescan can skip unchanged files (path + mtime + size) instead
 /// of walking the whole tree every time the page opens, and so tags/cover art
 /// are read once rather than on every visit.
+///
+/// The `local_tracks_path` index is named in the W0-D contract, but [path] is
+/// already the primary key, so SQLite maintains its own implicit unique index
+/// (`sqlite_autoindex_local_tracks_1`) for the same column. The planner never
+/// picks this second index; it is kept only to honour the contract and costs a
+/// little write time on every scan upsert.
+@TableIndex(name: 'local_tracks_path', columns: {#path})
 @DataClassName('LocalTrack')
 class LocalTracks extends Table {
   TextColumn get path => text()();
@@ -101,6 +113,15 @@ class LocalTracks extends Table {
   IntColumn get trackNumber => integer().nullable()();
   TextColumn get coverPath => text().nullable()();
   IntColumn get scannedAt => integer().nullable()();
+
+  /// `(mtime, size)` of the sidecar lyric file this row's lyrics were read
+  /// from, so replacing a `.lrc` in place is noticed and re-read (schema v3).
+  ///
+  /// Null on rows written before v3: those are re-read once and stamped, which
+  /// is also what repairs a library scanned by a build that never looked at the
+  /// sidecar's timestamp at all.
+  IntColumn get lyricsMtime => integer().nullable()();
+  IntColumn get lyricsSize => integer().nullable()();
 
   @override
   Set<Column> get primaryKey => {path};
@@ -156,6 +177,12 @@ class ToplistsCache extends Table {
 /// Replaces the previous "keep the top 100 songs in a Hive snapshot" approach,
 /// which silently destroyed the statistics of the 101st song onwards while the
 /// totals stayed global (so the numbers could not be reconciled).
+/// `StatsDao.addListenedDuration` looks up the newest event of one
+/// `(song_id, platform)` pair on every flush (once per ten seconds of
+/// playback), and `restorePlayEvents` probes the same pair per imported row.
+/// Both are full table scans without these indexes.
+@TableIndex(name: 'play_events_song_platform', columns: {#songId, #platform})
+@TableIndex(name: 'play_events_started_at', columns: {#startedAt})
 @DataClassName('PlayEvent')
 class PlayEvents extends Table {
   IntColumn get id => integer().autoIncrement()();
@@ -193,6 +220,54 @@ class SmartPlaylistSnapshots extends Table {
 
   @override
   Set<Column> get primaryKey => {ruleId};
+}
+
+/// Per-song lyrics offset, keyed by `"<platform>:<songId>"`.
+///
+/// A single row per song rather than one per platform-plus-id pair, because the
+/// offset is a property of the *recording* the user is looking at, and the same
+/// key shape is what `Song`-keyed caches elsewhere in the app already use.
+///
+/// Replaces nothing: until schema v3 the manual lyrics calibration
+/// (`lyrics_offset_provider`) was a single global value, so correcting one song
+/// shifted every other song's lyrics with it.
+@DataClassName('LyricsOffsetRow')
+class LyricsOffsets extends Table {
+  TextColumn get songKey => text()();
+  IntColumn get offsetMs => integer().withDefault(const Constant(0))();
+  IntColumn get updatedAt => integer()();
+
+  @override
+  Set<Column> get primaryKey => {songKey};
+}
+
+/// Cross-platform "same recording elsewhere" cache.
+///
+/// One row per `(song, targetPlatform)`: which song id the match resolved to,
+/// the stream URL that was fetched for it, and when that URL must be considered
+/// stale. `expiresAt` is what makes the cache safe to trust — platform stream
+/// URLs are signed and short-lived, so a stale row is discarded rather than
+/// replayed into a 403.
+@DataClassName('SourceMatchCacheRow')
+class SourceMatchCaches extends Table {
+  TextColumn get songKey => text()();
+  TextColumn get targetPlatform => text()();
+  TextColumn get targetSongId => text()();
+
+  /// Last resolved stream URL, or null when only the identity was cached.
+  TextColumn get url => text().nullable()();
+
+  /// When [url] was fetched, for "is this still worth trying" diagnostics.
+  IntColumn get urlFetchedAt => integer().nullable()();
+
+  /// Match confidence in `[0, 1]`, so a weak match can be re-evaluated first.
+  RealColumn get score => real().withDefault(const Constant(0))();
+
+  /// Epoch ms after which the row must be re-resolved.
+  IntColumn get expiresAt => integer()();
+
+  @override
+  Set<Column> get primaryKey => {songKey, targetPlatform};
 }
 
 // --- DAOs ---
@@ -492,6 +567,20 @@ class LyricsCacheDao extends DatabaseAccessor<AppDatabase> with _$LyricsCacheDao
 
 // --- Statistics ---
 
+/// Accumulator for one `(day, song, platform)` roll-up row.
+///
+/// Exists so [StatsDao.restorePlayEvents] can write the daily roll-up once per
+/// group instead of once per restored event.
+class _DailyDelta {
+  _DailyDelta(this.day, this.songId, this.platform);
+
+  final String day;
+  final String songId;
+  final String platform;
+  int playCount = 0;
+  int listenMs = 0;
+}
+
 /// Read/write access to the play-event detail table and its daily roll-up.
 ///
 /// This is the replacement for the old "Hive snapshot of the top 100 songs"
@@ -603,6 +692,16 @@ class StatsDao extends DatabaseAccessor<AppDatabase> with _$StatsDaoMixin {
     return '${local.year}-$month-$day';
   }
 
+  /// Adds [playDelta]/[listenMs] to one `(day, songId, platform)` roll-up row.
+  ///
+  /// Adds [playDelta]/[listenMs] to one `(day, songId, platform)` roll-up row.
+  ///
+  /// Kept as a read-then-write pair on purpose (W0-D): a single statement would
+  /// need drift's expression arithmetic (`old.playCount + Constant(playDelta)`)
+  /// or a raw `INSERT ... ON CONFLICT` string, and neither could be verified in
+  /// the wave that introduced the v3 schema — the whole package was blocked
+  /// while this file did not compile. The `daily_stats` primary key already
+  /// makes the upsert shape available whenever someone can run the tests.
   Future<void> _bumpDailyStat({
     required String day,
     required String songId,
@@ -809,18 +908,40 @@ class StatsDao extends DatabaseAccessor<AppDatabase> with _$StatsDaoMixin {
 
   /// Plays bucketed by local hour of day (0–23).
   ///
-  /// Bucketing happens in Dart on purpose: doing it in SQL would need SQLite's
-  /// `localtime` modifier, which makes the result depend on the host time zone
-  /// configuration instead of the Dart clock the rest of the app uses.
+  /// Aggregated in SQLite. The previous implementation read **every**
+  /// `play_events` row into memory and bucketed it in Dart, so opening the
+  /// statistics page paid a full-table materialisation on top of the scan — the
+  /// one query on that page that grew with the whole history rather than with
+  /// the 24 buckets it renders.
+  ///
+  /// `'localtime'` is deliberate and does not change the result: the Dart it
+  /// replaces (`DateTime.fromMillisecondsSinceEpoch(...).toLocal().hour`) reads
+  /// the same host time zone, so both follow the host's zone **and** its DST
+  /// rules. A fixed UTC offset computed in Dart would be the variant that
+  /// disagrees with itself across a DST boundary.
+  ///
+  /// Table/column names are spelled out, matching the hard-coded SQL in
+  /// [totals] and [activeDayCount].
   Future<List<({int hour, int playCount, int listenMs})>> hourHistogram() async {
-    final rows = await select(playEvents).get();
+    final rows = await customSelect(
+      "SELECT CAST(strftime('%H', started_at / 1000, 'unixepoch', 'localtime') "
+      'AS INTEGER) AS hour_bucket, '
+      'COUNT(*) AS plays, '
+      'COALESCE(SUM(duration_listened), 0) AS listen_ms '
+      'FROM play_events '
+      'GROUP BY hour_bucket',
+      readsFrom: {playEvents},
+    ).get();
+
     final plays = List<int>.filled(24, 0);
     final listenMs = List<int>.filled(24, 0);
     for (final row in rows) {
-      final hour =
-          DateTime.fromMillisecondsSinceEpoch(row.startedAt).toLocal().hour;
-      plays[hour] += 1;
-      listenMs[hour] += row.durationListened;
+      final hour = row.read<int?>('hour_bucket');
+      // Defensive: an unparseable timestamp would produce a null bucket, and
+      // the caller renders all 24 buckets by index.
+      if (hour == null || hour < 0 || hour > 23) continue;
+      plays[hour] = row.read<int>('plays');
+      listenMs[hour] = row.read<int>('listen_ms');
     }
     return [
       for (var hour = 0; hour < 24; hour++)
@@ -834,45 +955,112 @@ class StatsDao extends DatabaseAccessor<AppDatabase> with _$StatsDaoMixin {
 
   /// Restores event rows, skipping `(songId, platform, startedAt)` duplicates so
   /// importing the same backup twice does not double the statistics.
+  ///
+  /// Batched. The previous version issued one `SELECT` per imported row and one
+  /// `INSERT` per insertable row (plus a `SELECT` + `INSERT`/`UPDATE` for the
+  /// roll-up of each), so restoring a real backup was thousands of round trips
+  /// inside one transaction. Now: one indexed query per 400 distinct timestamps
+  /// for the duplicate probe, one batch insert for the survivors, and one
+  /// roll-up write per `(day, song, platform)` group.
   Future<int> restorePlayEvents(List<PlayEvent> rows) async {
     if (rows.isEmpty) return 0;
     var inserted = 0;
     await transaction(() async {
+      // `Set.add` doubles as the within-import duplicate check: the second copy
+      // of an identical row is rejected exactly like one already in the table.
+      final seen = await _existingEventKeys(rows);
+      final fresh = <PlayEvent>[];
       for (final row in rows) {
-        final exists =
-            await (select(playEvents)
-                  ..where(
-                    (t) =>
-                        t.songId.equals(row.songId) &
-                        t.platform.equals(row.platform) &
-                        t.startedAt.equals(row.startedAt),
-                  )
-                  ..limit(1))
-                .getSingleOrNull();
-        if (exists != null) continue;
-        await into(playEvents).insert(
-          PlayEventsCompanion.insert(
-            songId: row.songId,
-            platform: row.platform,
-            startedAt: row.startedAt,
-            endedAt: Value(row.endedAt),
-            durationListened: Value(row.durationListened),
-            completedRatio: Value(row.completedRatio),
-            source: Value(row.source),
-          ),
-        );
-        await _bumpDailyStat(
-          day: dayKey(DateTime.fromMillisecondsSinceEpoch(row.startedAt)),
-          songId: row.songId,
-          platform: row.platform,
-          playDelta: 1,
-          listenMs: row.durationListened,
-        );
-        inserted += 1;
+        final key = _eventKey(row.songId, row.platform, row.startedAt);
+        if (!seen.add(key)) continue;
+        fresh.add(row);
       }
+      if (fresh.isEmpty) return;
+
+      await batch((b) {
+        b.insertAll(playEvents, [
+          for (final row in fresh)
+            PlayEventsCompanion.insert(
+              songId: row.songId,
+              platform: row.platform,
+              startedAt: row.startedAt,
+              endedAt: Value(row.endedAt),
+              durationListened: Value(row.durationListened),
+              completedRatio: Value(row.completedRatio),
+              source: Value(row.source),
+            ),
+        ]);
+      });
+
+      for (final delta in _dailyDeltasOf(fresh).values) {
+        await _bumpDailyStat(
+          day: delta.day,
+          songId: delta.songId,
+          platform: delta.platform,
+          playDelta: delta.playCount,
+          listenMs: delta.listenMs,
+        );
+      }
+      inserted = fresh.length;
     });
     return inserted;
   }
+
+  /// `(songId, platform, startedAt)` keys that already exist **and** could be
+  /// hit by [rows].
+  ///
+  /// Restricted to the import's own `startedAt` values: a duplicate necessarily
+  /// shares one of them, so this is exact while staying proportional to the
+  /// backup instead of to the whole history. Chunked for SQLite's bound-variable
+  /// limit, and served by the `play_events_started_at` index (schema v3).
+  Future<Set<String>> _existingEventKeys(List<PlayEvent> rows) async {
+    final timestamps = {for (final row in rows) row.startedAt}.toList();
+    final keys = <String>{};
+    for (var i = 0; i < timestamps.length; i += 400) {
+      final chunk = timestamps.skip(i).take(400).toList();
+      final found = await customSelect(
+        'SELECT song_id, platform, started_at FROM play_events '
+        'WHERE started_at IN (${List.filled(chunk.length, '?').join(', ')})',
+        variables: [for (final value in chunk) Variable.withInt(value)],
+        readsFrom: {playEvents},
+      ).get();
+      for (final row in found) {
+        keys.add(
+          _eventKey(
+            row.read<String>('song_id'),
+            row.read<String>('platform'),
+            row.read<int>('started_at'),
+          ),
+        );
+      }
+    }
+    return keys;
+  }
+
+  /// Folds [rows] into one accumulator per `(day, song, platform)`.
+  ///
+  /// The day comes from each row's own `startedAt`, so a stretch that crosses
+  /// midnight still lands in the day it started.
+  Map<String, _DailyDelta> _dailyDeltasOf(List<PlayEvent> rows) {
+    final byGroup = <String, _DailyDelta>{};
+    for (final row in rows) {
+      final day = dayKey(DateTime.fromMillisecondsSinceEpoch(row.startedAt));
+      final delta = byGroup.putIfAbsent(
+        '$day\u0000${row.songId}\u0000${row.platform}',
+        () => _DailyDelta(day, row.songId, row.platform),
+      );
+      delta.playCount += 1;
+      delta.listenMs += row.durationListened;
+    }
+    return byGroup;
+  }
+
+  /// One identity key for a play event.
+  ///
+  /// NUL-joined because none of the three parts can contain a NUL, so no two
+  /// distinct triples can produce the same key.
+  static String _eventKey(String songId, String platform, int startedAt) =>
+      '$songId\u0000$platform\u0000$startedAt';
 
   Future<int> countPlayEvents() async {
     final count = playEvents.id.count();
@@ -949,6 +1137,17 @@ class LocalTracksDao extends DatabaseAccessor<AppDatabase> with _$LocalTracksDao
     return (delete(localTracks)..where((t) => t.path.equals(path))).go();
   }
 
+  /// Deletes exactly [paths], in chunks.
+  ///
+  /// The local-library reconciler knows the paths that disappeared, and the old
+  /// `LocalTrackStore.removePaths` issued one `DELETE` per path inside a single
+  /// transaction — a folder rename or a moved library meant thousands of
+  /// statements. [deleteMissing] is the complement-shaped variant (keep-list),
+  /// so it cannot serve this direction without loading and diffing every path
+  /// first.
+  Future<int> deletePaths(Iterable<String> paths) =>
+      _deletePathChunks(paths.toList(growable: false));
+
   /// Deletes every row whose path is **not** in [keepPaths].
   ///
   /// Chunked because a music library can hold far more paths than SQLite accepts
@@ -956,11 +1155,18 @@ class LocalTracksDao extends DatabaseAccessor<AppDatabase> with _$LocalTracksDao
   Future<int> deleteMissing(Set<String> keepPaths) async {
     final existing = await allPaths();
     final stale = existing.where((path) => !keepPaths.contains(path)).toList();
-    if (stale.isEmpty) return 0;
+    return _deletePathChunks(stale);
+  }
+
+  /// `DELETE ... WHERE path IN (...)` in batches of 400 bound variables.
+  Future<int> _deletePathChunks(List<String> paths) async {
+    if (paths.isEmpty) return 0;
     var deleted = 0;
-    for (var i = 0; i < stale.length; i += 400) {
-      final chunk = stale.skip(i).take(400).toList();
-      deleted += await (delete(localTracks)..where((t) => t.path.isIn(chunk))).go();
+    for (var i = 0; i < paths.length; i += 400) {
+      final chunk = paths.skip(i).take(400).toList();
+      deleted += await (delete(
+        localTracks,
+      )..where((t) => t.path.isIn(chunk))).go();
     }
     return deleted;
   }
@@ -972,6 +1178,156 @@ class LocalTracksDao extends DatabaseAccessor<AppDatabase> with _$LocalTracksDao
   }
 
   Future<int> clear() => delete(localTracks).go();
+}
+
+// --- Per-song lyrics offset (schema v3) ---
+
+@DriftAccessor(tables: [LyricsOffsets])
+class LyricsOffsetDao extends DatabaseAccessor<AppDatabase>
+    with _$LyricsOffsetDaoMixin {
+  LyricsOffsetDao(super.db);
+
+  /// The stored offset for [songKey], or `Duration.zero` when none is saved.
+  ///
+  /// Returning zero instead of null keeps callers free of a "no row yet" branch:
+  /// the domain meaning of "no saved offset" and "saved offset of zero" is the
+  /// same, and only the UI's "reset" affordance depends on the difference.
+  Future<Duration> get(String songKey) async {
+    final row = await (select(
+      lyricsOffsets,
+    )..where((t) => t.songKey.equals(songKey))).getSingleOrNull();
+    return Duration(milliseconds: row?.offsetMs ?? 0);
+  }
+
+  /// [LyricsOffsetRow] for [songKey], or null when the user never set one.
+  Future<LyricsOffsetRow?> row(String songKey) {
+    return (select(
+      lyricsOffsets,
+    )..where((t) => t.songKey.equals(songKey))).getSingleOrNull();
+  }
+
+  /// Saves [offset] for [songKey], replacing any previous value.
+  ///
+  /// A zero offset **deletes** the row rather than storing `offsetMs = 0`: the
+  /// table is a "the user changed something" record, so keeping zero rows would
+  /// grow it with songs that were merely opened.
+  Future<void> set(
+    String songKey,
+    Duration offset, {
+    DateTime? at,
+  }) async {
+    if (offset == Duration.zero) {
+      await clear(songKey);
+      return;
+    }
+    await into(lyricsOffsets).insert(
+      LyricsOffsetsCompanion.insert(
+        songKey: songKey,
+        offsetMs: Value(offset.inMilliseconds),
+        updatedAt: (at ?? DateTime.now()).millisecondsSinceEpoch,
+      ),
+      mode: InsertMode.insertOrReplace,
+    );
+  }
+
+  Future<int> clear(String songKey) {
+    return (delete(
+      lyricsOffsets,
+    )..where((t) => t.songKey.equals(songKey))).go();
+  }
+
+  Future<int> clearAll() => delete(lyricsOffsets).go();
+}
+
+// --- Cross-platform source-match cache (schema v3) ---
+
+@DriftAccessor(tables: [SourceMatchCaches])
+class SourceMatchCacheDao extends DatabaseAccessor<AppDatabase>
+    with _$SourceMatchCacheDaoMixin {
+  SourceMatchCacheDao(super.db);
+
+  /// The cached row for one `(song, platform)` pair, expired rows included.
+  ///
+  /// [targetPlatform] is the persisted `PlatformType.name`, the same shape the
+  /// rest of this layer uses (`Songs.platform`, `PlayEvents.platform`).
+  ///
+  /// Callers decide what an expired row is worth: [get] drops it, while a
+  /// "re-resolve this one first" path may still want its [SourceMatchCacheRow.score].
+  Future<SourceMatchCacheRow?> row(
+    String songKey,
+    String targetPlatform,
+  ) {
+    return (select(sourceMatchCaches)..where(
+          (t) =>
+              t.songKey.equals(songKey) &
+              t.targetPlatform.equals(targetPlatform),
+        ))
+        .getSingleOrNull();
+  }
+
+  /// The cached match, or null when it is absent **or past its expiry**.
+  ///
+  /// Expiry is enforced here rather than by a sweep so a long-idle library never
+  /// hands out a dead stream URL; [purgeExpired] exists only to reclaim space.
+  Future<SourceMatchCacheRow?> get(
+    String songKey,
+    String targetPlatform, {
+    DateTime? now,
+  }) async {
+    final cached = await row(songKey, targetPlatform);
+    if (cached == null) return null;
+    final at = now ?? DateTime.now();
+    if (cached.expiresAt <= at.millisecondsSinceEpoch) return null;
+    return cached;
+  }
+
+  /// Inserts or replaces one match.
+  Future<void> put({
+    required String songKey,
+    required String targetPlatform,
+    required String targetSongId,
+    required DateTime expiresAt,
+    String? url,
+    DateTime? urlFetchedAt,
+    double score = 0,
+  }) async {
+    await into(sourceMatchCaches).insert(
+      SourceMatchCachesCompanion.insert(
+        songKey: songKey,
+        targetPlatform: targetPlatform,
+        targetSongId: targetSongId,
+        url: Value(url),
+        urlFetchedAt: Value(urlFetchedAt?.millisecondsSinceEpoch),
+        score: Value(score.clamp(0, 1).toDouble()),
+        expiresAt: expiresAt.millisecondsSinceEpoch,
+      ),
+      mode: InsertMode.insertOrReplace,
+    );
+  }
+
+  /// Drops every row whose `expiresAt` has passed; returns how many went.
+  ///
+  /// Spelled out in raw SQL like [StatsDao.totals], so the sweep does not depend
+  /// on the spelling of the comparison helper this drift version generates for a
+  /// column (they were renamed across the 2.x line).
+  Future<int> purgeExpired({DateTime? now}) async {
+    final at = (now ?? DateTime.now()).millisecondsSinceEpoch;
+    final expired = await customSelect(
+      'SELECT COUNT(*) AS expired FROM source_match_caches '
+      'WHERE expires_at <= ?',
+      variables: [Variable.withInt(at)],
+      readsFrom: {sourceMatchCaches},
+    ).getSingle();
+    final count = expired.read<int>('expired');
+    if (count == 0) return 0;
+    await customStatement(
+      'DELETE FROM source_match_caches WHERE expires_at <= ?',
+      [at],
+    );
+    return count;
+  }
+
+  Future<int> clearAll() => delete(sourceMatchCaches).go();
 }
 
 // --- Chart cache (DAO only; the hub UI lives in WS-H) ---
@@ -1117,6 +1473,8 @@ class SmartPlaylistSnapshotsDao
     PlayEvents,
     DailyStats,
     SmartPlaylistSnapshots,
+    LyricsOffsets,
+    SourceMatchCaches,
   ],
   daos: [
     SongsDao,
@@ -1125,6 +1483,8 @@ class SmartPlaylistSnapshotsDao
     LyricsCacheDao,
     StatsDao,
     LocalTracksDao,
+    LyricsOffsetDao,
+    SourceMatchCacheDao,
     ToplistsCacheDao,
     SmartPlaylistSnapshotsDao,
   ],
@@ -1137,8 +1497,12 @@ class AppDatabase extends _$AppDatabase {
   /// v1 → v2 adds the album/artist ids on [Songs], the local-library and chart
   /// caches, the play-event statistics tables, and drops the never-populated
   /// `Playlists` table.
+  ///
+  /// v2 → v3 adds the query indexes the statistics and history pages needed all
+  /// along, the local-library lyrics stamp ([LocalTracks.lyricsMtime]), and the
+  /// per-song lyrics-offset and source-match caches.
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   /// Schema evolution.
   ///
@@ -1149,7 +1513,15 @@ class AppDatabase extends _$AppDatabase {
   /// by `test/database_migration_test.dart`.
   @override
   MigrationStrategy get migration => MigrationStrategy(
-    onCreate: (m) => m.createAll(),
+    onCreate: (m) async {
+      await m.createAll();
+      // `createAll()` already creates the `@TableIndex` indexes. Repeating the
+      // statements here (`IF NOT EXISTS`, so they are a no-op) is a deliberate
+      // belt-and-braces guard: it guarantees a fresh install and an upgraded one
+      // end up with the identical index set even if a drift version were to
+      // create only tables here.
+      await _createV3Indexes(m);
+    },
     onUpgrade: (m, from, to) async {
       if (from < 2) {
         // Pre-existing data is preserved: the new columns stay null, and the
@@ -1167,9 +1539,52 @@ class AppDatabase extends _$AppDatabase {
         // Guarded, so installing over a database that somehow lacks it works.
         await m.database.customStatement('DROP TABLE IF EXISTS playlists');
       }
+      if (from < 3) {
+        // A v1 database created `local_tracks` in the branch above, and
+        // `m.createTable` always emits the **current** table definition — which
+        // already carries the v3 columns. Re-adding them on that path would
+        // abort the entire upgrade with "duplicate column name", so the v1 → v3
+        // case deliberately skips this step.
+        if (from >= 2) {
+          await m.addColumn(localTracks, localTracks.lyricsMtime);
+          await m.addColumn(localTracks, localTracks.lyricsSize);
+        }
+        // New tables: added, never altered, so no data can be lost here. Neither
+        // table existed in v1/v2, and neither is dropped by a later branch.
+        await m.createTable(lyricsOffsets);
+        await m.createTable(sourceMatchCaches);
+        // Indexes are created for every pre-v3 database, including the v1 → v3
+        // path: `Migrator.createTable` never creates them, only `createAll()`
+        // does (a fresh install).
+        await _createV3Indexes(m);
+      }
     },
   );
 }
+
+/// Creates the schema-v3 indexes, idempotently.
+Future<void> _createV3Indexes(Migrator m) async {
+  for (final statement in _v3IndexStatements) {
+    await m.database.customStatement(statement);
+  }
+}
+
+/// `CREATE INDEX` statements for the schema-v3 indexes.
+///
+/// Spelled out rather than taken from the generated `Index` objects so that the
+/// upgrade path and `Migrator.createAll()` (fresh installs) are guaranteed to
+/// produce the same DDL. The names are the ones the `@TableIndex` annotations
+/// declare, and `test/database_migration_test.dart` asserts that a fresh
+/// database and an upgraded one carry the identical index set.
+const List<String> _v3IndexStatements = [
+  'CREATE INDEX IF NOT EXISTS listening_history_listened_at '
+      'ON listening_history (listened_at)',
+  'CREATE INDEX IF NOT EXISTS play_events_song_platform '
+      'ON play_events (song_id, platform)',
+  'CREATE INDEX IF NOT EXISTS play_events_started_at '
+      'ON play_events (started_at)',
+  'CREATE INDEX IF NOT EXISTS local_tracks_path ON local_tracks (path)',
+];
 
 LazyDatabase _openConnection() {
   return LazyDatabase(() async {

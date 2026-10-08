@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart' show AudioPlayer, ProcessingState;
 import '../../../../core/diagnostics/diagnostics_service.dart';
+import '../../../../core/network/api_exception.dart';
 import '../../../../core/network/platform_http.dart';
 import '../../../../core/platform/platform_utils.dart';
 import '../../../audio_effects/presentation/providers/audio_effects_provider.dart';
@@ -65,6 +66,76 @@ String _localSongPlaybackUrl(String id) {
   }
   return Uri.file(id).toString();
 }
+
+/// 播放失败的用户可见分级（Wave 0-A / item 2）。
+///
+/// 把"放不出来"分成三类：不可用 / 需要会员 / 网络，其余回落到原文。分级只影响
+/// 提示文案与诊断字段，不影响失败链本身。
+enum PlaybackFailureKind { unavailable, vipRequired, network, unknown }
+
+/// 跨平台换源接缝（Wave 0-A / item 2）。
+///
+/// 传入"放不出来的那首歌"与"想再试一次的音质"，返回另一个源上可播的直链；
+/// 返回 `null` 表示那边也没有。本波**不实现**真实换源：默认为 `null`，此时失败链
+/// 就是「降一档音质 → skipToNext」，W1 再把实现接进来。
+///
+/// 用 [AudioLevel] 而不是 `AudioQuality`：整个播放面（`getSongUrl`、`switchQuality`、
+/// `PlayerState.currentQuality`）的通用货币就是档位，换源方要的也正是"还能接受
+/// 的最低档"。
+typedef CrossSourceResolver =
+    Future<String?> Function(Song song, AudioLevel quality);
+
+/// 一次失败的 `playSong` 尝试，交给失败链处理（Wave 0-A / item 2）。
+class _PlaybackFailure {
+  const _PlaybackFailure({
+    required this.song,
+    required this.platform,
+    required this.quality,
+    required this.error,
+    required this.requestId,
+    required this.usedLocalFile,
+  });
+
+  final Song song;
+
+  /// 该歌曲所属平台；本地曲目为 `null`。
+  final MusicPlatform? platform;
+
+  /// 这次尝试真正用的音质（降档从它往下走）。
+  final AudioLevel quality;
+
+  final Object error;
+  final int requestId;
+
+  /// 这次尝试用的是离线本地文件，降档/换源都无意义。
+  final bool usedLocalFile;
+}
+
+/// 播放错误提示的去重器（Wave 0-A / item 1）。
+///
+/// `PlayerState.error` 有 14 处赋值，而 `/player` 是压在 shell 上的路由 ——
+/// mini player 与全屏播放页**同时存活**，两边各自 `ref.listen` 同一个 error。
+/// 如果各自弹一条，用户会在同一个错误上看到两条 SnackBar，所以去重状态放在共享
+/// 实例里，而不是各 widget 自己一份。
+class PlaybackErrorDeduper {
+  String? _lastShown;
+
+  /// 返回 true 表示 [error] 需要提示（并记住它）。
+  ///
+  /// `null`/空串表示"错误已被清除"：重置记忆，使之后**同一条**错误能再次提示。
+  bool shouldAnnounce(String? error) {
+    if (error == null || error.isEmpty) {
+      _lastShown = null;
+      return false;
+    }
+    if (error == _lastShown) return false;
+    _lastShown = error;
+    return true;
+  }
+}
+
+/// 全 app 共享的错误提示去重状态（见 [PlaybackErrorDeduper]）。
+final playbackErrorDeduper = PlaybackErrorDeduper();
 
 class PlayerState {
   final Song? currentSong;
@@ -271,6 +342,13 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   final SongLikeResolver _isSongLiked;
   final SongLikeToggle? _toggleSongLike;
   final OfflineFilePathResolver? _offlineFilePathResolver;
+
+  /// 跨平台换源接缝；`null` 时失败链只有「降档 → 跳曲」（Wave 0-A / item 2）。
+  final CrossSourceResolver? _crossSourceResolver;
+
+  /// 失败链最多连续跳几首，防止"整张队列都取不到流"时无限跳（见 [_failureChainSkips]）。
+  final int _maxFailureChainSkips;
+
   final bool Function() _isOfflineModeEnabled;
   final Future<void> Function()? _toggleFloatingLyrics;
   final bool Function() _isFloatingLyricsEnabled;
@@ -287,9 +365,22 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   final List<int> _shuffleHistory = [];
   bool _isSwitchingQuality = false;
   bool _restoredSourceNeedsLoad = false;
+  bool _isDisposed = false;
   int _lastPositionSecond = -1;
   int _playRequestId = 0;
   int _qualityRequestId = 0;
+
+  /// 失败链连续跳了几首（Wave 0-A / item 2）。
+  ///
+  /// 没有它，`repeat: all` + 整张队列都取不到流时，每次失败都 skip 到下一首、
+  /// 下一首又失败……把一个"错误提示"变成一台无限重试机器。任何一次成功播放清零。
+  int _failureChainSkips = 0;
+
+  /// 喜欢歌曲的 key 集合，由 [updateLikedSongs] 增量维护（P-1）。
+  final Set<String> _likedSongKeys = {};
+
+  /// 是否已经收到过整份喜欢列表。未收到时回落到注入的 [_isSongLiked]。
+  bool _hasLikedSongKeys = false;
   Timer? _transitionWatchdog;
   Timer? _playbackMemoryTimer;
   Timer? _playbackHealthTimer;
@@ -338,6 +429,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     SongLikeResolver? isSongLiked,
     this._toggleSongLike,
     this._offlineFilePathResolver,
+    this._crossSourceResolver,
+    this._maxFailureChainSkips = 3,
     bool Function()? isOfflineModeEnabled,
     this._toggleFloatingLyrics,
     bool Function()? isFloatingLyricsEnabled,
@@ -442,12 +535,44 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       playlist: state.playlist,
       currentIndex: state.currentIndex,
       isCurrentSongLiked:
-          state.currentSong != null && _isSongLiked(state.currentSong!),
+          state.currentSong != null &&
+          _isCurrentSongLikedNow(state.currentSong!),
       isFloatingLyricsEnabled: _isFloatingLyricsEnabled(),
       isPlaying: state.isPlaying,
       position: state.position,
       duration: state.duration,
     );
+  }
+
+  /// `(platform, id)` 形式的喜欢键。
+  ///
+  /// 与 `likes_provider.dart` 里 `'${platform}_${id}'` 的拼法同构，也与本文件的
+  /// [_songKey] 同义。用 id+platform 而不是 `Song.dedupeKey`：喜欢列表是按
+  /// `(id, platform)` 存的（见 `LikesNotifier.toggleLike`），用 dedupeKey 会把
+  /// 同一首歌在另一个平台上的条目也判成"已喜欢"。
+  static String likedSongKeyFor(Song song) =>
+      '${song.platform.name}_${song.id}';
+
+  /// 用整份喜欢列表刷新 key 集合（Wave 0-A / P-1）。
+  ///
+  /// 以前 `playerProvider` 把 `likesProvider.songs.any(...)`（最多 500 首）当
+  /// [SongLikeResolver] 传进来，而它**每秒**都会被调一次（位置 tick → 状态更新 →
+  /// 通知刷新，Windows 也一样）→ 每秒一次 O(n)。现在只在喜欢列表变化时重建一次
+  /// `Set`，热路径上只剩一次 `Set.contains`。
+  void updateLikedSongs(Iterable<Song> songs) {
+    _likedSongKeys
+      ..clear()
+      ..addAll(songs.map(likedSongKeyFor));
+    _hasLikedSongKeys = true;
+    _syncNotificationState();
+  }
+
+  bool _isCurrentSongLikedNow(Song song) {
+    if (_hasLikedSongKeys) {
+      return _likedSongKeys.contains(likedSongKeyFor(song));
+    }
+    // 兜底：只有从未调用 [updateLikedSongs] 的构造方式（单测、嵌套用例）才走这里。
+    return _isSongLiked(song);
   }
 
   Duration _initialDurationForSong(Song song) {
@@ -1052,10 +1177,18 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
           duration: memory.duration,
           currentQuality: memory.currentQuality,
           qualityPreference: memory.qualityPreference,
+          // A-2：播放偏好和"上次播到哪"一起恢复。
+          playbackSpeed: memory.playbackSpeed,
+          skipSilence: memory.skipSilence,
+          isShuffle: memory.isShuffle,
+          repeatMode: _repeatModeFromName(memory.repeatMode),
+          abLoopStart: () => memory.abLoopStart,
+          abLoopEnd: () => memory.abLoopEnd,
           error: () => null,
           isTransitioning: false,
         ),
       );
+      await _applyRestoredPreferencesToController();
     } catch (e, s) {
       debugPrint('PlayerNotifier restore playback memory failed: $e');
       debugPrint('$s');
@@ -1080,7 +1213,49 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       duration: state.duration,
       currentQuality: state.currentQuality,
       qualityPreference: state.qualityPreference,
+      // A-2：偏好跟着一起落盘，任何一次 [_schedulePlaybackMemorySave] 都会带上。
+      playbackSpeed: state.playbackSpeed,
+      skipSilence: state.skipSilence,
+      isShuffle: state.isShuffle,
+      repeatMode: state.repeatMode.name,
+      abLoopStart: state.abLoopStart,
+      abLoopEnd: state.abLoopEnd,
     );
+  }
+
+  RepeatMode _repeatModeFromName(String name) {
+    return RepeatMode.values.firstWhere(
+      (mode) => mode.name == name,
+      orElse: () => RepeatMode.off,
+    );
+  }
+
+  /// 把恢复出来的偏好推给**已经存在**的控制器。
+  ///
+  /// 全新控制器不需要这一步：[`_restoreControllerAudioSettings`] 会在创建/重建时
+  /// 把 `state.playbackSpeed` / `state.skipSilence` 推过去。这里只覆盖"启动时已经
+  /// 有注入控制器"的情况（测试与热重建）。
+  Future<void> _applyRestoredPreferencesToController() async {
+    final controller = _audioController;
+    if (controller == null) return;
+    if (controller is PlaybackSpeedCapable && state.playbackSpeed != 1.0) {
+      try {
+        await (controller as PlaybackSpeedCapable)
+            .setPlaybackSpeed(state.playbackSpeed)
+            .timeout(_audioOperationTimeout);
+      } catch (e) {
+        debugPrint('PlayerNotifier restore speed failed: $e');
+      }
+    }
+    if (controller is SkipSilenceCapable && state.skipSilence) {
+      try {
+        await (controller as SkipSilenceCapable)
+            .setSkipSilence(true)
+            .timeout(_audioOperationTimeout);
+      } catch (e) {
+        debugPrint('PlayerNotifier restore skip silence failed: $e');
+      }
+    }
   }
 
   void _schedulePlaybackMemorySave() {
@@ -1099,11 +1274,28 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   }
 
   Future<void> flushPlaybackMemory() async {
-    final memory = _pendingPlaybackMemory ?? _buildPlaybackMemory();
+    final memory = _takePlaybackMemorySnapshot();
     if (memory == null) return;
+    await _savePlaybackMemory(memory);
+  }
+
+  /// 同步取出待落盘的快照，并清掉挂起的定时器。
+  ///
+  /// **必须同步**：快照要读 `state`，而 `StateNotifier` 在 `dispose()` 之后会对
+  /// `state` 抛 "Tried to use ... after `dispose` was called"。以前 `dispose()` 里
+  /// 直接 `unawaited(flushPlaybackMemory())`，快照是在那个异步体的同步段里构造的
+  /// —— 只要 `dispose()` 被走到第二次（Riverpod 随 scope 销毁一次、宿主/测试收尾
+  /// 再销毁一次），第二次就会读到已失效的 `state` 并抛异常（widget 用例就是这样
+  /// 被带崩的）。
+  PlayerPlaybackMemory? _takePlaybackMemorySnapshot() {
+    final memory = _pendingPlaybackMemory ?? _buildPlaybackMemory();
     _pendingPlaybackMemory = null;
     _playbackMemoryTimer?.cancel();
     _playbackMemoryTimer = null;
+    return memory;
+  }
+
+  Future<void> _savePlaybackMemory(PlayerPlaybackMemory memory) async {
     try {
       await _playbackMemoryStore.save(memory);
     } catch (e, s) {
@@ -1182,6 +1374,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
           .setPlaybackSpeed(clamped)
           .timeout(_audioOperationTimeout);
       _setState(state.copyWith(playbackSpeed: clamped, error: () => null));
+      _schedulePlaybackMemorySave();
     } catch (e, s) {
       DiagnosticsService.instance.recordError(
         'player.setPlaybackSpeed',
@@ -1205,6 +1398,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
           .setSkipSilence(enabled)
           .timeout(_audioOperationTimeout);
       _setState(state.copyWith(skipSilence: enabled, error: () => null));
+      _schedulePlaybackMemorySave();
     } catch (e, s) {
       DiagnosticsService.instance.recordError(
         'player.setSkipSilence',
@@ -1224,9 +1418,11 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     if (end != null && end <= start) {
       // 新的 A 落在 B 之后：丢弃已经无效的 B 而不是留下一个空区间。
       _setState(state.copyWith(abLoopStart: () => start, abLoopEnd: () => null));
+      _schedulePlaybackMemorySave();
       return;
     }
     _setState(state.copyWith(abLoopStart: () => start));
+    _schedulePlaybackMemorySave();
   }
 
   void setAbLoopEnd([Duration? position]) {
@@ -1237,11 +1433,13 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       return;
     }
     _setState(state.copyWith(abLoopEnd: () => end, error: () => null));
+    _schedulePlaybackMemorySave();
   }
 
   void clearAbLoop() {
     if (!state.hasAbLoop && state.abLoopStart == null) return;
     _setState(state.copyWith(abLoopStart: () => null, abLoopEnd: () => null));
+    _schedulePlaybackMemorySave();
   }
 
   void _enforceAbLoop(Duration position) {
@@ -1700,7 +1898,10 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
   }
 
   Future<void> playSong(Song song) async {
-    return _mutex.run(() async {
+    // 失败链**必须**在锁外跑（Wave 0-A / item 2）：链尾的 skipToNext 会再进
+    // [_mutex]，而锁不可重入（等待者会在 waitTimeout 后判定"卡死"并强复位）。
+    // 所以锁内的 playSong 只负责"这一次尝试"，失败就把它作为结果交给锁外的链。
+    final failure = await _mutex.run<_PlaybackFailure?>(() async {
       // 质量纪元必须在锁内推进。锁外推进正是 S-1 的死锁源：switchQuality 飞行中
       // 任意一次 playSong 都会把它的 requestId 推走，使 `finally` 里的复位条件
       // 不成立，`_isSwitchingQuality` 于是永为 true —— 换音质静默失效，并连带
@@ -1723,6 +1924,9 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       debugPrint(
         'playSong: ${song.name} (${song.platform.name}, id=${song.id})',
       );
+      // 失败链要用的上下文：这次尝试用的音质、以及是不是走的离线本地文件。
+      var attemptedQuality = state.currentQuality;
+      var usedLocalFile = false;
       try {
         _restoredSourceNeedsLoad = false;
         // 换曲即失效：A-B 循环属于上一首的时间轴。
@@ -1773,14 +1977,18 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
         // 离线模式优先：命中本地文件时既不需要质量探测，也不需要取流。
         final offlineUrl = await _offlinePlaybackUrl(song);
-        if (requestId != _playRequestId) return;
+        // 这个闭包返回 `_PlaybackFailure?`：`null` = 这次尝试没有失败（或已被
+        // 更新的请求取代），有值 = 交给锁外的失败链处理。
+        if (requestId != _playRequestId) return null;
 
         final String url;
         if (offlineUrl != null) {
           url = offlineUrl;
+          usedLocalFile = true;
         } else {
           final playbackQuality = await _resolvePlaybackQuality(song, platform);
-          if (requestId != _playRequestId) return;
+          if (requestId != _playRequestId) return null;
+          attemptedQuality = playbackQuality;
           if (playbackQuality != state.currentQuality) {
             _setState(state.copyWith(currentQuality: playbackQuality));
           }
@@ -1801,15 +2009,15 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         }
         final previewUrl = url.length > 80 ? '${url.substring(0, 80)}...' : url;
         debugPrint('playSong: got url=$previewUrl');
-        if (requestId != _playRequestId) return;
+        if (requestId != _playRequestId) return null;
 
         // CRITICAL: stop() before setUrl() to release the previous platform player
         await _safeStop();
-        if (requestId != _playRequestId) return;
+        if (requestId != _playRequestId) return null;
 
         await _setUrlWithRecovery(url, 'playSong');
         debugPrint('playSong: setUrl done');
-        if (requestId != _playRequestId) return;
+        if (requestId != _playRequestId) return null;
 
         if (_fadeEnabled) {
           await _runFade(from: 0, to: 0, generation: fadeGeneration);
@@ -1830,8 +2038,12 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
             data: {'song_id': song.id, 'platform': song.platform.name},
           );
         }
+        // 成功路径（以及"已被更新请求取代"）都要显式返回 null：这个闭包的返回
+        // 类型是 `_PlaybackFailure?`，否则 analyzer 会报"ends without returning"。
+        return null;
       } catch (e, s) {
-        if (requestId != _playRequestId) return;
+        // 陈旧请求：新的 playSong 已经在推进，本次失败不再有任何后续动作。
+        if (requestId != _playRequestId) return null;
         debugPrint('Playback error: $e');
         debugPrint('Playback stack: $s');
         _cancelTransitionWatchdog();
@@ -1848,8 +2060,296 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
           s,
           data: {'song_id': song.id, 'platform': song.platform.name},
         );
+        return _PlaybackFailure(
+          song: song,
+          platform: platform,
+          quality: attemptedQuality,
+          error: e,
+          requestId: requestId,
+          usedLocalFile: usedLocalFile,
+        );
       }
     }, label: 'playSong');
+
+    if (failure == null) {
+      // 有一次成功播放就把"连续失败"计数清零。
+      _failureChainSkips = 0;
+      return;
+    }
+    await _runPlaybackFailureChain(failure);
+  }
+
+  // ── 播放失败链（Wave 0-A / item 2） ─────────────────────────────────────
+  //
+  // 以前 playSong 失败只是 `_setState(error: ...)`：队列里明明还有下一首，用户
+  // 却只能停在一首永远放不出来的歌上。现在的顺序是
+  //   ① 降一档音质重试 → ② 可注入的跨平台换源（本波默认 null）→ ③ skipToNext
+  // 每一步都写 DiagnosticsService，真机上才有可能复盘"这首歌为什么放不出来"。
+
+  Future<void> _runPlaybackFailureChain(_PlaybackFailure failure) async {
+    if (!mounted || failure.requestId != _playRequestId) return;
+    final notice = _playbackFailureNotice(failure.error);
+    DiagnosticsService.instance.record(
+      'player',
+      'playback_failure_chain_start',
+      data: {
+        'song_id': failure.song.id,
+        'platform': failure.song.platform.name,
+        'quality': failure.quality.name,
+        'local_file': failure.usedLocalFile,
+        'kind': _classifyPlaybackFailure(failure.error).name,
+      },
+    );
+
+    // 离线本地文件放不出来时降档/换源都没有意义（没有"另一个码率的本地文件"）。
+    final canTryOtherSources =
+        !failure.usedLocalFile &&
+        failure.song.platform != PlatformType.local &&
+        failure.platform != null;
+    if (canTryOtherSources) {
+      if (await _retryPlaybackWithLowerQuality(failure)) {
+        _failureChainSkips = 0;
+        return;
+      }
+      if (await _retryPlaybackWithCrossSource(failure)) {
+        _failureChainSkips = 0;
+        return;
+      }
+    }
+
+    await _giveUpOnFailedPlayback(failure, notice);
+  }
+
+  /// ① 降一档音质：从这次用的档位往下逐级试，任一级取到流就重新起播。
+  Future<bool> _retryPlaybackWithLowerQuality(_PlaybackFailure failure) async {
+    final platform = failure.platform;
+    if (platform == null) return false;
+    for (final quality in _lowerQualityLevels(failure.quality)) {
+      if (!mounted || failure.requestId != _playRequestId) return false;
+      DiagnosticsService.instance.record(
+        'player',
+        'playback_failure_downshift_attempt',
+        data: {
+          'song_id': failure.song.id,
+          'platform': failure.song.platform.name,
+          'from': failure.quality.name,
+          'to': quality.name,
+        },
+      );
+      try {
+        final url = await DiagnosticsService.instance.measure(
+          'platform.getSongUrl.failureDownshift',
+          () => platform
+              .getSongUrl(failure.song.id, quality: quality)
+              .timeout(const Duration(seconds: 10)),
+          data: {'song_id': failure.song.id, 'quality': quality.name},
+        );
+        if (!mounted || failure.requestId != _playRequestId) return false;
+        if (url.trim().isEmpty) continue;
+        if (await _playResolvedUrl(failure, url, quality, 'downshift')) {
+          DiagnosticsService.instance.record(
+            'player',
+            'playback_failure_downshift_success',
+            data: {
+              'song_id': failure.song.id,
+              'from': failure.quality.name,
+              'to': quality.name,
+            },
+          );
+          return true;
+        }
+      } catch (error, stack) {
+        DiagnosticsService.instance.recordError(
+          'player.playbackFailureDownshift',
+          error,
+          stack,
+          data: {'song_id': failure.song.id, 'quality': quality.name},
+        );
+      }
+    }
+    return false;
+  }
+
+  /// ② 跨平台换源。本波 [_crossSourceResolver] 默认为 `null`（W1 才接真实实现），
+  /// 此时这一步直接跳过，链就是「降档 → skipToNext」。
+  Future<bool> _retryPlaybackWithCrossSource(_PlaybackFailure failure) async {
+    final resolver = _crossSourceResolver;
+    if (resolver == null) return false;
+    final qualities = <AudioLevel>[
+      failure.quality,
+      ..._lowerQualityLevels(failure.quality),
+    ];
+    for (final quality in qualities) {
+      if (!mounted || failure.requestId != _playRequestId) return false;
+      DiagnosticsService.instance.record(
+        'player',
+        'playback_failure_cross_source_attempt',
+        data: {
+          'song_id': failure.song.id,
+          'platform': failure.song.platform.name,
+          'quality': quality.name,
+        },
+      );
+      try {
+        final url = await resolver(failure.song, quality);
+        if (!mounted || failure.requestId != _playRequestId) return false;
+        if (url == null || url.trim().isEmpty) continue;
+        if (await _playResolvedUrl(failure, url, quality, 'crossSource')) {
+          DiagnosticsService.instance.record(
+            'player',
+            'playback_failure_cross_source_success',
+            data: {'song_id': failure.song.id, 'quality': quality.name},
+          );
+          return true;
+        }
+      } catch (error, stack) {
+        DiagnosticsService.instance.recordError(
+          'player.playbackFailureCrossSource',
+          error,
+          stack,
+          data: {'song_id': failure.song.id, 'quality': quality.name},
+        );
+      }
+    }
+    return false;
+  }
+
+  /// 用换来的直链重新起播；成功返回 true。
+  Future<bool> _playResolvedUrl(
+    _PlaybackFailure failure,
+    String url,
+    AudioLevel quality,
+    String label,
+  ) {
+    // 同样在锁外调用（失败链整体在锁外），这里再进一次锁是安全的。
+    return _mutex.run(() async {
+      if (!mounted || failure.requestId != _playRequestId) return false;
+      try {
+        final fadeGeneration = _cancelActiveFades();
+        await _safeStop();
+        if (!mounted || failure.requestId != _playRequestId) return false;
+        await _setUrlWithRecovery(url, 'failureChain.$label');
+        if (!mounted || failure.requestId != _playRequestId) return false;
+        _safePlay(requestId: failure.requestId);
+        unawaited(_runFade(from: 0, to: 1, generation: fadeGeneration));
+        _schedulePlaybackVolumeRecovery(fadeGeneration);
+        _setState(
+          state.copyWith(
+            currentQuality: quality,
+            isPlaying: true,
+            isTransitioning: false,
+            error: () => null,
+          ),
+        );
+        _resetPlaybackHealthWindow(applyGrace: true);
+        _schedulePlaybackMemorySave();
+        _cancelTransitionWatchdog();
+        return true;
+      } catch (error, stack) {
+        DiagnosticsService.instance.recordError(
+          'player.playbackFailureRetry',
+          error,
+          stack,
+          data: {'song_id': failure.song.id, 'label': label},
+        );
+        return false;
+      }
+    }, label: 'failureChain.$label');
+  }
+
+  /// ③ 全失败：能跳就跳下一首，队列里没有下一首时只提示、不跳。
+  Future<void> _giveUpOnFailedPlayback(
+    _PlaybackFailure failure,
+    String notice,
+  ) async {
+    if (!mounted || failure.requestId != _playRequestId) return;
+    final canSkip = _canSkipAfterPlaybackFailure();
+    DiagnosticsService.instance.record(
+      'player',
+      'playback_failure_chain_exhausted',
+      data: {
+        'song_id': failure.song.id,
+        'platform': failure.song.platform.name,
+        'quality': failure.quality.name,
+        'can_skip': canSkip,
+        'skips': _failureChainSkips,
+      },
+    );
+    if (canSkip) {
+      _failureChainSkips++;
+      DiagnosticsService.instance.record(
+        'player',
+        'playback_failure_skip_next',
+        data: {
+          'song_id': failure.song.id,
+          'index': state.currentIndex,
+          'skips': _failureChainSkips,
+        },
+      );
+      await skipToNext();
+      if (!mounted) return;
+    }
+    // 错误必须在 skipToNext **之后**写：playSong 一开始就会 `error: () => null`，
+    // 先写会被它抹掉 —— 那样"这首歌放不出来、已经跳下一首"对用户彻底不可见。
+    _setState(
+      state.copyWith(
+        isPlaying: canSkip ? state.isPlaying : false,
+        isTransitioning: false,
+        error: () => canSkip ? '$notice，已跳到下一首' : notice,
+      ),
+    );
+  }
+
+  /// 队列里还有没有"可跳的下一首"。
+  ///
+  /// 三个例外都返回 false：只剩这一首、单曲循环（跳等于重放坏歌）、失败链已经连续
+  /// 跳了 [_maxFailureChainSkips] 次（`repeat: all` + 全队列取不到流时不能无限跳）。
+  bool _canSkipAfterPlaybackFailure() {
+    if (_failureChainSkips >= _maxFailureChainSkips) return false;
+    if (state.repeatMode == RepeatMode.one) return false;
+    final playlist = state.playlist;
+    if (playlist.length <= 1 || state.currentIndex < 0) return false;
+    if (state.isShuffle) return true;
+    if (state.currentIndex + 1 < playlist.length) return true;
+    return state.repeatMode == RepeatMode.all;
+  }
+
+  /// [quality] 之下（更省流）的所有档位，从高到低。
+  List<AudioLevel> _lowerQualityLevels(AudioLevel quality) {
+    return [
+      for (final level in AudioLevel.values)
+        if (level.index < quality.index) level,
+    ].reversed.toList(growable: false);
+  }
+
+  PlaybackFailureKind _classifyPlaybackFailure(Object error) {
+    if (error is TimeoutException) return PlaybackFailureKind.network;
+    final exception = apiExceptionOf(error);
+    if (exception is NetworkException) return PlaybackFailureKind.network;
+    if (exception is NoVipMembershipException) {
+      return PlaybackFailureKind.vipRequired;
+    }
+    if (exception is SongNotAvailableException ||
+        exception is QualityNotAvailableException ||
+        exception is NotFoundException ||
+        exception is LoginExpiredException) {
+      return PlaybackFailureKind.unavailable;
+    }
+    if (exception.statusCode != null && exception.statusCode! >= 500) {
+      return PlaybackFailureKind.network;
+    }
+    return PlaybackFailureKind.unknown;
+  }
+
+  /// 分级提示：不可用 / 需会员 / 网络；认不出来的失败不把 Dart 内部错误抛给用户。
+  String _playbackFailureNotice(Object error) {
+    final exception = apiExceptionOf(error);
+    return switch (_classifyPlaybackFailure(error)) {
+      PlaybackFailureKind.network => '网络连接失败，请检查网络后重试',
+      PlaybackFailureKind.vipRequired => exception.message,
+      PlaybackFailureKind.unavailable => exception.message,
+      PlaybackFailureKind.unknown => '播放失败，请稍后重试',
+    };
   }
 
   Future<void> playPlaylist(List<Song> songs, {int startIndex = 0}) async {
@@ -2103,6 +2603,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     } else {
       _setState(state.copyWith(isShuffle: newShuffle));
     }
+    _schedulePlaybackMemorySave();
   }
 
   void _resetShuffleBookkeeping() {
@@ -2160,6 +2661,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     final modes = RepeatMode.values;
     final nextIndex = (state.repeatMode.index + 1) % modes.length;
     _setState(state.copyWith(repeatMode: modes[nextIndex]));
+    _schedulePlaybackMemorySave();
   }
 
   Future<void> skipToNext() async {
@@ -2312,14 +2814,162 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     _schedulePlaybackMemorySave();
   }
 
+  // ── 队列编辑 API（Wave 0-A / item 7；W1-D 的队列页要用） ───────────────
+
+  /// 从队列里移除所有 [dedupeKey] 命中的曲目。
+  ///
+  /// [dedupeKey] 用 `Song.dedupeKey`（跨平台去重键），不是 `(id, platform)`：
+  /// 队列里同一首歌来自两个平台时，"从队列移除这首歌"应当把两份都拿掉。
+  ///
+  /// 语义：
+  /// * 当前曲目没被移除 → 只改队列，不碰播放器；
+  /// * 当前曲目被移除 → 由"原下标位置上剩下的那一首"接手播放（在末尾则取新的
+  ///   最后一首）；
+  /// * 队列被清空 → 等价于 [clearQueue]（停止播放并清掉当前曲目）。
+  Future<void> removeFromQueue(String dedupeKey) async {
+    final playlist = state.playlist;
+    if (playlist.isEmpty) return;
+    final removedIndexes = <int>[
+      for (var i = 0; i < playlist.length; i++)
+        if (playlist[i].dedupeKey == dedupeKey) i,
+    ];
+    if (removedIndexes.isEmpty) return;
+
+    final remaining = <Song>[
+      for (var i = 0; i < playlist.length; i++)
+        if (!removedIndexes.contains(i)) playlist[i],
+    ];
+    if (remaining.isEmpty) {
+      await clearQueue();
+      return;
+    }
+
+    final currentIndex = state.currentIndex;
+    final removesCurrentSong =
+        currentIndex >= 0 &&
+        currentIndex < playlist.length &&
+        removedIndexes.contains(currentIndex);
+    if (!removesCurrentSong) {
+      final current = state.currentSong;
+      final newIndex = current == null
+          ? state.currentIndex
+          : remaining.indexWhere(
+              (song) =>
+                  song.id == current.id && song.platform == current.platform,
+            );
+      _setState(
+        state.copyWith(
+          playlist: remaining,
+          currentIndex: newIndex < 0 ? state.currentIndex : newIndex,
+        ),
+      );
+      _schedulePlaybackMemorySave();
+      return;
+    }
+
+    // 当前曲目被移除：先让队列反映删除结果，再由接手的那一首重新起播。
+    final handoverIndex = currentIndex.clamp(0, remaining.length - 1);
+    _setState(
+      state.copyWith(playlist: remaining, currentIndex: handoverIndex),
+    );
+    _schedulePlaybackMemorySave();
+    await playSong(remaining[handoverIndex]);
+  }
+
+  /// 清空队列并停止播放。
+  ///
+  /// 与 `removeFromQueue(最后一首)` 完全一致：队列为空时就不该再有一首"当前曲目"
+  /// 继续播下去。同时清掉落盘的播放记忆，否则重启后会把用户刚清掉的歌恢复回来。
+  Future<void> clearQueue() async {
+    if (state.playlist.isEmpty && state.currentSong == null) return;
+    _playRequestId++;
+    _qualityRequestId++;
+    _isSwitchingQuality = false;
+    _isRecoveringPlayback = false;
+    _restoredSourceNeedsLoad = false;
+    _failureChainSkips = 0;
+    _cancelTransitionWatchdog();
+    _cancelActiveFades();
+    await _mutex.run(() => _safeStop(), label: 'clearQueue');
+    if (!mounted) return;
+    _resetShuffleBookkeeping();
+    _lastPositionSecond = -1;
+    _setState(
+      PlayerState(
+        currentQuality: state.currentQuality,
+        qualityPreference: state.qualityPreference,
+        playbackSpeed: state.playbackSpeed,
+        skipSilence: state.skipSilence,
+        isShuffle: state.isShuffle,
+        repeatMode: state.repeatMode,
+      ),
+    );
+    await _clearPlaybackMemory();
+  }
+
+  /// 把队列里第 [from] 首移动到第 [to] 位（[to] 是移动**之后**的下标）。
+  ///
+  /// 只重排队列，**不碰播放器**（不 stop/setUrl/play），所以正在播的那一首不会
+  /// 被打断；[PlayerState.currentIndex] 跟着当前曲目一起移动。越界是 no-op。
+  void moveInQueue(int from, int to) {
+    final playlist = state.playlist;
+    if (from < 0 || from >= playlist.length) return;
+    if (to < 0 || to >= playlist.length) return;
+    if (from == to) return;
+    final reordered = List<Song>.from(playlist);
+    final moved = reordered.removeAt(from);
+    reordered.insert(to, moved);
+    final current = state.currentSong;
+    final newIndex = current == null
+        ? state.currentIndex
+        : reordered.indexWhere(
+            (song) => song.id == current.id && song.platform == current.platform,
+          );
+    _setState(
+      state.copyWith(
+        playlist: reordered,
+        currentIndex: newIndex < 0 ? state.currentIndex : newIndex,
+      ),
+    );
+    _schedulePlaybackMemorySave();
+  }
+
+  /// 播放队列里的第 [index] 首。越界是 no-op。
+  Future<void> playAtIndex(int index) async {
+    final playlist = state.playlist;
+    if (index < 0 || index >= playlist.length) return;
+    await playSong(playlist[index]);
+  }
+
+  Future<void> _clearPlaybackMemory() async {
+    _pendingPlaybackMemory = null;
+    _playbackMemoryTimer?.cancel();
+    _playbackMemoryTimer = null;
+    try {
+      await _playbackMemoryStore.clear();
+    } catch (e, s) {
+      debugPrint('PlayerNotifier clear playback memory failed: $e');
+      debugPrint('$s');
+    }
+  }
+
   @override
   void dispose() {
+    // Riverpod 会随 scope 销毁 notifier，宿主/测试收尾还可能再销毁一次；第二次必须
+    // 是 no-op —— 已 dispose 的 `state` 不可读（见 [_takePlaybackMemorySnapshot]）。
+    if (_isDisposed) return;
+    _isDisposed = true;
     _cancelTransitionWatchdog();
     _stuckWatchdogTimer?.cancel();
     _stuckWatchdogTimer = null;
     _playbackMemoryTimer?.cancel();
     _playbackHealthTimer?.cancel();
-    unawaited(flushPlaybackMemory());
+    // 快照必须在 super.dispose() 之前**同步**取好（它读 state）；只有落盘可以
+    // fire-and-forget。
+    final memory = _takePlaybackMemorySnapshot();
+    if (memory != null) {
+      unawaited(_savePlaybackMemory(memory));
+    }
     for (final sub in _subscriptions) {
       sub.cancel();
     }
@@ -2344,10 +2994,10 @@ final playerProvider = StateNotifierProvider<PlayerNotifier, PlayerState>((
 ) {
   final notifier = PlayerNotifier(
     playbackMemoryStore: HivePlayerPlaybackMemoryStore(),
-    isSongLiked: (song) => ref
-        .read(likesProvider)
-        .songs
-        .any((liked) => liked.id == song.id && liked.platform == song.platform),
+    // P-1：喜欢状态不再走"每秒问一遍 likesProvider.songs.any(...)"的回调（最多
+    // 500 首 × 每秒一次，Windows 也一样），改成下面 seed + 增量推送 key 集合。
+    // 本波也不传 crossSourceResolver：默认 null，失败链就是「降档 → skipToNext」，
+    // W1 再把真实换源接进来。
     toggleSongLike: (song) =>
         ref.read(likesProvider.notifier).toggleLike(song).then((_) {}),
     toggleFloatingLyrics: () =>
@@ -2359,9 +3009,12 @@ final playerProvider = StateNotifierProvider<PlayerNotifier, PlayerState>((
     offlineFilePathResolver: (song) =>
         ref.read(downloadProvider.notifier).localFilePathFor(song),
   );
+  // 先把当前喜欢列表灌进 key 集合（首次构建时通常还是空的，加载完成后由下面的
+  // listener 再灌一次），此后热路径上只剩一次 `Set.contains`。
+  notifier.updateLikedSongs(ref.read(likesProvider).songs);
   ref.listen<List<Song>>(
     likesProvider.select((state) => state.songs),
-    (_, _) => notifier.refreshNotificationState(),
+    (_, songs) => notifier.updateLikedSongs(songs),
   );
   ref.listen<bool>(
     floatingLyricsProvider.select((state) => state.enabled),

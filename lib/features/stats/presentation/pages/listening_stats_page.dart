@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/widgets/app_scrollbar.dart';
+import '../../../../core/widgets/async_state_view.dart';
 import '../providers/listening_stats_provider.dart';
 
 class ListeningStatsPage extends ConsumerWidget {
@@ -29,26 +30,13 @@ class ListeningStatsPage extends ConsumerWidget {
       body: Builder(
         builder: (context) {
           if (state.isLoading) {
-            return const Center(child: CircularProgressIndicator());
+            return const AsyncStateView.loading();
           }
           if (state.error != null) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    state.error!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  FilledButton.tonal(
-                    onPressed: notifier.load,
-                    child: const Text('重试'),
-                  ),
-                ],
-              ),
+            return AsyncStateView.error(
+              title: '加载失败',
+              message: state.error!,
+              onRetry: notifier.load,
             );
           }
           final dimensions = report.valueOrNull;
@@ -62,9 +50,12 @@ class ListeningStatsPage extends ConsumerWidget {
                 Text('常听歌曲', style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 8),
                 if (state.topSongs.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 32),
-                    child: Center(child: Text('还没有统计记录')),
+                  // Section-level empty state: the page itself has content (the
+                  // summary + dimension rows), so it is bounded rather than
+                  // filling the viewport.
+                  const SizedBox(
+                    height: 200,
+                    child: AsyncStateView.empty(title: '还没有统计记录'),
                   )
                 else ...[
                   if (state.allSongs.length > state.topSongs.length)

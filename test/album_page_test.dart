@@ -108,10 +108,13 @@ void main() {
 
     expect(find.textContaining('暂不支持'), findsOneWidget);
     expect(find.text('重试'), findsOneWidget);
+    // Contract rule 1: the retry affordance is an `ElevatedButton`, never a
+    // `TextButton` that reads as a link next to a full-page failure.
+    expect(find.widgetWithText(ElevatedButton, '重试'), findsOneWidget);
     expect(qq.albumCalls, isEmpty, reason: '不支持时不应发起请求');
   });
 
-  testWidgets('专辑无数据时说明暂无信息', (tester) async {
+  testWidgets('专辑无数据时说明暂无信息，且这是空态而不是错误态', (tester) async {
     final qq = FakeContentPlatform(type: PlatformType.qq);
 
     await tester.pumpWidget(wrap(qq));
@@ -119,6 +122,13 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(find.text('暂无专辑信息'), findsOneWidget);
+
+    // Changed by the W0-F three-state migration: this branch used to reuse the
+    // *error* widget, so an album that simply has no tracks offered a "重试"
+    // button that could never help. It now goes through the shared
+    // `AsyncStateView.empty`, which has no retry affordance by contract.
+    expect(find.text('重试'), findsNothing);
+    expect(find.byType(ElevatedButton), findsNothing);
   });
 
   testWidgets('加载失败时显示平台错误信息并可重试', (tester) async {
@@ -133,5 +143,6 @@ void main() {
 
     expect(find.textContaining('boom'), findsOneWidget);
     expect(find.text('重试'), findsOneWidget);
+    expect(find.widgetWithText(ElevatedButton, '重试'), findsOneWidget);
   });
 }

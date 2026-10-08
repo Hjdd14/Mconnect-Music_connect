@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -81,6 +82,51 @@ void main() {
     expect(LocalLyricsLoader.decode('[00:01.00]x', '.md'), isNull);
   });
 
+  test('load() decodes a GBK sidecar instead of dropping it', () async {
+    // 用户自备的中文 .lrc 大量是 GBK/GB18030：`readAsString()` 严格 UTF-8 解码
+    // 直接抛异常，整首歌变成"暂无歌词"。
+    final loader = LocalLyricsLoader();
+    final gbkPath = p.join(root.path, 'gbk.lrc');
+    // '中文歌词' 的标准 GBK 编码：D6D0 CEC4 B8E8 B4CA。
+    await File(gbkPath).writeAsBytes([
+      ...'[00:01.00]'.codeUnits,
+      0xD6, 0xD0, 0xCE, 0xC4, 0xB8, 0xE8, 0xB4, 0xCA,
+    ]);
+
+    final payload = await loader.load(gbkPath);
+
+    expect(payload, isNotNull);
+    expect(payload!.content, '[00:01.00]中文歌词');
+    expect(payload.format, LyricsFormat.lrc);
+    expect(
+      LyricsDocument.parse(payload.content, payload.format).lines.single.text,
+      '中文歌词',
+    );
+  });
+
+  test('load() strips a UTF-8 BOM before storing the lyrics', () async {
+    final loader = LocalLyricsLoader();
+    final bomPath = p.join(root.path, 'bom.lrc');
+    await File(bomPath).writeAsBytes([
+      0xEF, 0xBB, 0xBF,
+      ...utf8Bytes('[00:02.00]带 BOM 的歌词'),
+    ]);
+
+    final payload = await loader.load(bomPath);
+
+    expect(payload?.content, '[00:02.00]带 BOM 的歌词');
+  });
+
+  test('load() keeps a strictly valid UTF-8 file as UTF-8', () async {
+    final loader = LocalLyricsLoader();
+    final utf8Path = p.join(root.path, 'utf8.lrc');
+    // GBK 也能"解码"这段字节而不报错，所以必须先做严格 UTF-8 判定，否则中文
+    // 会被二次解码成乱码。
+    await File(utf8Path).writeAsBytes(utf8Bytes('[00:01.00]中文歌词'));
+
+    expect((await loader.load(utf8Path))?.content, '[00:01.00]中文歌词');
+  });
+
   test('load() reads a sidecar and rejects an undecodable one', () async {
     final loader = LocalLyricsLoader();
     final lrcPath = p.join(root.path, 'song.lrc');
@@ -113,3 +159,5 @@ void main() {
     expect(await store.loadAll(), isEmpty);
   });
 }
+
+List<int> utf8Bytes(String text) => utf8.encode(text);

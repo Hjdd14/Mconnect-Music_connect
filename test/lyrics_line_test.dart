@@ -60,6 +60,68 @@ void main() {
     expect(doc.lines.last.text, 'World');
   });
 
+  test('applies a positive [offset:ms] tag to the whole timeline', () {
+    const raw = '[offset:500]\n[00:01.00]Hello\n[00:03.00]World';
+
+    final doc = LyricsDocument.parse(raw, LyricsFormat.lrc);
+
+    expect(doc.lines, hasLength(2));
+    expect(doc.lines.first.timestamp, const Duration(milliseconds: 1500));
+    expect(doc.lines.last.timestamp, const Duration(milliseconds: 3500));
+  });
+
+  test('applies a negative [offset] declared after the lyric lines', () {
+    // Players accept the tag anywhere in the file, including a trailing
+    // footer, so the offset cannot be applied while streaming the lines.
+    const raw = '[00:02.00]Late tag\n[offset:-1000]';
+
+    final doc = LyricsDocument.parse(raw, LyricsFormat.lrc);
+
+    expect(doc.lines.single.text, 'Late tag');
+    expect(doc.lines.single.timestamp, const Duration(seconds: 1));
+  });
+
+  test('keeps the lyric line when it carries the [offset] tag itself', () {
+    const raw = '[offset:250][00:01.00]Inline';
+
+    final doc = LyricsDocument.parse(raw, LyricsFormat.lrc);
+
+    expect(doc.lines.single.text, 'Inline');
+    expect(doc.lines.single.timestamp, const Duration(milliseconds: 1250));
+  });
+
+  test('keeps every line when three lines share one timestamp', () {
+    const raw = '[00:01.00]Hello\n[00:01.00]Ni hao\n[00:01.00]Bonjour';
+
+    final doc = LyricsDocument.parse(raw, LyricsFormat.lrc);
+
+    expect(doc.lines.map((line) => line.text), ['Hello', 'Bonjour']);
+    expect(doc.lines.first.translation, 'Ni hao');
+    expect(doc.lines.last.translation, isNull);
+  });
+
+  test('keeps the file order of lines sharing a timestamp (stable sort)', () {
+    // `List.sort` gives no stability guarantee: with enough entries the
+    // underlying quicksort is free to swap the two lines of a pair, which
+    // used to display the translation as the main lyric.
+    final buffer = StringBuffer();
+    for (var i = 0; i < 40; i++) {
+      final stamp = '[00:${(i + 1).toString().padLeft(2, '0')}.00]';
+      buffer.writeln('${stamp}Original $i');
+      buffer.writeln('${stamp}Translation $i');
+    }
+
+    final doc = LyricsDocument.parse(buffer.toString(), LyricsFormat.lrc);
+
+    expect(doc.lines, hasLength(40));
+    expect(doc.lines.map((line) => line.text), [
+      for (var i = 0; i < 40; i++) 'Original $i',
+    ]);
+    expect(doc.lines.map((line) => line.translation), [
+      for (var i = 0; i < 40; i++) 'Translation $i',
+    ]);
+  });
+
   testWidgets('word timing lyrics render official translation below original', (
     tester,
   ) async {

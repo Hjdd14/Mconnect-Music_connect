@@ -4,6 +4,16 @@ import 'models/lyrics_line.dart';
 /// player lyrics, so both highlight the already-sung part of a line the same
 /// way.
 
+/// Applies the user's manual calibration to a playback position.
+///
+/// This is the single definition of "which lyric line is current" for both
+/// screens: `lyrics_display.dart` matches its lines against `position + offset`
+/// and the floating overlay shifts the position the same way before it picks a
+/// line. Keeping it in one function is what stops the overlay from drifting
+/// behind the player page whenever the user calibrates.
+Duration applyLyricsOffset(Duration position, Duration offset) =>
+    position + offset;
+
 /// How many leading characters of [line] playback has already reached.
 ///
 /// Word-timed formats (QRC/KRC) accumulate whole words plus the elapsed part

@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mconnect/core/database/app_database.dart';
+import 'package:mconnect/features/local_music/data/local_library_reconciler.dart';
 import 'package:mconnect/features/local_music/data/local_lyrics_loader.dart';
 import 'package:mconnect/features/local_music/data/local_lyrics_store.dart';
 import 'package:mconnect/features/local_music/data/local_metadata_reader.dart';
@@ -30,12 +32,14 @@ void main() {
     LocalMetadataReader? reader,
     LocalTrackStore? tracks,
     LocalLyricsStore? lyrics,
+    LocalLyricsLoader? lyricsLoader,
     bool? scanInIsolate,
   }) {
     return LocalMusicRepository(
       metadataReader: reader,
       trackStore: tracks ?? MemoryLocalTrackStore(),
       lyricsStore: lyrics ?? MemoryLocalLyricsStore(),
+      lyricsLoader: lyricsLoader,
       coverDirectoryPath: p.join(root.path, 'covers'),
       scanInIsolate: scanInIsolate,
     );
@@ -332,6 +336,200 @@ void main() {
     expect(second.skippedLyrics, isEmpty);
   });
 
+  test('a sidecar is stamped once and an unchanged one is never re-read', () async {
+    await writeFlacFixture(
+      root,
+      'stamped.flac',
+      title: '标注',
+      artist: '歌手',
+      album: '专辑',
+    );
+    final lrc = File(p.join(root.path, 'stamped.lrc'));
+    await lrc.writeAsString('[00:01.00]第一版');
+    final tracks = MemoryLocalTrackStore();
+    final lyrics = _CountingLyricsStore();
+    final loader = _CountingLyricsLoader();
+    final repo = repository(
+      tracks: tracks,
+      lyrics: lyrics,
+      lyricsLoader: loader,
+    );
+
+    final first = await repo.scanDirectory(root.path);
+    expect(first.lyricsBySongId, hasLength(1));
+    expect(loader.loads, 1);
+    expect(lyrics.saves, 1);
+
+    // The index row records the stamp of the file the lyrics came from, which is
+    // what makes the next scan able to tell "unchanged" from "replaced".
+    final stat = lrc.statSync();
+    final stampedRow = (await tracks.loadAll()).single;
+    expect(stampedRow.lyricsMtime, stat.modified.millisecondsSinceEpoch);
+    expect(stampedRow.lyricsSize, stat.size);
+
+    final second = await repo.scanDirectory(root.path);
+    expect(second.lyricsBySongId, hasLength(1));
+    expect(loader.loads, 1, reason: '未变的 .lrc 不得再读一次');
+    expect(lyrics.saves, 1, reason: '未变的歌词不得再落库');
+    expect(second.reusedCount, 1);
+  });
+
+  test('replacing a sidecar in place is noticed and re-read', () async {
+    await writeFlacFixture(
+      root,
+      'edited.flac',
+      title: '编辑',
+      artist: '歌手',
+      album: '专辑',
+    );
+    final lrc = File(p.join(root.path, 'edited.lrc'));
+    await lrc.writeAsString('[00:01.00]旧词');
+    final lyrics = _CountingLyricsStore();
+    final loader = _CountingLyricsLoader();
+    final repo = repository(lyrics: lyrics, lyricsLoader: loader);
+
+    await repo.scanDirectory(root.path);
+    expect(loader.loads, 1);
+    expect(lyrics.saves, 1);
+
+    // Same path, different bytes: the `(mtime, size)` stamped on the row no
+    // longer describes the file, so the stored lyrics are stale.
+    await lrc.writeAsString('[00:01.00]新词，写长一些以便 size 必然不同');
+    final rescan = await repo.scanDirectory(root.path);
+
+    expect(loader.loads, 2, reason: '被替换的 .lrc 必须重读');
+    expect(lyrics.saves, 2, reason: '新内容必须落库');
+    expect(rescan.lyricsBySongId.values.single, contains('新词'));
+    expect(rescan.lyricsBySongId.values.single, isNot(contains('旧词')));
+  });
+
+  test('a row from before v3 has no stamp and is read once, then stamped', () async {
+    // A v2 library has the lyrics row but no `lyricsMtime`/`lyricsSize`, so the
+    // first scan after the upgrade cannot prove the sidecar is unchanged and
+    // re-reads it — exactly once. Every scan after that is a `stat` and nothing
+    // more.
+    await writeFlacFixture(
+      root,
+      'legacy.flac',
+      title: '旧库',
+      artist: '歌手',
+      album: '专辑',
+    );
+    final audioPath = p.join(root.path, 'legacy.flac');
+    await File(p.join(root.path, 'legacy.lrc')).writeAsString('[00:01.00]旧库词');
+    final tracks = MemoryLocalTrackStore([
+      LocalTrackEntry(path: audioPath, mtime: 0, size: 0),
+    ]);
+    final lyrics = _CountingLyricsStore();
+    // What the pre-v3 build stored for this track, before stamps existed.
+    await lyrics.save(audioPath, '[00:01.00]陈旧的词', 'lrc');
+    lyrics.saves = 0;
+    final loader = _CountingLyricsLoader();
+    final repo = repository(
+      tracks: tracks,
+      lyrics: lyrics,
+      lyricsLoader: loader,
+    );
+
+    final first = await repo.scanDirectory(root.path);
+    expect(loader.loads, 1, reason: '无戳记的旧行需重读一次');
+    expect(lyrics.saves, 1);
+    expect(first.lyricsBySongId[audioPath], '[00:01.00]旧库词');
+    expect((await tracks.loadAll()).single.lyricsMtime, isNotNull);
+    expect((await tracks.loadAll()).single.lyricsSize, isNotNull);
+
+    await repo.scanDirectory(root.path);
+    expect(loader.loads, 1, reason: '补上戳记后不再重读');
+    expect(lyrics.saves, 1);
+  });
+
+  test('falls back to the container lyrics when no sidecar decodes', () async {
+    final audio = File(p.join(root.path, 'embedded.mp3'));
+    await audio.writeAsBytes(_id3v24WithLyrics('[00:01.00]内嵌歌词'));
+    final tracks = MemoryLocalTrackStore();
+    final lyrics = MemoryLocalLyricsStore();
+    final repo = LocalMusicRepository(
+      // A real reader, so the container's `USLT` frame is what supplies the
+      // fallback; injecting one also forces the inline (non-isolate) scan.
+      metadataReader: AudioMetadataReader(),
+      trackStore: tracks,
+      lyricsStore: lyrics,
+      scanInIsolate: false,
+    );
+
+    final result = await repo.scanDirectory(root.path);
+
+    expect(result.lyricsBySongId[audio.path], '[00:01.00]内嵌歌词');
+    expect(
+      (await lyrics.loadAllWithFormat())[audio.path],
+      LocalLibraryReconciler.embeddedLyricsFormat,
+      reason: '内嵌来源必须被标成 embedded',
+    );
+    // No file stamp: these lyrics did not come from a sidecar, and stamping them
+    // with one would let the embedded copy shadow a `.lrc` that appears later.
+    expect((await tracks.loadAll()).single.lyricsMtime, isNull);
+    expect((await tracks.loadAll()).single.lyricsSize, isNull);
+
+    // The fallback is not re-read on every scan.
+    final second = await repo.scanDirectory(root.path);
+    expect(second.lyricsBySongId[audio.path], '[00:01.00]内嵌歌词');
+  });
+
+  test('a sidecar .lrc wins over the container lyrics', () async {
+    final audio = File(p.join(root.path, 'embedded2.mp3'));
+    await audio.writeAsBytes(_id3v24WithLyrics('[00:01.00]内嵌歌词'));
+    await File(
+      p.join(root.path, 'embedded2.lrc'),
+    ).writeAsString('[00:02.00]外部词');
+    final lyrics = MemoryLocalLyricsStore();
+    final repo = LocalMusicRepository(
+      metadataReader: AudioMetadataReader(),
+      trackStore: MemoryLocalTrackStore(),
+      lyricsStore: lyrics,
+      scanInIsolate: false,
+    );
+
+    final result = await repo.scanDirectory(root.path);
+
+    expect(
+      result.lyricsBySongId[audio.path],
+      '[00:02.00]外部词',
+      reason: '外部文件优先于内嵌',
+    );
+    expect((await lyrics.loadAllWithFormat())[audio.path], 'lrc');
+  });
+
+  test('a sidecar added later takes over from the stored embedded lyrics', () async {
+    // The upgrade path the "embedded rows carry no file stamp" decision exists
+    // for: with a stamp recorded, the embedded copy would look "unchanged" and
+    // never yield to the sidecar.
+    final audio = File(p.join(root.path, 'embedded3.mp3'));
+    await audio.writeAsBytes(_id3v24WithLyrics('[00:01.00]内嵌歌词'));
+    final tracks = MemoryLocalTrackStore();
+    final lyrics = MemoryLocalLyricsStore();
+    final repo = LocalMusicRepository(
+      metadataReader: AudioMetadataReader(),
+      trackStore: tracks,
+      lyricsStore: lyrics,
+      scanInIsolate: false,
+    );
+
+    await repo.scanDirectory(root.path);
+    expect(
+      (await lyrics.loadAllWithFormat())[audio.path],
+      LocalLibraryReconciler.embeddedLyricsFormat,
+    );
+
+    await File(
+      p.join(root.path, 'embedded3.lrc'),
+    ).writeAsString('[00:02.00]外部词');
+    final result = await repo.scanDirectory(root.path);
+
+    expect(result.lyricsBySongId[audio.path], '[00:02.00]外部词');
+    expect((await lyrics.loadAllWithFormat())[audio.path], 'lrc');
+    expect((await tracks.loadAll()).single.lyricsMtime, isNotNull);
+  });
+
   test('the isolate scan path reads the same tags', () async {
     await writeFlacFixture(
       root,
@@ -423,3 +621,78 @@ void main() {
     expect(await tracks.loadAll(), hasLength(2));
   });
 }
+
+/// Lyrics store that counts how often content is written.
+///
+/// The schema-v3 contract is "an unchanged sidecar is not re-read and not
+/// re-written", and a write is the observable half of it.
+class _CountingLyricsStore extends MemoryLocalLyricsStore {
+  int saves = 0;
+
+  @override
+  Future<void> save(
+    String songId,
+    String content,
+    String format, {
+    int? syncedAt,
+  }) async {
+    saves += 1;
+    await super.save(songId, content, format, syncedAt: syncedAt);
+  }
+}
+
+/// Lyrics loader that counts how often a sidecar file is actually opened.
+class _CountingLyricsLoader extends LocalLyricsLoader {
+  int loads = 0;
+
+  @override
+  Future<LocalLyricsPayload?> load(String lyricsPath) {
+    loads += 1;
+    return super.load(lyricsPath);
+  }
+}
+
+/// A minimal ID3v2.4 tag holding one `USLT` (unsynchronised lyrics) frame.
+///
+/// The MP3 container only needs a leading `ID3` tag to be accepted by
+/// `audio_metadata_reader` (`MP3Parser.hasID3v2Tag`), and it tolerates a file
+/// with no MPEG audio frame at all (`_parseAudioFrames` returns early). The
+/// lyrics parser requires a zero-length content descriptor, which is the `0x00`
+/// after the three language bytes.
+///
+/// The header is `ID3` + version(2) + flags(1) + synchsafe size(4) = 10 bytes —
+/// the flags byte is easy to forget and shifting the size by one byte makes the
+/// parser read a garbage tag size and bail out.
+List<int> _id3v24WithLyrics(String? lyrics) {
+  final frames = <int>[
+    if (lyrics != null)
+      ..._frame('USLT', [
+        0x03, // UTF-8
+        0x65, 0x6E, 0x67, // 'eng'
+        0x00, // empty descriptor, null-terminated
+        ...utf8.encode(lyrics),
+      ]),
+  ];
+  return [
+    0x49, 0x44, 0x33, // 'ID3'
+    0x04, 0x00, // v2.4
+    0x00, // header flags
+    ..._synchsafe(frames.length),
+    ...frames,
+  ];
+}
+
+List<int> _frame(String id, List<int> payload) => [
+  ...id.codeUnits,
+  ..._synchsafe(payload.length),
+  0x00, 0x00, // frame flags
+  ...payload,
+];
+
+/// ID3v2 sizes are 28-bit synchsafe integers (7 bits per byte).
+List<int> _synchsafe(int value) => [
+  (value >> 21) & 0x7F,
+  (value >> 14) & 0x7F,
+  (value >> 7) & 0x7F,
+  value & 0x7F,
+];

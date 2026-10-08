@@ -64,6 +64,27 @@ void main() {
     }
   });
 
+  testWidgets('概览的说明文字用 onSurfaceVariant，不用 outline', (tester) async {
+    // The page has no loading/error/empty branch of its own (it is a settings
+    // form that always renders), so the only W0-F contract item that applies
+    // here is rule 2: body copy uses the theme's *secondary text* role.
+    // `outline` is a border colour and fails contrast as copy.
+    await tester.pumpWidget(
+      const ProviderScope(child: MaterialApp(home: OfflineCachePage())),
+    );
+    await tester.pumpAndSettle();
+
+    const captionText =
+        '缓存中心复用下载队列，批量缓存整张歌单或专辑时会在这里统一管理。';
+    final context = tester.element(find.text('缓存概览'));
+    final scheme = Theme.of(context).colorScheme;
+
+    expect(find.text(captionText), findsOneWidget);
+    final caption = tester.widget<Text>(find.text(captionText));
+    expect(caption.style?.color, scheme.onSurfaceVariant);
+    expect(caption.style?.color, isNot(scheme.outline));
+  });
+
   testWidgets('manual cleanup stays enabled even when 自动清理 is off', (
     tester,
   ) async {

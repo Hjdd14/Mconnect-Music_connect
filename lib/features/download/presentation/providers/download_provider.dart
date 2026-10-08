@@ -26,6 +26,17 @@ const Duration kAutoRetryDelay = Duration(seconds: 3);
 /// How often the offline cache remembers "this file was used".
 const Duration kCacheAccessTouchInterval = Duration(minutes: 1);
 
+/// How often progress-only changes are written to disk.
+///
+/// `DownloadManager` already caps progress events at one per second per task
+/// (`_reportProgress`), but every one of them used to serialize the **whole**
+/// task list into Hive — with N concurrent downloads that is O(N²) JSON
+/// encoding per second. A progress tick now only marks its row dirty and the
+/// write is coalesced into one flush per interval carrying just the changed
+/// rows. Status transitions (start / pause / fail / complete / add / remove)
+/// still flush immediately, because those are the ones a restart must not lose.
+const Duration kProgressPersistInterval = Duration(seconds: 2);
+
 /// The switches the queue obeys.
 ///
 /// These are the same four switches the 离线缓存中心 page shows. They used to be
@@ -91,12 +102,30 @@ class DownloadState {
   /// normally.
   final String? queueBlockedReason;
 
+  /// Ids of **completed** tasks whose recorded file path is also claimed by
+  /// another completed task.
+  ///
+  /// Two rows can legitimately point at one file — a manual download and the
+  /// offline-cache row for the same song+quality, or two rows written before the
+  /// file name carried the quality. The app never renames or deletes anything on
+  /// its own (those are the user's files), so the duplicates are reported here
+  /// and the UI (W0-F) tells the user.
+  final Set<String> duplicatePathTaskIds;
+
+  /// One-shot: the path a removal deliberately left on disk because another
+  /// completed task still points at it. `null` when the last removal deleted its
+  /// file normally. Cleared by
+  /// [DownloadNotifier.acknowledgeKeptSharedFile].
+  final String? keptSharedFilePath;
+
   const DownloadState({
     this.tasks = const [],
     this.isCheckingVip = false,
     this.offlineCacheBytes,
     this.queuePaused = false,
     this.queueBlockedReason,
+    this.duplicatePathTaskIds = const <String>{},
+    this.keptSharedFilePath,
   });
 
   DownloadState copyWith({
@@ -105,6 +134,8 @@ class DownloadState {
     Object? offlineCacheBytes = _unset,
     bool? queuePaused,
     Object? queueBlockedReason = _unset,
+    Set<String>? duplicatePathTaskIds,
+    Object? keptSharedFilePath = _unset,
   }) {
     return DownloadState(
       tasks: tasks ?? this.tasks,
@@ -116,6 +147,11 @@ class DownloadState {
       queueBlockedReason: identical(queueBlockedReason, _unset)
           ? this.queueBlockedReason
           : queueBlockedReason as String?,
+      duplicatePathTaskIds:
+          duplicatePathTaskIds ?? this.duplicatePathTaskIds,
+      keptSharedFilePath: identical(keptSharedFilePath, _unset)
+          ? this.keptSharedFilePath
+          : keptSharedFilePath as String?,
     );
   }
 
@@ -218,6 +254,17 @@ class DownloadNotifier extends StateNotifier<DownloadState> {
   StreamSubscription<Object?>? _connectionSubscription;
   late final Future<void> ready;
 
+  /// Rows whose *progress tick* changed since the last disk flush.
+  ///
+  /// Only progress updates use this; every structural change writes the whole
+  /// list right away (see [_setTasks]).
+  final Set<String> _dirtyTaskIds = <String>{};
+  Timer? _persistTimer;
+
+  /// How often progress-only changes are written. Injectable so a test does not
+  /// have to wait seconds for the flush.
+  final Duration progressPersistInterval;
+
   DownloadNotifier({
     DownloadManager? manager,
     DownloadState? initialState,
@@ -230,12 +277,21 @@ class DownloadNotifier extends StateNotifier<DownloadState> {
     this.connectivityStream,
     this.retryDelay = kAutoRetryDelay,
     this.maxAutoRetries = kMaxAutoRetries,
+    this.progressPersistInterval = kProgressPersistInterval,
   }) : _manager = manager ?? DownloadManager(),
        _taskStore = taskStore ?? defaultDownloadTaskStore(),
        _fileExists = fileExists ?? ((path) => File(path).exists()),
        _taskFileSize = taskFileSize ?? _defaultTaskFileSize,
        _policy = policy ?? (() => DownloadQueuePolicy.defaults),
        super(initialState ?? const DownloadState()) {
+    // `initialState` bypasses the normal restore path, so derive the duplicate
+    // report from it here as well — the state must never claim no duplicates
+    // while holding rows that share one file.
+    if (initialState != null && initialState.tasks.isNotEmpty) {
+      state = state.copyWith(
+        duplicatePathTaskIds: duplicatePathTaskIdsIn(initialState.tasks),
+      );
+    }
     _scheduler =
         scheduler ??
         DownloadScheduler(
@@ -657,7 +713,8 @@ class DownloadNotifier extends StateNotifier<DownloadState> {
       downloadedBytes: progress.downloadedBytes,
       totalBytes: () => progress.totalBytes,
     );
-    _setTasks(tasks);
+    // Progress only: the UI updates now, the disk write is coalesced.
+    _setTasksThrottled(tasks, taskId);
   }
 
   /// Starts a task the scheduler handed a slot to.
@@ -855,7 +912,8 @@ class DownloadNotifier extends StateNotifier<DownloadState> {
     return _manager.resetCustomRootDirectory();
   }
 
-  /// Remove a task from the list. Completed tasks also delete the local file.
+  /// Remove a task from the list. Completed tasks also delete the local file —
+  /// unless another completed task still points at it.
   Future<bool> removeTask(String taskId) async {
     _retryTimers.remove(taskId)?.cancel();
     _retryAttempts.remove(taskId);
@@ -866,17 +924,74 @@ class DownloadNotifier extends StateNotifier<DownloadState> {
     if (index == -1) return true;
 
     final task = state.tasks[index];
+    String? keptSharedFilePath;
     if (task.status == DownloadStatus.completed) {
-      final deleted = await _manager.deleteDownloadedFile(task);
-      if (!deleted) return false;
-      if (!mounted) return true;
+      if (_isPathSharedByAnother(task)) {
+        // Two completed rows can point at one file: a manual download and the
+        // offline-cache row for the same song+quality, or two rows written
+        // before the file name carried the quality. The record goes, the file
+        // stays — deleting it here would destroy the other row's file (and a
+        // file the user may well have put there themselves). The UI gets the
+        // path so it can say so.
+        keptSharedFilePath = task.filePath;
+      } else {
+        final deleted = await _manager.deleteDownloadedFile(task);
+        if (!deleted) return false;
+        if (!mounted) return true;
+      }
     }
 
     final tasks = List<DownloadTask>.from(state.tasks);
     tasks.removeAt(index);
-    _setTasks(tasks);
+    _setTasks(tasks, keptSharedFilePath: keptSharedFilePath);
     return true;
   }
+
+  /// Clears the one-shot [DownloadState.keptSharedFilePath] notice once the UI
+  /// has shown it.
+  void acknowledgeKeptSharedFile() {
+    if (!mounted || state.keptSharedFilePath == null) return;
+    state = state.copyWith(keptSharedFilePath: null);
+  }
+
+  /// Whether another **completed** task records the same file path as [task].
+  bool _isPathSharedByAnother(DownloadTask task) {
+    final raw = task.filePath?.trim();
+    if (raw == null || raw.isEmpty) return false;
+    final key = _pathKey(raw);
+    return state.tasks.any(
+      (other) =>
+          other.id != task.id &&
+          other.status == DownloadStatus.completed &&
+          other.filePath != null &&
+          other.filePath!.trim().isNotEmpty &&
+          _pathKey(other.filePath!.trim()) == key,
+    );
+  }
+
+  /// Ids of completed rows that share a recorded path with another completed
+  /// row. Pure reporting: nothing is renamed and nothing is deleted.
+  ///
+  /// The key normalizes separators (`\` vs `/`) and collapses repeated ones, and
+  /// is deliberately **not** case-folded, so the answer is identical on every
+  /// platform the app runs on.
+  static Set<String> duplicatePathTaskIdsIn(List<DownloadTask> tasks) {
+    final byPath = <String, List<String>>{};
+    for (final task in tasks) {
+      if (task.status != DownloadStatus.completed) continue;
+      final raw = task.filePath?.trim();
+      if (raw == null || raw.isEmpty) continue;
+      byPath.putIfAbsent(_pathKey(raw), () => <String>[]).add(task.id);
+    }
+    final duplicates = <String>{};
+    for (final ids in byPath.values) {
+      if (ids.length > 1) duplicates.addAll(ids);
+    }
+    return duplicates;
+  }
+
+  static String _pathKey(String path) =>
+      path.replaceAll(r'\', '/').replaceAll(RegExp('/+'), '/');
 
   /// Check if a song is already downloaded.
   bool isDownloaded(String songId, AudioLevel quality, {String? platform}) {
@@ -891,6 +1006,8 @@ class DownloadNotifier extends StateNotifier<DownloadState> {
 
   @override
   void dispose() {
+    _persistTimer?.cancel();
+    _persistTimer = null;
     for (final sub in _subscriptions.values) {
       sub.cancel();
     }
@@ -912,6 +1029,9 @@ class DownloadNotifier extends StateNotifier<DownloadState> {
     final restored = <DownloadTask>[];
     final seenIds = <String>{};
     for (final task in stored) {
+      // A stored row keeps the path it was written with — including a row from a
+      // build whose file name carried no quality. The app must not rename or move
+      // a file the user already has; only *new* downloads use the new name.
       final normalized = await _normalizeRestoredTask(task);
       if (normalized == null) continue;
       // Builds before this change gave cache rows and manual rows the same id;
@@ -920,8 +1040,11 @@ class DownloadNotifier extends StateNotifier<DownloadState> {
       restored.add(normalized);
     }
 
-    state = state.copyWith(tasks: restored);
-    await _persistTasks(restored);
+    state = state.copyWith(
+      tasks: restored,
+      duplicatePathTaskIds: duplicatePathTaskIdsIn(restored),
+    );
+    await _persistAll(restored);
     await refreshCacheUsage();
     await _autoResumeRestored(restored);
   }
@@ -1004,15 +1127,60 @@ class DownloadNotifier extends StateNotifier<DownloadState> {
     );
   }
 
-  void _setTasks(List<DownloadTask> tasks) {
+  /// Structural change — add, remove, or any status/file-path transition.
+  ///
+  /// The whole list is written at once (and the duplicate-path report is
+  /// recomputed) because this is the state a restart has to see.
+  ///
+  /// [keptSharedFilePath] is always applied, so a plain call *clears* the
+  /// one-shot notice from a previous removal.
+  void _setTasks(List<DownloadTask> tasks, {String? keptSharedFilePath}) {
     if (!mounted) return;
-    state = state.copyWith(tasks: tasks);
-    unawaited(_persistTasks(tasks));
+    state = state.copyWith(
+      tasks: tasks,
+      duplicatePathTaskIds: duplicatePathTaskIdsIn(tasks),
+      keptSharedFilePath: keptSharedFilePath,
+    );
+    // A full write supersedes anything queued.
+    _persistTimer?.cancel();
+    _persistTimer = null;
+    _dirtyTaskIds.clear();
+    unawaited(_persistAll(tasks));
   }
 
-  Future<void> _persistTasks(List<DownloadTask> tasks) {
-    return _taskStore.save(List<DownloadTask>.unmodifiable(tasks));
+  /// Progress-only change: the list and the UI update now, the disk write is
+  /// coalesced into one save per [progressPersistInterval].
+  ///
+  /// The store writes only the rows whose content actually changed, so this
+  /// costs one small Hive write per window instead of one per progress event
+  /// per task (each of which used to re-serialize the whole library).
+  void _setTasksThrottled(List<DownloadTask> tasks, String changedTaskId) {
+    if (!mounted) return;
+    state = state.copyWith(
+      tasks: tasks,
+      duplicatePathTaskIds: duplicatePathTaskIdsIn(tasks),
+    );
+    _dirtyTaskIds.add(changedTaskId);
+    _persistTimer ??= Timer(progressPersistInterval, _flushDirtyTasks);
   }
+
+  void _flushDirtyTasks() {
+    _persistTimer = null;
+    if (_dirtyTaskIds.isEmpty) return;
+    // Nothing to write when the only rows that moved are gone again: the
+    // removal already went out as a structural save.
+    final stillPresent = state.tasks.any(
+      (task) => _dirtyTaskIds.contains(task.id),
+    );
+    _dirtyTaskIds.clear();
+    if (!mounted || !stillPresent) return;
+    // The store itself skips the rows that did not change, so handing it the
+    // whole list is a cheap way to say "write whatever moved".
+    unawaited(_persistAll(state.tasks));
+  }
+
+  Future<void> _persistAll(List<DownloadTask> tasks) =>
+      _taskStore.save(List<DownloadTask>.unmodifiable(tasks));
 }
 
 final downloadProvider = StateNotifierProvider<DownloadNotifier, DownloadState>(

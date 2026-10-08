@@ -279,7 +279,9 @@ class _SummaryCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               '缓存中心复用下载队列，批量缓存整张歌单或专辑时会在这里统一管理。',
-              style: TextStyle(color: cs.outline, fontSize: 12),
+              // Contract rule 2: body copy uses the theme's secondary-text role,
+              // never `outline` (a border colour).
+              style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
             ),
           ],
         ),

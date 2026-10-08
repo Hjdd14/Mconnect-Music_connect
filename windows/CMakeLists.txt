@@ -67,6 +67,19 @@ if(TARGET just_audio_windows_plugin)
   target_compile_options(just_audio_windows_plugin PRIVATE /utf-8)
 endif()
 
+# `connectivity_plus` ships a source file containing non-ASCII characters. This
+# machine builds under code page 936 (zh-CN), where MSVC reports C4819 ("file
+# contains a character that cannot be represented in the current code page")
+# and `APPLY_STANDARD_SETTINGS`' `/WX` escalates that warning into error C2220 —
+# so `flutter build windows` fails *inside a plugin this project does not own*,
+# with a message that looks nothing like the actual cause. `/utf-8` declares the
+# sources to be UTF-8, which removes the warning and makes the plugin compile
+# the same way on every code page. (Same remedy as the two entries above; both
+# existed before this, which is why this was the last one to surface.)
+if(TARGET connectivity_plus_plugin)
+  target_compile_options(connectivity_plus_plugin PRIVATE /utf-8)
+endif()
+
 if(TARGET permission_handler_windows_plugin)
   target_compile_definitions(permission_handler_windows_plugin PRIVATE
     "_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS")

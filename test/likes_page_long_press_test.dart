@@ -38,8 +38,20 @@ class _StubLikes extends LikesNotifier {
   /// on the row it was opened from.
   final toggledSongs = <Song>[];
 
+  /// How many times the page asked for a (re)load — the three-state tests need
+  /// this to prove the retry button is wired to `loadLikes`.
+  int loadCalls = 0;
+
+  /// Puts the page into an arbitrary state (loading / error / filtered empty).
+  ///
+  /// A method rather than a direct `state = …` from the test body: `state` is
+  /// `@protected`, so only the subclass may write it.
+  void seedState(LikesState next) => state = next;
+
   @override
-  Future<void> loadLikes() async {}
+  Future<void> loadLikes() async {
+    loadCalls++;
+  }
 
   @override
   Future<bool> isLiked(String songId, PlatformType platform) async {
@@ -182,5 +194,69 @@ void main() {
     );
 
     await tester.pump(const Duration(seconds: 5));
+  });
+
+  /// 三态契约（W0-E）：这一页的内联三态换成了共享的 `AsyncStateView`。
+  ///
+  /// The three assertions here are the ones that were impossible before the
+  /// migration: a *skeleton* (not a spinner) while loading, and a retry that is
+  /// an `ElevatedButton` wired back to `loadLikes`.
+  group('我喜欢 · 三态契约（W0-E）', () {
+    Future<void> pumpRaw(WidgetTester tester, LikesNotifier likes) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [likesProvider.overrideWith((ref) => likes)],
+          child: const MaterialApp(home: LikesPage()),
+        ),
+      );
+      // Deliberately `pump`, never `pumpAndSettle`: the skeleton's `Shimmer` is
+      // an infinite animation, so settling would time out.
+      await tester.pump();
+    }
+
+    testWidgets('加载中 → 共享骨架屏；没有转圈，也没有重试', (tester) async {
+      final likes = _StubLikes(db)
+        ..seedState(const LikesState(isLoading: true));
+
+      await pumpRaw(tester, likes);
+
+      expect(
+        find.byKey(const Key('async-skeleton-list')),
+        findsOneWidget,
+        reason: '高频列表的 loading 态必须是骨架屏',
+      );
+      expect(
+        find.byType(CircularProgressIndicator),
+        findsNothing,
+        reason: '三态统一后这一页不再有自己的转圈实现',
+      );
+      expect(find.text('重试'), findsNothing);
+    });
+
+    testWidgets('加载失败 → 统一错误态：重试是 ElevatedButton，且真的重新加载', (tester) async {
+      final likes = _StubLikes(db)
+        ..seedState(const LikesState(error: '加载喜欢列表失败'));
+      final loadCallsBefore = likes.loadCalls;
+
+      await pumpRaw(tester, likes);
+
+      expect(find.text('加载失败'), findsOneWidget);
+      expect(find.text('加载喜欢列表失败'), findsOneWidget);
+      expect(
+        find.widgetWithText(ElevatedButton, '重试'),
+        findsOneWidget,
+        reason: 'AsyncStateView 规则 1：重试永远是 ElevatedButton',
+      );
+      expect(find.widgetWithText(TextButton, '重试'), findsNothing);
+
+      await tester.tap(find.text('重试'));
+      await tester.pump();
+
+      expect(
+        likes.loadCalls,
+        loadCallsBefore + 1,
+        reason: '重试必须接回 provider 的 loadLikes',
+      );
+    });
   });
 }

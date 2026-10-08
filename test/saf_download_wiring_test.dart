@@ -228,7 +228,7 @@ void main() {
       _song.platform,
       AudioLevel.low,
     );
-    final expectedPath = p.join(expectedDir.path, 'Artist - Song.mp3');
+    final expectedPath = p.join(expectedDir.path, task().fileName);
 
     expect(completed.completed, isTrue);
     // The manager joins with `/` (pre-existing behaviour); Windows reports `\`
@@ -240,7 +240,7 @@ void main() {
     // The default path stays `<root>/downloads/<platform>/<mp3|flac>/<name>`.
     expect(
       expectedPath,
-      p.join(tempDir.path, 'downloads', 'netease', 'mp3', 'Artist - Song.mp3'),
+      p.join(tempDir.path, 'downloads', 'netease', 'mp3', task().fileName),
     );
     expect(tree.copyCalls, isEmpty, reason: '未配置 SAF 时不得触碰 SAF 通道');
     expect(await service.currentTreeSelection(), isNull);
@@ -303,15 +303,15 @@ void main() {
     expect(tree.copyCalls, hasLength(1));
     expect(tree.copyCalls.single['treeUri'], _treeUri);
     expect(tree.copyCalls.single['relativePath'], 'netease/mp3');
-    expect(tree.copyCalls.single['fileName'], 'Artist - Song.mp3');
+    expect(tree.copyCalls.single['fileName'], task().fileName);
     // The transfer happened in staging, and the staged copy was removed only
     // after the publish succeeded.
     expect(
       p.normalize(tree.copyCalls.single['sourcePath']! as String),
-      p.normalize(p.join(stagingDir.path, 'Artist - Song.mp3')),
+      p.normalize(p.join(stagingDir.path, task().fileName)),
     );
     expect(
-      File(p.join(stagingDir.path, 'Artist - Song.mp3')).existsSync(),
+      File(p.join(stagingDir.path, task().fileName)).existsSync(),
       isFalse,
       reason: '发布成功后必须删掉 staging 临时文件',
     );
@@ -341,9 +341,9 @@ void main() {
     // The failure points at the staging file, which is what a retry resumes.
     expect(
       p.normalize(terminal.filePath!),
-      p.normalize(p.join(stagingDir.path, 'Artist - Song.mp3')),
+      p.normalize(p.join(stagingDir.path, task().fileName)),
     );
-    final staged = File(p.join(stagingDir.path, 'Artist - Song.mp3'));
+    final staged = File(p.join(stagingDir.path, task().fileName));
     expect(staged.existsSync(), isTrue, reason: '发布失败必须保留临时文件');
     expect(await staged.length(), body.length);
   });
@@ -351,13 +351,16 @@ void main() {
   test('a resumed SAF download continues from the staged bytes', () async {
     final service = serviceWith(selection: selection());
     final manager = managerWith(service);
-    // A previous attempt already staged half the file.
+    // A previous attempt already staged half the file. The task's own record has
+    // to agree with what is on disk — that is the condition a resume is allowed
+    // to trust (W0-C).
+    final resumable = task().copyWith(downloadedBytes: 1024);
     Directory(stagingDir.path).createSync(recursive: true);
     await File(
-      p.join(stagingDir.path, 'Artist - Song.mp3'),
+      p.join(stagingDir.path, resumable.fileName),
     ).writeAsBytes(body.sublist(0, 1024));
 
-    final events = await run(manager, task());
+    final events = await run(manager, resumable);
 
     expect(events.last.completed, isTrue);
     expect(
@@ -405,14 +408,14 @@ void main() {
     final manager = managerWith(service);
     Directory(stagingDir.path).createSync(recursive: true);
     await File(
-      p.join(stagingDir.path, 'Artist - Song.mp3'),
+      p.join(stagingDir.path, task().fileName),
     ).writeAsBytes(body.sublist(0, 700));
 
     expect(await manager.partialBytesOf(task()), 700);
 
     await manager.discardPartialFile(task());
     expect(
-      File(p.join(stagingDir.path, 'Artist - Song.mp3')).existsSync(),
+      File(p.join(stagingDir.path, task().fileName)).existsSync(),
       isFalse,
     );
   });

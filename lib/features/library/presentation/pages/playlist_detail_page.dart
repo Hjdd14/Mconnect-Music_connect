@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/share/song_actions.dart';
 import '../../../../core/utils/snackbar_helper.dart';
 import '../../../../core/widgets/app_scrollbar.dart';
+import '../../../../core/widgets/async_state_view.dart';
 import '../../../../models/audio_quality.dart';
 import '../../../../models/platform_type.dart';
 import '../../../../models/playlist.dart';
@@ -341,34 +342,19 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage> {
 
   Widget _buildBody(List<Song> songs) {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const AsyncStateView.loading();
     }
     if (_error != null) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              '加载歌单失败',
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: () => unawaited(_load()),
-              icon: const Icon(Icons.refresh, size: 18),
-              label: const Text('重试'),
-            ),
-          ],
-        ),
+      // No `message`: `_error` is whatever `_fetchSongs` threw (often a
+      // `TimeoutException`), and the page has always shown the plain headline
+      // rather than a raw exception to the user.
+      return AsyncStateView.error(
+        title: '加载歌单失败',
+        onRetry: () => unawaited(_load()),
       );
     }
     if (songs.isEmpty) {
-      return Center(
-        child: Text(
-          '歌单暂无歌曲',
-          style: TextStyle(color: Theme.of(context).colorScheme.outline),
-        ),
-      );
+      return const AsyncStateView.empty(title: '歌单暂无歌曲');
     }
 
     return AppScrollbar(
@@ -522,7 +508,6 @@ class _PlaylistTargetSheetState extends ConsumerState<_PlaylistTargetSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
     final local = ref.watch(myPlaylistsProvider).playlists;
     return SafeArea(
       child: ConstrainedBox(
@@ -554,11 +539,13 @@ class _PlaylistTargetSheetState extends ConsumerState<_PlaylistTargetSheet> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 else if (playlists.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(
-                      '暂无可编辑歌单，或当前平台暂不支持',
-                      style: TextStyle(color: cs.outline),
+                  // 空态走共享视图：原来的 `Text(style: color: outline)` 正是
+                  // 契约点名的「用边框色当正文色」问题（M-73）。高度固定，
+                  // 因为这是底部弹窗里的区块空态，不该撑满 70% 的弹窗。
+                  const SizedBox(
+                    height: 180,
+                    child: AsyncStateView.empty(
+                      title: '暂无可编辑歌单，或当前平台暂不支持',
                     ),
                   )
                 else

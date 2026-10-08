@@ -7,8 +7,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:just_audio/just_audio.dart' as just_audio;
+import 'package:mconnect/features/player/presentation/providers/lyrics_offset_provider.dart';
 import 'package:mconnect/features/player/presentation/providers/lyrics_provider.dart';
 import 'package:mconnect/features/player/presentation/providers/player_provider.dart';
+import 'package:mconnect/features/floating_lyrics/data/floating_lyrics_models.dart';
 import 'package:mconnect/features/floating_lyrics/presentation/providers/floating_lyrics_provider.dart';
 import 'package:mconnect/models/artist.dart';
 import 'package:mconnect/models/platform_type.dart';
@@ -947,6 +949,94 @@ void main() {
       );
     },
   );
+
+  test(
+    'the overlay applies the manual lyrics offset to the position it sends',
+    () async {
+      const channel = MethodChannel('com.mconnect.mconnect/floating_lyrics');
+      final calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            calls.add(call);
+            return switch (call.method) {
+              'canDrawOverlays' => true,
+              'hide' => true,
+              'update' => true,
+              _ => null,
+            };
+          });
+
+      const document = LyricsDocument(
+        lines: [
+          LyricsLine(timestamp: Duration.zero, text: 'First lyric'),
+          LyricsLine(timestamp: Duration(seconds: 5), text: 'Second lyric'),
+        ],
+      );
+      final player = _FloatingLyricsTestPlayerNotifier()
+        ..setPosition(const Duration(seconds: 1));
+      final container = ProviderContainer(
+        overrides: [
+          playerProvider.overrideWith((ref) => player),
+          lyricsProvider.overrideWith((ref) async => document),
+        ],
+      );
+      addTearDown(container.dispose);
+      await container.read(lyricsProvider.future);
+      container.read(floatingLyricsSyncProvider);
+
+      await container.read(floatingLyricsProvider.notifier).setEnabled(true);
+      await pumpEventQueue();
+      expect(
+        (calls.lastWhere((call) => call.method == 'update').arguments
+            as Map<Object?, Object?>)['text'],
+        'First lyric',
+      );
+
+      // +5s: the in-app player matches lines against `position + offset`, so the
+      // overlay must send the same shifted position to the native window.
+      await container
+          .read(lyricsOffsetProvider.notifier)
+          .setOffset(const Duration(seconds: 5));
+      await pumpEventQueue();
+
+      final updates = calls.where((call) => call.method == 'update').toList();
+      expect(
+        updates.length,
+        greaterThan(1),
+        reason: '改变偏移必须重新下发一次原生载荷（播放暂停时 position 不会自己动）',
+      );
+      expect(
+        (updates.last.arguments as Map<Object?, Object?>)['text'],
+        'Second lyric',
+      );
+    },
+  );
+
+  test('the native payload carries the fields the Windows overlay paints', () {
+    const document = LyricsDocument(
+      lines: [
+        LyricsLine(timestamp: Duration.zero, text: 'Main line'),
+        LyricsLine(timestamp: Duration(seconds: 5), text: 'Next line'),
+      ],
+    );
+    const settings = FloatingLyricsSettings(
+      highlightColor: Color(0xFF112233),
+      textColor: Color(0xFFEEDDCC),
+    );
+
+    final payload = FloatingLyricsSyncController.payloadForPosition(
+      document,
+      const Duration(seconds: 1),
+    );
+    final json = payload.toJson(settings);
+
+    // 这三个字段 Windows 原生窗口过去只收不使用；Dart 侧必须先保证发出来。
+    expect(json['highlightColor'], const Color(0xFF112233).toARGB32());
+    expect(json['textColor'], const Color(0xFFEEDDCC).toARGB32());
+    expect(json['nextText'], 'Next line');
+    expect(json['highlightProgress'], isA<double>());
+    expect(json['highlightProgress'], closeTo(0.2, 0.0001));
+  });
 
   test('disabling floating lyrics releases the lock', () async {
     final notifier = FloatingLyricsNotifier();

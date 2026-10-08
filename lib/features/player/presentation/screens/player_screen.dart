@@ -148,8 +148,25 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
     return remaining;
   }
 
+  /// 把播放错误提示给用户（Wave 0-A / item 1）。
+  ///
+  /// `PlayerState.error` 有 14 处赋值但修复前没有任何 widget 读它。去重状态是
+  /// 共享的 [playbackErrorDeduper]：`/player` 压在 shell 上时本页与 mini player
+  /// 同时活着，各弹一条就是同一个错误弹两次。
+  void _announcePlaybackError(String? error) {
+    if (error == null || error.isEmpty) {
+      playbackErrorDeduper.shouldAnnounce(null);
+      return;
+    }
+    if (!playbackErrorDeduper.shouldAnnounce(error)) return;
+    showErrorSnackBar(context, error);
+  }
+
   @override
   Widget build(BuildContext context) {
+    ref.listen<String?>(playerProvider.select((s) => s.error), (_, next) {
+      _announcePlaybackError(next);
+    });
     // Only watch stable fields; position/duration read via Timer
     final song = ref.watch(playerProvider.select((s) => s.currentSong));
     final isPlaying = ref.watch(playerProvider.select((s) => s.isPlaying));

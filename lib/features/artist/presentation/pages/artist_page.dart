@@ -7,6 +7,7 @@ import '../../../../core/network/platform_http.dart';
 import '../../../../core/share/song_actions.dart';
 import '../../../../core/theme/platform_accent.dart';
 import '../../../../core/widgets/app_scrollbar.dart';
+import '../../../../core/widgets/async_state_view.dart';
 import '../../../../models/album.dart';
 import '../../../../models/artist.dart';
 import '../../../../models/platform_type.dart';
@@ -51,20 +52,25 @@ class _ArtistPageState extends ConsumerState<ArtistPage> {
         ],
       ),
       body: async.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => _ArtistMessage(
-          icon: Icons.error_outline,
-          message: apiExceptionOf(error).message,
-          details: apiExceptionOf(error).details,
-          onRetry: () => ref.invalidate(artistPageProvider(_key)),
-        ),
+        loading: () => const AsyncStateView.loading(),
+        error: (error, _) {
+          final typed = apiExceptionOf(error);
+          return AsyncStateView.error(
+            title: typed.message,
+            message: typed.details,
+            onRetry: () => ref.invalidate(artistPageProvider(_key)),
+          );
+        },
         data: (data) {
           if (data.isEmpty) {
-            return _ArtistMessage(
+            // Nothing to show is not a failure. The `artistError` reason (e.g.
+            // the platform answered but every section came back empty) is still
+            // surfaced, but no retry is offered because there is nothing to
+            // retry — the shared contract draws that line.
+            return AsyncStateView.empty(
+              title: '暂无艺人信息',
+              message: data.artistError,
               icon: Icons.person_off_outlined,
-              message: '暂无艺人信息',
-              details: data.artistError,
-              onRetry: () => ref.invalidate(artistPageProvider(_key)),
             );
           }
           return RefreshIndicator(
@@ -372,9 +378,11 @@ class _InlineHint extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Text(
         text,
+        // Contract rule 2: body copy uses the theme's secondary-text role.
+        // `outline` is a *border* colour and fails contrast as copy.
         style: TextStyle(
           fontSize: 12,
-          color: Theme.of(context).colorScheme.outline,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
         ),
       ),
     );
@@ -393,57 +401,17 @@ class _InlineError extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: Row(
         children: [
-          Icon(Icons.info_outline, size: 16, color: cs.outline),
+          Icon(Icons.info_outline, size: 16, color: cs.onSurfaceVariant),
           const SizedBox(width: 6),
           Expanded(
             child: Text(
               message,
-              style: TextStyle(fontSize: 12, color: cs.outline),
+              // Rule 2, as above: this is an error *message*, so it must be
+              // readable body copy rather than a border-coloured label.
+              style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _ArtistMessage extends StatelessWidget {
-  const _ArtistMessage({
-    required this.icon,
-    required this.message,
-    required this.onRetry,
-    this.details,
-  });
-
-  final IconData icon;
-  final String message;
-  final String? details;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 48, color: cs.outline),
-            const SizedBox(height: 12),
-            Text(message, textAlign: TextAlign.center),
-            if (details != null) ...[
-              const SizedBox(height: 6),
-              Text(
-                details!,
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12, color: cs.outline),
-              ),
-            ],
-            const SizedBox(height: 12),
-            ElevatedButton(onPressed: onRetry, child: const Text('重试')),
-          ],
-        ),
       ),
     );
   }

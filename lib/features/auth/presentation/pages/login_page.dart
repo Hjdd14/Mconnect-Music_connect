@@ -9,6 +9,7 @@ import '../../../../models/platform_type.dart';
 import '../../../../platform/base/music_platform.dart';
 import '../providers/auth_provider.dart';
 import '../../../../core/utils/snackbar_helper.dart';
+import '../../../../core/widgets/async_state_view.dart';
 
 class LoginPage extends ConsumerStatefulWidget {
   final PlatformType platform;
@@ -151,28 +152,17 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     return Scaffold(
       appBar: AppBar(title: Text('${widget.platform.displayName}登录')),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const AsyncStateView.loading()
           : _error != null
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.error_outline, size: 64, color: cs.error),
-                  const SizedBox(height: 16),
-                  Text(_error!, style: TextStyle(color: cs.error)),
-                  const SizedBox(height: 12),
-                  ElevatedButton(
-                    onPressed: () {
-                      setState(() {
-                        _error = null;
-                        _loading = true;
-                      });
-                      _initLogin();
-                    },
-                    child: const Text('重试'),
-                  ),
-                ],
-              ),
+          ? AsyncStateView.error(
+              title: _error!,
+              onRetry: () {
+                setState(() {
+                  _error = null;
+                  _loading = true;
+                });
+                _initLogin();
+              },
             )
           : SingleChildScrollView(
               padding: const EdgeInsets.all(24),

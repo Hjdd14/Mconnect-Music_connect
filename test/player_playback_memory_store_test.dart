@@ -60,4 +60,46 @@ void main() {
 
     expect(memory, isNull);
   });
+
+  // Wave 0-A (A-2)：播放偏好（倍速/跳过静音/随机/循环/A-B）必须和"上次播到哪"
+  // 一起落盘，否则杀进程后每次都要重设。
+  test('round-trips the playback preferences next to the last song', () {
+    final memory = PlayerPlaybackMemory.fromJson({
+      'currentSong': songJson('1', 'kugou'),
+      'playlist': [songJson('1', 'kugou')],
+      'currentIndex': 0,
+      'playbackSpeed': 1.5,
+      'skipSilence': true,
+      'isShuffle': true,
+      'repeatMode': 'all',
+      'abLoopStartMs': 12000,
+      'abLoopEndMs': 34000,
+    });
+
+    expect(memory, isNotNull);
+    final json = memory!.toJson();
+    expect(json['playbackSpeed'], 1.5);
+    expect(json['skipSilence'], true);
+    expect(json['isShuffle'], true);
+    expect(json['repeatMode'], 'all');
+    expect(json['abLoopStartMs'], 12000);
+    expect(json['abLoopEndMs'], 34000);
+  });
+
+  test('a snapshot without playback preferences keeps the safe defaults', () {
+    final memory = PlayerPlaybackMemory.fromJson({
+      'currentSong': songJson('1', 'kugou'),
+      'playlist': [songJson('1', 'kugou')],
+      'currentIndex': 0,
+    });
+
+    expect(memory, isNotNull);
+    final json = memory!.toJson();
+    expect(json['playbackSpeed'], 1.0);
+    expect(json['skipSilence'], false);
+    expect(json['isShuffle'], false);
+    expect(json['repeatMode'], 'off');
+    expect(json['abLoopStartMs'], isNull);
+    expect(json['abLoopEndMs'], isNull);
+  });
 }

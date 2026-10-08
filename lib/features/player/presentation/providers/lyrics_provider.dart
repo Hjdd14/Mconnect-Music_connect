@@ -308,24 +308,24 @@ LyricsFormat _parseLyricsFormat(String formatStr) {
 LyricsFormat _formatForPlatform(PlatformType platformType, String raw) {
   switch (platformType) {
     case PlatformType.qq:
-      if (raw.contains('<L ') && raw.contains('<P ')) {
-        return LyricsFormat.qrc;
-      }
-      return LyricsFormat.lrc;
-    case PlatformType.kugou:
-      if (raw.contains('[') && raw.contains('<') && raw.contains(',')) {
-        return LyricsFormat.krc;
-      }
-      return LyricsFormat.lrc;
     case PlatformType.local:
-      if (raw.contains('<L ') && raw.contains('<P ')) {
-        return LyricsFormat.qrc;
-      }
-      if (raw.contains('[') && raw.contains('<') && raw.contains(',')) {
-        return LyricsFormat.krc;
-      }
-      return LyricsFormat.lrc;
+      // Guesses, most specific first. A candidate only wins when it really
+      // parses into at least one timed line: sniffing on `[` + `<` + `,` alone
+      // sent an ordinary LRC (a smiley, a comma in the lyrics) to the KRC
+      // parser, which found nothing and blanked the whole song — "暂无歌词" for a
+      // file that was perfectly fine.
+      return LyricsDocument.sniffFormat(raw, const [
+        LyricsFormat.qrc,
+        LyricsFormat.krc,
+        LyricsFormat.lrc,
+      ]);
+    case PlatformType.kugou:
+      return LyricsDocument.sniffFormat(raw, const [
+        LyricsFormat.krc,
+        LyricsFormat.lrc,
+      ]);
     case PlatformType.netease:
+      // NetEase always answers with plain LRC.
       return LyricsFormat.lrc;
   }
 }

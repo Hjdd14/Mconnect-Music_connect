@@ -29,8 +29,20 @@ class _StubHistory extends HistoryNotifier {
   // ignore: unused_field
   final AppDatabase _db;
 
+  /// How many times the page asked for a (re)load — the three-state tests need
+  /// this to prove the retry button is wired to `loadHistory`.
+  int loadCalls = 0;
+
+  /// Puts the page into an arbitrary state (loading / error).
+  ///
+  /// A method rather than a direct `state = …` from the test body: `state` is
+  /// `@protected`, so only the subclass may write it.
+  void seedState(HistoryState next) => state = next;
+
   @override
-  Future<void> loadHistory() async {}
+  Future<void> loadHistory() async {
+    loadCalls++;
+  }
 
   @override
   Future<void> recordListen(Song song, {int durationMs = 0}) async {
@@ -200,5 +212,68 @@ void main() {
     );
 
     await tester.pump(const Duration(seconds: 5));
+  });
+
+  /// 三态契约（W0-E）：听歌历史同样换成了共享的 `AsyncStateView`。
+  group('听歌历史 · 三态契约（W0-E）', () {
+    Future<void> pumpRaw(
+      WidgetTester tester,
+      HistoryNotifier history,
+      LikesNotifier likes,
+    ) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            historyProvider.overrideWith((ref) => history),
+            likesProvider.overrideWith((ref) => likes),
+          ],
+          child: const MaterialApp(home: HistoryPage()),
+        ),
+      );
+      // `pump`, never `pumpAndSettle`: the skeleton's `Shimmer` never settles.
+      await tester.pump();
+    }
+
+    testWidgets('加载中 → 共享骨架屏；没有转圈，也没有重试', (tester) async {
+      final history = _StubHistory(db)
+        ..seedState(const HistoryState(isLoading: true));
+      final likes = _StubLikes(db);
+
+      await pumpRaw(tester, history, likes);
+
+      expect(
+        find.byKey(const Key('async-skeleton-list')),
+        findsOneWidget,
+        reason: '高频列表的 loading 态必须是骨架屏',
+      );
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.text('重试'), findsNothing);
+    });
+
+    testWidgets('加载失败 → 统一错误态：重试是 ElevatedButton，且真的重新加载', (tester) async {
+      final history = _StubHistory(db)
+        ..seedState(const HistoryState(error: '加载历史失败'));
+      final likes = _StubLikes(db);
+      final loadCallsBefore = history.loadCalls;
+
+      await pumpRaw(tester, history, likes);
+
+      expect(find.text('加载失败'), findsOneWidget);
+      expect(find.text('加载历史失败'), findsOneWidget);
+      expect(
+        find.widgetWithText(ElevatedButton, '重试'),
+        findsOneWidget,
+        reason: 'AsyncStateView 规则 1：重试永远是 ElevatedButton',
+      );
+
+      await tester.tap(find.text('重试'));
+      await tester.pump();
+
+      expect(
+        history.loadCalls,
+        loadCallsBefore + 1,
+        reason: '重试必须接回 provider 的 loadHistory',
+      );
+    });
   });
 }

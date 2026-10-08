@@ -3,6 +3,7 @@ import '../../../../core/share/song_actions.dart';
 import '../../../../core/theme/platform_accent.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/widgets/app_scrollbar.dart';
+import '../../../../core/widgets/async_state_view.dart';
 import '../../../../models/song.dart';
 import '../../../../models/platform_type.dart';
 import '../../../download/domain/entities/download_task.dart';
@@ -39,73 +40,27 @@ class LikesPage extends ConsumerWidget {
             ),
         ],
       ),
+      // Three states, one widget — see `AsyncStateView`. The list is read on
+      // every app open, so its loading state is the shimmer skeleton rather
+      // than a spinner (no layout jump when the rows arrive).
       body: state.isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const AsyncStateView.loading(skeleton: true)
           : state.error != null
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.error_outline,
-                    size: 64,
-                    color: Theme.of(context).colorScheme.error,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    state.error!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.outline,
-                      fontSize: 16,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  ElevatedButton(
-                    onPressed: () =>
-                        ref.read(likesProvider.notifier).loadLikes(),
-                    child: const Text('重试'),
-                  ),
-                ],
-              ),
+          ? AsyncStateView.error(
+              title: '加载失败',
+              message: state.error!,
+              onRetry: () => ref.read(likesProvider.notifier).loadLikes(),
             )
           : state.songs.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.favorite_border,
-                    size: 64,
-                    color: Theme.of(context).colorScheme.outlineVariant,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    '还没有喜欢的歌曲',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.outline,
-                      fontSize: 16,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '在播放器中点击爱心添加',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.outlineVariant,
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
-              ),
+          ? const AsyncStateView.empty(
+              title: '还没有喜欢的歌曲',
+              message: '在播放器中点击爱心添加',
+              icon: Icons.favorite_border,
             )
           : state.filteredSongs.isEmpty
-          ? Center(
-              child: Text(
-                '该平台没有喜欢的歌曲',
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.outline,
-                  fontSize: 16,
-                ),
-              ),
+          ? const AsyncStateView.empty(
+              title: '该平台没有喜欢的歌曲',
+              icon: Icons.filter_alt_off_outlined,
             )
           : _buildSongList(context, ref, state, notifier),
     );

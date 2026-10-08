@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import '../../../../core/platform/platform_utils.dart';
 import '../../../../core/utils/snackbar_helper.dart';
 import '../../../../core/widgets/app_scrollbar.dart';
+import '../../../../core/widgets/async_state_view.dart';
 import '../../../../utils/file_opener.dart';
 import '../../data/download_directory_service.dart';
 import '../../data/download_scheduler.dart';
@@ -68,6 +69,26 @@ class DownloadPage extends ConsumerWidget {
       if (!context.mounted) return;
       showErrorSnackBar(context, e.toString());
     }
+  }
+
+  /// Shows the one-shot "the file was kept" notice and clears the flag.
+  ///
+  /// Deferred to the end of the frame because it is reachable from `build`,
+  /// where showing a SnackBar (an ancestor `setState`) and mutating a provider
+  /// would both be build-phase side effects. The flag is re-read inside the
+  /// callback so two builds in one frame cannot queue two announcements.
+  void _announceKeptSharedFile(BuildContext context, WidgetRef ref) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!context.mounted) return;
+      final notifier = ref.read(downloadProvider.notifier);
+      if (ref.read(downloadProvider).keptSharedFilePath == null) return;
+      showInfoSnackBar(
+        context,
+        '已删除这条记录，但文件仍被另一条记录使用，已保留',
+      );
+      // One-shot: clear it, or a later rebuild re-announces it.
+      notifier.acknowledgeKeptSharedFile();
+    });
   }
 
   Future<void> _showDownloadDirectorySheet(
@@ -316,7 +337,9 @@ class DownloadPage extends ConsumerWidget {
                             : '只能写入应用可访问的位置；下面两项都无需额外权限。',
                         style: TextStyle(
                           fontSize: 12,
-                          color: Theme.of(sheetContext).colorScheme.outline,
+                          color: Theme.of(
+                            sheetContext,
+                          ).colorScheme.onSurfaceVariant,
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -420,6 +443,32 @@ class DownloadPage extends ConsumerWidget {
     final queueBlockedReason = ref.watch(
       downloadProvider.select((s) => s.queueBlockedReason),
     );
+    final duplicatePathTaskIds = ref.watch(
+      downloadProvider.select((s) => s.duplicatePathTaskIds),
+    );
+
+    // W0-C's "never touch the user's files" policy has exactly one user-visible
+    // outlet: a removal that deliberately left the file on disk because another
+    // completed row still claims it. Without this the whole protection is
+    // invisible — the row would just disappear and the file would look gone.
+    //
+    // `WidgetRef.listen` has no `fireImmediately` (only `listenManual` does, and
+    // that would mean turning this page stateful just for one notice), so the
+    // *change* is handled by the listener and a notice that was already pending
+    // when the page first built is picked up by the one-shot read below.
+    ref.listen(downloadProvider.select((s) => s.keptSharedFilePath), (
+      _,
+      next,
+    ) {
+      if (next == null) return;
+      _announceKeptSharedFile(context, ref);
+    });
+
+    // `read`, not `watch`: this must not create a dependency (the flag is
+    // one-shot, so watching it would re-announce on unrelated rebuilds).
+    if (ref.read(downloadProvider).keptSharedFilePath != null) {
+      _announceKeptSharedFile(context, ref);
+    }
 
     return DefaultTabController(
       length: 3,
@@ -485,6 +534,7 @@ class DownloadPage extends ConsumerWidget {
                   // Active downloads
                   _DownloadList(
                     tasks: activeTasks,
+                    duplicatePathTaskIds: duplicatePathTaskIds,
                     formatBytes: _formatBytes,
                     onPause: notifier.pauseDownload,
                     onCancel: notifier.cancelDownload,
@@ -494,6 +544,7 @@ class DownloadPage extends ConsumerWidget {
                   // Completed downloads
                   _DownloadList(
                     tasks: completedTasks,
+                    duplicatePathTaskIds: duplicatePathTaskIds,
                     formatBytes: _formatBytes,
                     onRemove: notifier.removeTask,
                     onOpenFolder: (task) => _openFolderFor(
@@ -505,6 +556,7 @@ class DownloadPage extends ConsumerWidget {
                   // Failed downloads
                   _DownloadList(
                     tasks: failedTasks,
+                    duplicatePathTaskIds: duplicatePathTaskIds,
                     formatBytes: _formatBytes,
                     onRetry: (task) => notifier.resumeDownload(task.id),
                     onRemove: notifier.removeTask,
@@ -521,6 +573,13 @@ class DownloadPage extends ConsumerWidget {
 
 class _DownloadList extends StatelessWidget {
   final List<DownloadTask> tasks;
+
+  /// Ids of **completed** rows that share their file with another completed row.
+  ///
+  /// Reported rather than acted on: the app never renames or deletes the user's
+  /// files on its own (see `DownloadState.duplicatePathTaskIds`).
+  final Set<String> duplicatePathTaskIds;
+
   final String Function(int) formatBytes;
   final void Function(String)? onPause;
   final void Function(String)? onResume;
@@ -535,6 +594,7 @@ class _DownloadList extends StatelessWidget {
 
   const _DownloadList({
     required this.tasks,
+    this.duplicatePathTaskIds = const <String>{},
     required this.formatBytes,
     this.onPause,
     this.onResume,
@@ -548,22 +608,13 @@ class _DownloadList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (tasks.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.download_done,
-              size: 48,
-              color: Theme.of(context).colorScheme.outlineVariant,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              '暂无内容',
-              style: TextStyle(color: Theme.of(context).colorScheme.outline),
-            ),
-          ],
-        ),
+      // The shared empty state, not a hand-rolled one: the inline version used
+      // `colorScheme.outline` for its body copy (a border colour), a 48 dp icon
+      // while every other page used 64 dp, and a different spinner/empty shape
+      // from the rest of the app.
+      return const AsyncStateView.empty(
+        title: '暂无内容',
+        icon: Icons.download_done,
       );
     }
 
@@ -575,6 +626,7 @@ class _DownloadList extends StatelessWidget {
           final task = tasks[index];
           return _DownloadTile(
             task: task,
+            isDuplicatePath: duplicatePathTaskIds.contains(task.id),
             formatBytes: formatBytes,
             onPause: onPause,
             onResume: onResume,
@@ -592,6 +644,9 @@ class _DownloadList extends StatelessWidget {
 
 class _DownloadTile extends StatelessWidget {
   final DownloadTask task;
+
+  /// True when another completed row records the same file path.
+  final bool isDuplicatePath;
   final String Function(int) formatBytes;
   final void Function(String)? onPause;
   final void Function(String)? onResume;
@@ -603,6 +658,7 @@ class _DownloadTile extends StatelessWidget {
 
   const _DownloadTile({
     required this.task,
+    this.isDuplicatePath = false,
     required this.formatBytes,
     this.onPause,
     this.onResume,
@@ -615,6 +671,7 @@ class _DownloadTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return ListTile(
       leading: _buildLeading(context),
       title: Text(
@@ -630,11 +687,36 @@ class _DownloadTile extends StatelessWidget {
             '${task.song.artistNames} · ${task.qualityLabel}',
             style: TextStyle(
               fontSize: 12,
-              color: Theme.of(context).colorScheme.outline,
+              color: cs.onSurfaceVariant,
             ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
+          // A visible but non-blocking note: two rows can legitimately record
+          // one file (a manual download and its offline-cache row, or rows
+          // written before the file name carried the quality). Nothing is
+          // renamed or deleted for the user — they are just told.
+          if (isDuplicatePath)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Row(
+                children: [
+                  Icon(Icons.link, size: 12, color: cs.onSurfaceVariant),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      '与其他记录共用同一文件',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: cs.onSurfaceVariant,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           if (task.status == DownloadStatus.downloading) ...[
             const SizedBox(height: 4),
             Row(
@@ -656,7 +738,7 @@ class _DownloadTile extends StatelessWidget {
               '${formatBytes(task.downloadedBytes)} / ${formatBytes(task.totalBytes ?? 0)}',
               style: TextStyle(
                 fontSize: 11,
-                color: Theme.of(context).colorScheme.outline,
+                color: cs.onSurfaceVariant,
               ),
             ),
           ],

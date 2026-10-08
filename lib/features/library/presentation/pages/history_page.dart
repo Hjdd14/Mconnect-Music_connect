@@ -4,6 +4,7 @@ import '../../../../core/theme/platform_accent.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/widgets/app_scrollbar.dart';
+import '../../../../core/widgets/async_state_view.dart';
 import '../../../../models/song.dart';
 import '../../../../models/platform_type.dart';
 import '../../../download/domain/entities/download_task.dart';
@@ -62,55 +63,21 @@ class HistoryPage extends ConsumerWidget {
             ),
         ],
       ),
+      // Same three-state widget as every other list page. History is opened
+      // frequently and its rows are a fixed height, so loading shows the shared
+      // shimmer skeleton instead of a spinner.
       body: state.isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const AsyncStateView.loading(skeleton: true)
           : state.error != null
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.error_outline,
-                    size: 64,
-                    color: Theme.of(context).colorScheme.error,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    state.error!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.outline,
-                      fontSize: 16,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  ElevatedButton(
-                    onPressed: () =>
-                        ref.read(historyProvider.notifier).loadHistory(),
-                    child: const Text('重试'),
-                  ),
-                ],
-              ),
+          ? AsyncStateView.error(
+              title: '加载失败',
+              message: state.error!,
+              onRetry: () => ref.read(historyProvider.notifier).loadHistory(),
             )
           : state.entries.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.history,
-                    size: 64,
-                    color: Theme.of(context).colorScheme.outlineVariant,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    '还没有听歌记录',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.outline,
-                      fontSize: 16,
-                    ),
-                  ),
-                ],
-              ),
+          ? const AsyncStateView.empty(
+              title: '还没有听歌记录',
+              icon: Icons.history,
             )
           : _buildList(context, ref, state),
     );

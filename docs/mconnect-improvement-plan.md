@@ -3076,3 +3076,150 @@ i18n 需要两个 **Lead 冻结文件**里的一行，队友无法自行加：
 **门禁**：`flutter analyze` 0 issue、`flutter test` **1095 passed / 10 skipped / 0 failed**、`flutter build apk --release --split-per-abi` 成功；版本保持 `1.4.4+15`。
 
 **一个待观察的偶发（与本次改动无关）**：本轮三次全量测试中有 **1 次** `test/diagnostics_export_test.dart`（"truncates an oversized log file and says so"）失败；该文件**单独连跑两次均 20 条全绿**，随后全量复跑也全绿 ⇒ 判定为**顺序/时序相关的偶发**。它涉及日志文件大小与截断时机，值得后续单独查（本次改动只碰发现页 UI 与两个测试文件，不可能影响它）。已记录，未改动。
+
+---
+
+## 31. 阶段 v1.5-W0 · Wave 0：硬伤修复（已完成）
+
+> 计划来源：本轮新增的《Mconnect v1.5 增强计划》（Wave 0–4）。用户确认的四条前提：**① 先堵硬伤再上大功能；② 允许引入成熟 pub 包；③ Android 优先、Windows 只保持可编译可用；④ 全部做完只发一个大版本（v1.5.0）；⑤ 音源固定为内置三平台，禁止任何外部音源能力。**
+
+### 31.1 派工与门禁
+
+| 任务 | owner | 写作用域（独占） |
+|---|---|---|
+| W0-A 播放失败可见 + 失败链 + 每秒热点 + 队列编辑 API | `fix-playback` | `lib/features/player/**`（5 文件）+ 新建 `drawable/ic_stat_music.xml` + 4 测试文件 |
+| W0-B 歌词硬伤（7 条） | `fix-lyrics` | 歌词/本地歌词/floating lyrics + `windows/runner/floating_lyrics_*` + `MainActivity.kt` + 7 测试文件 |
+| W0-C 下载正确性（5 条） | `eng-health` | `download_task/directory_service/task_store/manager/provider` + `download_*`/`saf_*` 测试 |
+| W0-D drift v2→v3 + 统计查询 + 内嵌歌词回退 | `playback-core` | `core/database/**` + `local_track_store` + `local_library_reconciler` + `stats` + 3 测试文件 |
+| W0-E 列表页三态（8 个页面/区块） | `feature-inventory` | 7 个页面 + 5 测试文件 |
+| W0-F 浏览页三态 + 两处裸 SnackBar + W0-C 的 UI 接线 | `ux-parity` | 7 个页面 + 6 测试文件 |
+| 共享契约（Lead 冻结） | Lead | 新建 `lib/core/widgets/async_state_view.dart` + 契约测试 |
+
+**门禁（Wave 0 收口，Lead 实跑）**：
+- `flutter analyze --no-pub` → **`No issues found!`**
+- `flutter test --no-pub -j 1` → **`+1193 ~10: All tests passed!`**（1193 passed / 10 skipped / **0 failed**；改前基线 1093 passed ⇒ **净增 100 条全绿**）
+- `flutter build apk --debug --no-pub` → `√ Built app-debug.apk`（Kotlin 侧编译验证）
+- `flutter build windows --debug --no-pub` → `√ Built windows\x64\runner\Debug\mconnect.exe`
+- 版本号保持 `1.4.4+15` **未动**（按用户"全部做完再发一个大版本"的要求）
+
+### 31.2 【环境教训】本轮最大的非代码障碍（写给下一个 agent）
+
+1. **subagent 的权限在 `spawn_teammate` 时固定，之后无法提权。** 用户把会话策略改成 `danger-full-access` 后，**已存在的队友仍是 `workspace-write`**：他们跑不了 `flutter`/`dart`（既写不了 `%APPDATA%`，也开不了子进程管道），也读不到工作区外的 pub cache；提权请求在"审批已关闭"的会话里被自动拒绝。
+   ⇒ **本轮的运行模型：队友负责实现 + 写测试 + 交付"红→绿协议"；Lead 是唯一命令执行者。**
+   ⇒ 这条模型的代价与收益都要记住：**好处**是测试串行、`.dart_tool` 不会多人并发争抢；**代价**是每轮反馈都要过一次 Lead，编译错误要等 Lead 跑 `analyze` 才暴露（本轮因此浪费了两轮：`DailyStatsCompanion.custom` 与 `fireImmediately`）。
+   ⇒ **改进**：给队友的交付清单里强制"待跑命令 + 期望输出"，Lead 用**一次 `flutter analyze` 批量收集所有人的编译错误**再分派，比一个人一个人试跑快得多。
+2. **`flutter.bat` / `dart.bat` 在受限沙箱下会挂死（无输出、无进程），而 `dart.exe` 正常**。诊断结论：flutter 工具要写 `%APPDATA%`（`Config` 用 `APPDATA` 定位配置目录）并派生带管道的子进程（`where aapt` 等）；受限模式下前者报 `Flutter failed to create a directory at "C:\Users\PC\AppData\Roaming"`，后者报 `CreateFile failed 5`，而从 `.bat` 进入时表现为**无限挂起**。
+   ⇒ 结论不是"要绕开 dart"，而是**确认沙箱模式**。本轮最终在 `danger-full-access` 下 `flutter`/`dart` 全部正常，无需任何规避写法。**不要**把"用 dart.exe 直连 snapshot"当常规解法写进文档——那只在受限模式下有意义。
+3. **`windows/CMakeLists.txt` 的 `/WX` + 代码页 936 会让第三方插件把警告变成 error**：`connectivity_plus` 的插件源码含非 ASCII 字符 → `warning C4819` → `/WX` 升级为 `error C2220` → `flutter build windows` 直接在**别人家的插件**里失败，报错信息完全不指向真正原因。修法与文件里既有的 `just_audio_windows_plugin` 一致：给该插件补 `/utf-8`。**这条修好之前，任何"Windows 端改动已验证"的声明都是空的**（本轮 W0-B 的 3 个 C++ 文件正是靠这条才拿到编译验证）。
+
+### 31.3 W0-A 播放失败可见 + 失败链（`player_provider.dart` 等 5 文件）
+
+**根因**：`PlayerState.error` 被赋值 14 处，但**全 lib 没有任何 widget 读它**——下架/无版权/VIP-only/网络失败在用户眼里就是"点了没反应"；且失败后不降音质、不换源、不跳过，只有 `completed` 才 `skipToNext`。
+**修复**：
+- 两个监听点（mini player / 全屏播放页）`ref.listen(select(error))` → `showErrorSnackBar`；**去重器 `playbackErrorDeduper` 是顶层共享实例**，同一条错误只提示一次，错误被清除后才允许再提示。
+- **失败链**：锁内只做"一次尝试"并返回 `_PlaybackFailure?`，**锁外**跑「逐级降档 → `crossSourceResolver` 接缝（本波默认 null）→ `skipToNext`」；每步写 `DiagnosticsService`；分四级文案；连续跳曲上限 3 + 单曲循环不跳（防 `repeat:all` 无限跳）。
+  - **必须在锁外**：链尾 `skipToNext` 会再次进 `_mutex`，而锁不可重入（否则 8 秒后判卡死强复位）。
+- P-1：`isSongLiked` 的每秒 `likesProvider.songs.any(...)` 改为构造时 seed + `ref.listen` 增量维护的 `Set<String>`。
+- P-2：通知层 `identical` 快路径提前到 `_normalizePlaylist` 之前（并记住原始下标）。
+- smallIcon：`'mipmap/ic_launcher'` → `'drawable/ic_stat_music'`（新建纯白单色 vector）。
+- A-2：倍速/跳过静音/随机/循环/A-B 落盘并恢复。
+- 队列编辑 API：`removeFromQueue/clearQueue/moveInQueue/playAtIndex`（W1 队列页的依赖）。
+
+**红→绿（Lead 实跑）**：
+| 红形态 | 原文 |
+|---|---|
+| stash `lib/features/player/` 后跑 4 个测试文件 | `P-2 per-tick…` 红；`notification small icon…` 红；mini player / player screen / both-listeners 三条 widget 红；`player_provider_test.dart` **编译红**（`updateLikedSongs` / `removeFromQueue` / `clearQueue` / `moveInQueue` / `playAtIndex` 均未定义）；`player_playback_memory_store_test.dart` 两条红 `Expected: <1.5> Actual: <null>`、`Expected: <1.0> Actual: <null>` |
+| 正向变异：注释掉 `await _runPlaybackFailureChain(failure);` | `a failed playSong falls back to the next track` → `Expected: 'fail-2' Actual: 'fail-1'`；`…retries one quality step down first` → `Expected: null Actual: 'Bad state: high quality unavailable'`；`…writes every attempt to diagnostics` → `Expected: true Actual: <false>`；`cross-source seam` → `Expected: 'https://example.test/cross-1-alt.mp3' Actual: <null>`；**守护用例 `the last failing track of the queue is reported, not skipped` 红绿两阶段都绿** |
+| 还原 | SHA256 `8936A422…F2A310` **逐字节相同**，复跑 `+87 All tests passed!` |
+
+**本轮由测试抓出的两个真问题（不是测试的问题）**：
+1. **`dispose()` 被走两次** → `unawaited(flushPlaybackMemory())` 的同步段读已失效的 `state` → `Bad state: Tried to use _ErrorPlayerNotifier after dispose was called`。修法：拆成「同步取快照 + 异步落盘」并加 `_isDisposed` 幂等闸。
+2. **`SnackBar` 的 duration 计时器不是 show 时启动的**：`material/scaffold.dart:617-619` 只在**入场动画 completed 之后的那次 build** 才创建 `_snackBarTimer`；测试里"一次 `pump(4s)`"会把计时起点一起推后，于是 4.8s 后提示仍在屏上——**看起来像重复弹，其实是 drain 写法错**。修法：`55 × pump(100ms)` 逐帧推进，并保留"5.5s 后必须已空屏"这条**去重强断言**（真有第二条会留到 ≈7s，仍会被抓住）。
+
+### 31.4 W0-B 歌词硬伤（7 条，12 文件 + 7 测试）
+
+| 条 | 根因 | 红→绿原文 |
+|---|---|---|
+| 1 | `_formatForPlatform` 只按"含 `[` `<` `,`"嗅探格式 → 普通 LRC 正文含这两个字符即被判 KRC → **整首解析为空** | `a Kugou LRC carrying "<" and "," is not misdetected as KRC`、`a local .lrc carrying "<" and "," still parses` → `Expected: not null / Actual: <null>`；**守护用例 `a real KRC payload is still detected as KRC` 始终绿** |
+| 2 | `tagRegex` 只认 ti/ar 且命中即 `continue` → `[offset:500]` 被丢 | `Expected: 0:00:01.500 Actual: 0:00:01.000`；`Expected: 'Inline' Actual: '[offset:250]Inline'` |
+| 3 | `List.sort` 非稳定 + 假定"先原文后译文"；同时间戳第 3 行被丢 | `Expected: ['Hello','Bonjour'] Actual: ['Hello']`；80 行真触发不稳定排序 `at location [26] is 'Translation 26' instead of 'Original 26'` |
+| 4 | 内嵌歌词"读到手却丢掉"（`readMetadata` 无条件解析，`LocalAudioMetadata` 没有该字段） | 编译红 `No named parameter 'lyrics'` / `The getter 'embeddedLyrics' isn't defined` → 4/4 绿 |
+| 5 | 本地 `.lrc` 与 Kotlin 侧都默认 UTF-8 → 中文 GBK 歌词乱码/丢弃 | `Expected: not null / Actual: <null>` + `Member not found: 'decodeBytes'` → 6/6 绿 |
+| 6 | 偏移是全局单键且**悬浮窗完全不生效** | `Method not found: 'applyLyricsOffset'`；`Expected: > 1 Actual: 1`（改偏移不重下发） |
+| 7 | Windows 通道只传 7 个字段，丢弃 `highlightColor/nextText/highlightProgress` | Dart 契约守卫绿（Dart 侧一直在发，丢的是 C++）+ **Windows 编译通过** |
+
+**一个值得记住的 fixture 教训**：真 MP3（ID3v2.4 + USLT）那条用例最初红为 `Expected: not null / Actual: <null>`，根因**不是**包不读 USLT，而是**手工 ID3v2 头少写 1 个 flags 字节**（10 字节头写成 9 字节 → size 整体错位 → 解析越界 → 被 `read()` 的 `catch (_) { return null; }` 吞掉）。同类陷阱：旧 fixture 只有 7 字节时"压根不被识别成 MP3"，也是 `null`——**"错得恰好也返回 null"会让一个假 fixture 看起来像真结论**。
+
+### 31.5 W0-C 下载正确性（5 条）
+
+**根因（最严重的一条会造成坏文件 + 误删）**：目录只按 lossless 分 `mp3`/`flac`、文件名不含音质，而 task id 含音质 ⇒ **低/中/高三个任务写同一路径**：①第二个任务续传时拿第一个的字节数当 offset → 文件损坏；②删一个就删掉另一个。
+**修复**：`fileName` 加 `[音质名]` 后缀（**选文件名而非目录段**：SAF 的 staging 是扁平的 `staging/<fileName>`，只改目录对 SAF 无效）；续传 offset 仅在"盘上长度 == 记录水位"时复用；删除前查"是否还有另一条 completed 指向同一文件"（有则只删记录、保留文件并置 `keptSharedFilePath`）；存量任务**保留原路径、绝不自动改名/删除**，重复只上报 `duplicatePathTaskIds`；进度节流 + store 内部行级 diff（只 `put` 变化的行）。
+
+**红→绿（Lead 实跑）**：
+| 变异 | 原文 |
+|---|---|
+| `fileName` 去掉音质（复现旧命名） | `Expected: an object with length of <3> / Actual: Set:['Artist 1 - Song 1.mp3'] / Which: has length of <1>`（**三个音质塌成一个路径**）→ 还原 SHA256 `BEEDBAC1…8C5582` 逐字节相同，复跑 `+50` |
+| `_isPathSharedByAnother` 改 `return false` | `Expected: true / Actual: <false>`（**另一行还指着的文件被删掉**）→ 还原 SHA256 `267BB296…68B2A4F` 逐字节相同，复跑 `+23` |
+
+**B 组未跑项（如实记录）**：B4（存量路径不被改写）、B5（duplicatePath 上报）、B7（进度节流）、B8（只写变化行）四条变异**本轮未实跑**——它们的红形态与还原指纹已由 owner 逐条写在交付里（B8 依赖 Hive `box.watch()` 事件投递，本身有偶发风险）。这四条不是"已证明"，而是"协议已就绪、未执行"。
+
+### 31.6 W0-D drift v2→v3 + 统计 + 内嵌歌词回退
+
+**schema v2→v3**：新表 `lyrics_offsets`（按歌偏移，W2-A 用）、`source_match_caches`（换源缓存，W1-A 用）；`local_tracks` 加 `lyrics_mtime/lyrics_size`；**全库首次引入 4 个索引**（`listening_history(listened_at)`、`play_events(song_id,platform)`、`play_events(started_at)`、`local_tracks(path)`）；新 DAO 两个。
+**三个必须记住的设计决定**：
+1. **v1→v3 必须跳过 `addColumn`**（`if (from >= 2)`）：`from<2` 分支的 `m.createTable(localTracks)` 用的是**当前定义**（已含两新列），再 `addColumn` 会 `duplicate column name` 让**整笔升级事务回滚**。
+2. **索引走显式 `CREATE INDEX IF NOT EXISTS` 且在 `onCreate` 幂等补建**：fresh（`createAll()`）与 upgraded 两条路径的索引集**由构造保证一致**（`schema parity` 测试逐个比对索引名/表名/列名）。
+3. **内嵌歌词行必须清空文件戳记**：否则它会被判定"未变"，永远不把位置让给**后来出现**的合法 `.lrc`——这一条由 owner 自己补的第 3 条用例守护（我给的"`.lrc` 优先"用例因 `.lrc` 一开始就在，只能证优先级、证不了可升级性）。
+**其余**：本地曲库删除批量化（chunked `deletePaths`）；歌词戳记 `(mtime,size)` 变了才重读、未变行不重写；`hourHistogram` 改 SQL 聚合（不再整表入内存）；`restorePlayEvents` 去 N+1（`IN (...)` 探测 + 一次 `batch.insertAll` + 按组写日汇总）。
+
+**红→绿（Lead 实跑）**：
+- 协议 A：把 `if (from < 3)` 改成 `&& false` → **最先失败的是两条 SqliteException**（比 matcher 更直接）：`no such table: lyrics_offsets`、`table local_tracks has no column named lyrics_mtime`，共 4 条迁移用例红 → 还原后 SHA256 `285CD736…DA4F5E` **逐字节相同**，`+6 All tests passed!`。
+- 协议 B（`duplicate column name: lyrics_mtime`）：由 owner 用**内存 SQLite 3.50.4**独立取得（无 Dart 执行权限时的等价引擎预验证）。
+- 内嵌回退：`_embeddedLyricsOf` 改回 `return null` → 用例 1 红（`Expected: '[00:01.00]内嵌歌词' Actual: <null>`）、用例 3 红（`Expected: 'embedded' Actual: <null>`），**用例 2（.lrc 优先）仍绿**（外部路径不看内嵌）→ 还原 SHA256 `A10A2713…938604C` 逐字节相同，`+20 All tests passed!`。
+- **owner 纠正了 Lead 的两处判断**（都成立，已记账）：① `DailyStatsCompanion.custom` **存在**（是类内静态方法，`grep DailyStatsCompanion.custom` 必然漏），真因是 drift 的 `Expression<int> operator +` 不接受裸 `int`，正确写法是 `Constant(playDelta)`；② 协议 A 的红原文是 SqliteException 而非 `containsAll`。
+
+### 31.7 W0-E / W0-F 三态统一（15 个页面/区块）
+
+**根因**：25 个页面各写各的三态——`CircularProgressIndicator` 三种写法混用；重试控件 `TextButton` 与 `ElevatedButton` 分裂；错误正文用 `colorScheme.outline`（**边框色当正文色**，M-73）；骨架屏只有搜索页有；3 处裸 `ScaffoldMessenger.showSnackBar` 绕过 `snackbar_helper`（非 floating → 被底栏遮挡；成功/失败同色）。
+**修复**：Lead 冻结共享契约 `AsyncStateView`（三条规则写进代码：重试只能是 `ElevatedButton`；正文用 `onSurfaceVariant`；**error 必须给 `onRetry`**、empty 不给），15 个页面/区块迁移；`likes/history/toplists` 上骨架屏；`toplists` 改 `CustomScrollView` + `SliverAsyncStateView(hasScrollBody: true)` 承载骨架屏并补 `AlwaysScrollableScrollPhysics`（否则空态的"下拉刷新重试"文案是假的）；`platform_playlists` 平台 Tab 与 `recommendations` 每平台 Tab **原本是死胡同**（只有一行裸 Text、没有重试）→ 补重试；`discovery_screen` 把"真错误"与"未登录/无内容"**按数据**（`errorsByPlatform`）拆开，不再用 `error ?? '登录后查看更多'` 混为一谈；两处裸 SnackBar 收敛（成功/失败分色）；W0-C 的 `duplicatePathTaskIds`（常驻行内提示）与 `keptSharedFilePath`（一次性提示 + `acknowledgeKeptSharedFile()`）接上 UI。
+**契约的三个坑（都真实踩过）**：
+1. **`CustomScrollView` 没有 `padding` 参数**——`ListView(padding:)` 换成 `CustomScrollView` 时会直接编译失败；正确做法是用 `SliverToBoxAdapter(child: SizedBox(height: …))` 留白（SDK `scroll_view.dart:723-747`）。
+2. **`WidgetRef.listen` 没有 `fireImmediately`**（Riverpod 2.6.1 `consumer.dart:78` 只有 `onError`；只有 `listenManual` 有）——一次性状态要自己 `ref.read` 补一次。
+3. **`SliverFillRemaining(hasScrollBody: true)` 不是装饰**：`RenderSliverFillRemainingAndOverscroll` 会对子节点做 intrinsic 查询，`ListView` 型骨架屏放进去必抛；`WithScrollable` 变体不做该查询。
+**断言变更方向**：全部是**收紧**（新增 `findsNothing`、新增具体控件类型），没有一条为迁就旧控件而放宽；唯一放宽不了的是"空态不再给重试"（由 `findsNothing` 正面锁定）。
+**红→绿**：W0-B/W0-C/W0-D 已如上；**W0-E 的 R1–R7 与 W0-F 的收紧断言本轮未逐条实跑**（owner 的协议已就绪），如实记录为"未执行"。
+
+### 31.8 Lead 侧改动（不属于任何队友作用域）
+
+| 改动 | 理由 |
+|---|---|
+| 新建 `lib/core/widgets/async_state_view.dart` + `test/async_state_view_test.dart`（9 条断言） | W0-E/W0-F 的**共享契约**，先冻结再并行，避免两人各写一份 |
+| `android/app/proguard-rules.pro:22`：`-keep class com.tobsef.**` → `com.it_nomads.fluttersecurestorage.**` | **`com.tobsef` 在 pub cache 全库 0 命中**（`flutter_secure_storage-9.2.4` 的 Android 包名是 `com.it_nomads.fluttersecurestorage`，且该插件**不带 consumer proguard 规则**）⇒ 旧规则**什么都没保住**，而注释点名的插件恰恰没被 keep。**这是只在 release 下才暴露的会话/凭据崩溃风险**，修复后仍需真机验证 release 登录态持久化 |
+| `pubspec.yaml` 加 `charset: ^2.0.1` | GBK/GB18030 歌词解码需要它；它本来就是 `audio_metadata_reader` 的传递依赖（lock 已锁 2.0.1），声明为直接依赖只为避免 `depend_on_referenced_packages` |
+| `windows/CMakeLists.txt`：给 `connectivity_plus_plugin` 补 `/utf-8` | 见 §31.2-3；**修好之前 Windows 构建必失败，且失败点不在本项目代码里** |
+| `dart run build_runner build` | W0-D 的唯一生成物（595 outputs），由 Lead 代跑（队友无执行权限） |
+
+### 31.9 计划偏差与未完成项（诚实清单）
+
+1. **"错误文案入 l10n"从 W0-E 挪到 W3-D**：ARB 与生成物是**单写者资源**，Wave 0 两位 UX writer 并行时无法共享，故整体推到 i18n 波次（避免两人抢同一批 key）。
+2. **未逐条实跑的红→绿**：W0-C 的 B4/B5/B7/B8；W0-E 的 R1–R4/R6/R7；W0-F 的全部收紧断言。协议与还原指纹已交付，**标记为"未执行"，不计入"已验证"**。
+3. **W0-V（独立复核）尚未开工**：它 `blocked_by` 六个任务，需要各 owner 先 `complete`。本轮 Wave 0 的复核实际由 Lead 承担（红→绿抽查、越界检查、门禁全量跑），**独立复核仍是缺口**——Wave 1 起应把它作为常规成员派上。
+4. **`lyrics_display.dart` 未改为调用共享 `applyLyricsOffset`** ⇒ `applyLyricsOffset` 只有一个调用方，"播放页与悬浮窗共用同一函数"只做到一半（**记入 W2-A**，那一波本来就要改播放页歌词的字号/行距）。
+5. **W0-B §六 的其余未验证项**：Android GB18030 真机行为、Windows 悬浮窗视觉（扫词着色/下一行渲染）、92px 高度下"下一行"主动让位（**需真机决策**）、GB18030 四字节区、无时间轴内嵌歌词、同时间戳"译文在前"文件不可判定。
+
+### 31.10 留给 W3 的清单（本轮明确不做，已记账）
+
+1. **`local_tracks_path` 索引是冗余的**（`path` 已是主键，SQLite 自带 autoindex，规划器不会选它，只增加 upsert 写成本）。删除需同时改三处（`@TableIndex` 注解、`_v3IndexStatements`、`_v3IndexNames`），且**已发布的 v3 库不会自动删** ⇒ 建议放到 **v4 用 `DROP INDEX IF EXISTS`**，避免"新装无、升级有"的分叉。
+2. **`_bumpDailyStat` 保持回退版**（SELECT+UPDATE）。W3 改单条 upsert 只需两处 `Constant(...)` 包装（`old.playCount + Constant(playDelta)`），**不需要 raw SQL**（`ON CONFLICT(day,song_id,platform)` 合法性已在真实 PK 上实证）。
+3. `new_songs_page.dart:201` 的行内 `TextButton('重试')`、`playlist_picker_sheet.dart:167`、以及 `album/artist/search` 中作为**普通元数据说明**（非状态语义）的 `cs.outline` —— 与 M-73 的整体扫色一起收。
+4. `_resumeOffset` 的严格策略：进程被强杀时"盘上文件长于落盘水位"会**从头下**（正确性优先，绝不产出坏文件）。更优解是"截断到记录水位再续传"，一行改动量，W3 决策。
+5. drift debug 警告（parity 测试同时持有两个 `AppDatabase`，不同 executor、无真实竞争）——只影响噪音。
+6. `_takePlaybackMemorySnapshot`/`_savePlaybackMemory` 的拆分点是否要顺带做 W1-0 的播放层拆分（两者是同一片代码）。
+
+### 31.11 本轮教训
+
+1. **"红了"远不如"红在目标断言上"重要。** 本轮两次差点被错因红骗过：① `player_provider_test.dart` 的 loading 失败是**上游编译错误**（`app_database` 与 `player_playback_memory_store`），不是被测行为；② 我自己的块注释操作（`/*` 写成自闭合注释）导致"注释了但没注释上"，报出的是语法错误而不是行为红。**判定红证据前必须先确认失败类型（compile / setup / assertion）。**
+2. **测试的"测量口径"本身就是被测对象。** 三处红都是"测错了东西"：`ListBase` 的 `iterator` 计数永远为 0（`ListMixin` 的 `any/map/where/forEach` 走 `length + []`）；`SnackBar` 计时器不在 show 时启动；`_CountingSongList` 挂错入口。**写计数器/替身时要先证明它能数到东西。**
+3. **没有执行权限的队友依然能产出高质量证据**：内存 SQLite 预验证 SQL 与分桶数学、读 Flutter SDK 源码定位 `SnackBar` 计时器与 `CustomScrollView` 签名、读包源码否定我的 MPEG 猜测 —— 这些都是**可复核的硬证据**，比"我觉得"有价值得多。**允许并鼓励队友做这类"等价引擎/源码级"验证，但当它不能覆盖 drift 运行期语义时要让队友自己划清边界。**
+4. **共享契约要在并行开始前冻结，并配自己的契约测试。** `AsyncStateView` 是这一波唯一没有出现"两人各写一份"的地方，正是因为先冻结 + 9 条契约断言 + 明确"不要改签名"。
+5. **沙箱/工具链问题应第一时间上报给用户，而不是各队友各写一堆探针文件。** 本轮队友写了 `_probe_flutter.txt` / `test_run_probe.txt`，最后都要清理；正确动作是**一次**诊断 + 升级权限。

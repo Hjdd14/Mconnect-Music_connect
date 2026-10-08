@@ -16,6 +16,26 @@ class PlayerPlaybackMemory {
   final AudioQualityPreference qualityPreference;
   final DateTime savedAt;
 
+  /// 播放倍速（Wave 0-A / A-2）。
+  final double playbackSpeed;
+
+  /// 是否跳过静音段。
+  final bool skipSilence;
+
+  /// 随机播放开关。
+  final bool isShuffle;
+
+  /// 循环模式，存 [RepeatMode] 的 `name`。
+  ///
+  /// 存字符串而不是枚举，是为了让这个数据层文件不必 import presentation 层的
+  /// `player_provider.dart`（那会形成本文件 → provider → 本文件的循环依赖）。
+  /// 未知/脏值由读取方回落到 `off`。
+  final String repeatMode;
+
+  /// A-B 循环区间；两者都存在且 `end > start` 时才有效。
+  final Duration? abLoopStart;
+  final Duration? abLoopEnd;
+
   PlayerPlaybackMemory({
     required this.currentSong,
     required this.playlist,
@@ -24,6 +44,12 @@ class PlayerPlaybackMemory {
     required this.duration,
     required this.currentQuality,
     this.qualityPreference = AudioQualityPreference.fixed,
+    this.playbackSpeed = 1.0,
+    this.skipSilence = false,
+    this.isShuffle = false,
+    this.repeatMode = 'off',
+    this.abLoopStart,
+    this.abLoopEnd,
     DateTime? savedAt,
   }) : savedAt = savedAt ?? DateTime.now();
 
@@ -36,6 +62,12 @@ class PlayerPlaybackMemory {
       'durationMs': duration.inMilliseconds,
       'currentQuality': currentQuality.name,
       'qualityPreference': qualityPreference.name,
+      'playbackSpeed': playbackSpeed,
+      'skipSilence': skipSilence,
+      'isShuffle': isShuffle,
+      'repeatMode': repeatMode,
+      'abLoopStartMs': abLoopStart?.inMilliseconds,
+      'abLoopEndMs': abLoopEnd?.inMilliseconds,
       'savedAt': savedAt.toIso8601String(),
     };
   }
@@ -50,6 +82,12 @@ class PlayerPlaybackMemory {
         : <Song>[];
     final effectivePlaylist = playlist.isEmpty ? [song] : playlist;
     final index = _intValue(value['currentIndex']) ?? 0;
+    final abLoopStart = _durationOrNull(value['abLoopStartMs']);
+    final abLoopEnd = _durationOrNull(value['abLoopEndMs']);
+    // 只有 A、B 都在且 B 晚于 A 时才认这个区间：单个端点是脏数据，恢复出来会
+    // 变成一个永远不生效（或立刻回跳）的"循环"。
+    final hasValidAbLoop =
+        abLoopStart != null && abLoopEnd != null && abLoopEnd > abLoopStart;
     return PlayerPlaybackMemory(
       currentSong: song,
       playlist: effectivePlaylist,
@@ -58,6 +96,12 @@ class PlayerPlaybackMemory {
       duration: Duration(milliseconds: _intValue(value['durationMs']) ?? 0),
       currentQuality: _audioLevelFromName(value['currentQuality']),
       qualityPreference: _qualityPreferenceFromName(value['qualityPreference']),
+      playbackSpeed: _playbackSpeed(value['playbackSpeed']),
+      skipSilence: _boolValue(value['skipSilence']) ?? false,
+      isShuffle: _boolValue(value['isShuffle']) ?? false,
+      repeatMode: value['repeatMode']?.toString() ?? 'off',
+      abLoopStart: hasValidAbLoop ? abLoopStart : null,
+      abLoopEnd: hasValidAbLoop ? abLoopEnd : null,
       savedAt: DateTime.tryParse(value['savedAt']?.toString() ?? ''),
     );
   }
@@ -183,6 +227,27 @@ class PlayerPlaybackMemory {
   static int? _intValue(dynamic value) {
     if (value is int) return value;
     return int.tryParse(value?.toString() ?? '');
+  }
+
+  static bool? _boolValue(dynamic value) {
+    if (value is bool) return value;
+    if (value is String) {
+      if (value == 'true') return true;
+      if (value == 'false') return false;
+    }
+    return null;
+  }
+
+  static Duration? _durationOrNull(dynamic value) {
+    final milliseconds = _intValue(value);
+    return milliseconds == null ? null : Duration(milliseconds: milliseconds);
+  }
+
+  /// 倍速必须是有限值且落在播放器支持的区间内，否则回落到原速。
+  static double _playbackSpeed(dynamic value) {
+    final raw = value is num ? value.toDouble() : double.tryParse(value?.toString() ?? '');
+    if (raw == null || !raw.isFinite) return 1.0;
+    return raw.clamp(0.5, 2.0).toDouble();
   }
 }
 

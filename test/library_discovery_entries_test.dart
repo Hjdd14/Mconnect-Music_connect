@@ -4,6 +4,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mconnect/features/discovery/presentation/providers/playlist_recommendations_provider.dart';
 import 'package:mconnect/features/discovery/presentation/screens/discovery_screen.dart';
 import 'package:mconnect/features/library/presentation/screens/library_screen.dart';
+import 'package:mconnect/models/platform_type.dart';
+import 'package:mconnect/models/song.dart';
+
+import 'support/content_page_fakes.dart';
 
 /// Guards where the three content entries live and what shape they take.
 ///
@@ -113,4 +117,74 @@ void main() {
       expect(charts.dx, lessThan(newSongs.dx));
     });
   });
+
+  /// W0-F: `发现` used to render `recState.error ?? '登录后查看更多'` in one
+  /// branch, so a platform that had actually thrown looked exactly like "not
+  /// signed in" — and offered no way to try again. The two are now separate
+  /// states with different affordances.
+  group('discovery recommendation states', () {
+    Widget wrapWithNotifier(PlaylistRecommendationsNotifier notifier) {
+      return ProviderScope(
+        overrides: [
+          playlistRecommendationsProvider.overrideWith((ref) => notifier),
+        ],
+        child: const MaterialApp(home: Scaffold(body: DiscoveryScreen())),
+      );
+    }
+
+    testWidgets('a platform failure is an error state with a retry', (
+      tester,
+    ) async {
+      final platform = _ThrowingRecommendationPlatform();
+
+      await tester.pumpWidget(
+        wrapWithNotifier(
+          PlaylistRecommendationsNotifier(
+            supportedTypes: const [PlatformType.qq],
+            platformResolver: (_) => platform,
+          ),
+        ),
+      );
+      // One pump for the `initState` post-frame callback that starts the load,
+      // then settle so its completion is rendered.
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(find.text('已登录平台推荐加载失败'), findsOneWidget);
+      // Contract rule 1 + 3: a real failure must offer a way out, and that
+      // affordance is an `ElevatedButton`.
+      expect(find.widgetWithText(ElevatedButton, '重试'), findsOneWidget);
+    });
+
+    testWidgets('not being signed in is an empty state with no retry', (
+      tester,
+    ) async {
+      // No supported platforms means every platform is skipped, which is the
+      // provider's "loggedInCount == 0" path: an explanation, not a failure.
+      await tester.pumpWidget(
+        wrapWithNotifier(
+          PlaylistRecommendationsNotifier(supportedTypes: const []),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('请先登录平台账号'), findsOneWidget);
+      // Contract rule 3: an empty state never pretends to be an error, so there
+      // is nothing to retry — this is the assertion the old single branch failed.
+      expect(find.text('重试'), findsNothing);
+      expect(find.byType(ElevatedButton), findsNothing);
+    });
+  });
+}
+
+/// A logged-in platform whose daily recommendations always fail, so the page has
+/// to render a real error rather than an empty list.
+class _ThrowingRecommendationPlatform extends FakeContentPlatform {
+  _ThrowingRecommendationPlatform()
+    : super(type: PlatformType.qq, loggedIn: true);
+
+  @override
+  Future<List<Song>> getDailyRecommendations() async {
+    throw Exception('recommend down');
+  }
 }

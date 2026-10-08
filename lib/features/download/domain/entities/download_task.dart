@@ -144,12 +144,29 @@ class DownloadTask {
   DateTime get cacheRecency =>
       lastAccessedAt ?? completedAt ?? createdAt;
 
+  /// The file name this task owns — one name per (song, quality).
+  ///
+  /// The quality is part of the name because one song can be downloaded at
+  /// several qualities while the directory only splits lossless from lossy
+  /// (`<root>/<platform>/{mp3|flac}`). Without it, 标准/较高/极高 all resolved to
+  /// `歌手 - 歌名.mp3`, and two tasks shared one file: the second task's resume
+  /// used the first task's byte count as its offset (a file that passes the size
+  /// check and plays as noise), and deleting either row deleted the other's
+  /// file. It also has to be in the *name* rather than a deeper directory,
+  /// because a SAF download stages into a flat `staging/<fileName>` before it is
+  /// published — a directory-only split would leave SAF targets colliding.
+  ///
+  /// The level *name* is used, never `displayNameFor`: the display name differs
+  /// per platform and per app locale, so the same download would land in a
+  /// different file (a second, duplicated copy) after the user switched
+  /// language.
   String get fileName {
     final sanitized = '${song.artistNames} - ${song.name}'.replaceAll(
       RegExp(r'[\\/:*?"<>|]'),
       '_',
     );
-    return '$sanitized.${quality.isLossless ? 'flac' : 'mp3'}';
+    return '$sanitized [${quality.name}]'
+        '.${quality.isLossless ? 'flac' : 'mp3'}';
   }
 
   String get qualityLabel => quality.displayNameFor(song.platform);

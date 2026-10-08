@@ -13,6 +13,16 @@ int ClampInt(int value, int min_value, int max_value) {
   return std::max(min_value, std::min(value, max_value));
 }
 
+double ClampProgress(double value) {
+  if (value < 0.0) {
+    return 0.0;
+  }
+  if (value > 1.0) {
+    return 1.0;
+  }
+  return value;
+}
+
 HFONT CreateLyricsFont(int size, bool bold) {
   return CreateFontW(-size, 0, 0, 0, bold ? FW_SEMIBOLD : FW_NORMAL, FALSE,
                      FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
@@ -44,6 +54,16 @@ int TextWidth(HDC dc, const std::wstring& text) {
   GetTextExtentPoint32W(dc, text.c_str(), static_cast<int>(text.size()),
                         &size);
   return size.cx;
+}
+
+/// Scales [color] toward black. The overlay is transparent, so "dimmer" has to
+/// be expressed by the glyph colour itself (the outline keeps it legible).
+COLORREF DimColor(COLORREF color, double factor) {
+  const auto scale = [factor](BYTE channel) {
+    return static_cast<BYTE>(channel * factor);
+  };
+  return RGB(scale(GetRValue(color)), scale(GetGValue(color)),
+             scale(GetBValue(color)));
 }
 
 void PaintOutlinedGlyphRun(HDC dc,
@@ -89,13 +109,19 @@ bool FloatingLyricsWindow::Show(const std::wstring& text,
                                 int height,
                                 int font_size,
                                 COLORREF text_color,
-                                bool locked) {
+                                bool locked,
+                                const std::wstring& next_text,
+                                COLORREF highlight_color,
+                                double highlight_progress) {
   text_ = text;
   translation_ = translation;
+  next_text_ = next_text;
   width_ = ClampInt(width, kMinWidth, kMaxWidth);
   height_ = ClampInt(height, kMinHeight, kMaxHeight);
   font_size_ = ClampInt(font_size, 14, 56);
   text_color_ = text_color;
+  highlight_color_ = highlight_color;
+  highlight_progress_ = ClampProgress(highlight_progress);
   is_locked_ = locked;
 
   if (!EnsureWindow()) {
@@ -116,12 +142,19 @@ bool FloatingLyricsWindow::Update(const std::wstring& text,
                                   int height,
                                   int font_size,
                                   COLORREF text_color,
-                                  bool locked) {
-  const bool text_changed = text != text_ || translation != translation_;
+                                  bool locked,
+                                  const std::wstring& next_text,
+                                  COLORREF highlight_color,
+                                  double highlight_progress) {
+  const bool text_changed = text != text_ || translation != translation_ ||
+                            next_text != next_text_;
   text_ = text;
   translation_ = translation;
+  next_text_ = next_text;
   font_size_ = ClampInt(font_size, 14, 56);
   text_color_ = text_color;
+  highlight_color_ = highlight_color;
+  highlight_progress_ = ClampProgress(highlight_progress);
   is_locked_ = locked;
 
   if (!EnsureWindow()) {
@@ -204,12 +237,37 @@ void FloatingLyricsWindow::Paint(HDC dc) {
   DeleteObject(background);
 
   const bool has_translation = !translation_.empty();
-  DrawOutlinedText(buffer_dc, text_, GetTextRect(has_translation), font_size_,
-                   true, text_color_, true);
+  RECT main_rect{};
+  RECT translation_rect{};
+  RECT next_rect{};
+  ComputeTextRects(&main_rect, &translation_rect, &next_rect);
+
+  // The already-sung prefix is re-painted in the highlight colour, clipped to
+  // the width of those glyphs. A marquee (text wider than the window) has no
+  // meaningful prefix geometry, so the sweep is skipped there.
+  HFONT measure_font = CreateLyricsFont(font_size_, true);
+  HFONT previous_font = static_cast<HFONT>(SelectObject(buffer_dc, measure_font));
+  const int main_text_width = TextWidth(buffer_dc, text_);
+  SelectObject(buffer_dc, previous_font);
+  DeleteObject(measure_font);
+  const bool is_marqueeing =
+      main_text_width > (main_rect.right - main_rect.left);
+  const int highlight_characters =
+      is_marqueeing || text_.empty()
+          ? 0
+          : static_cast<int>(highlight_progress_ * text_.size() + 0.5);
+
+  DrawOutlinedText(buffer_dc, text_, main_rect, font_size_, true, text_color_,
+                   true, highlight_color_, highlight_characters);
   if (has_translation) {
-    DrawOutlinedText(buffer_dc, translation_, GetTranslationRect(),
+    DrawOutlinedText(buffer_dc, translation_, translation_rect,
                      std::max(12, font_size_ - 7), false,
-                     RGB(230, 230, 230), true);
+                     DimColor(text_color_, 0.9), true);
+  }
+  if (!next_text_.empty() && next_rect.bottom > next_rect.top) {
+    DrawOutlinedText(buffer_dc, next_text_, next_rect,
+                     std::max(11, font_size_ - 9), false,
+                     DimColor(text_color_, 0.6), true);
   }
   DrawControls(buffer_dc);
 
@@ -259,22 +317,59 @@ void FloatingLyricsWindow::SendEvent(const std::string& event) {
   }
 }
 
-RECT FloatingLyricsWindow::GetTextRect(bool has_translation) const {
-  RECT rect{};
-  rect.left = kControlMargin;
-  rect.right = width_ - kControlMargin;
-  rect.top = kControlMargin + kControlSize + 2;
-  rect.bottom = has_translation ? (height_ / 2 + 8) : (height_ - 10);
-  return rect;
-}
+void FloatingLyricsWindow::ComputeTextRects(RECT* main_rect,
+                                            RECT* translation_rect,
+                                            RECT* next_rect) const {
+  const int left = kControlMargin;
+  const int right = width_ - kControlMargin;
+  const int top = kControlMargin + kControlSize + 2;
+  const int bottom = height_ - kControlMargin;
+  const int available = std::max(0, bottom - top);
 
-RECT FloatingLyricsWindow::GetTranslationRect() const {
-  RECT rect{};
-  rect.left = kControlMargin + 8;
-  rect.right = width_ - kControlMargin - 8;
-  rect.top = height_ / 2 + 4;
-  rect.bottom = height_ - 8;
-  return rect;
+  int main_height = font_size_ + 10;
+  int translation_height = translation_.empty()
+                               ? 0
+                               : std::max(12, font_size_ - 7) + 6;
+  int next_height = 0;
+  if (!next_text_.empty()) {
+    const int candidate = std::max(11, font_size_ - 9) + 4;
+    // The preview line gives way first: it must never squeeze the line being
+    // sung, which is what the user is actually reading.
+    if (available - main_height - translation_height >= candidate) {
+      next_height = candidate;
+    }
+  }
+
+  const int total = main_height + translation_height + next_height;
+  if (total > available) {
+    const int deficit = total - available;
+    const int translation_cut =
+        std::min(deficit, std::max(0, translation_height - 12));
+    translation_height -= translation_cut;
+    const int remaining = deficit - translation_cut;
+    main_height = std::max(font_size_ / 2, main_height - remaining);
+  }
+
+  const int stack_height = main_height + translation_height + next_height;
+  const int cursor_start = top + std::max(0, (available - stack_height) / 2);
+
+  int cursor = cursor_start;
+  main_rect->left = left;
+  main_rect->right = right;
+  main_rect->top = cursor;
+  main_rect->bottom = cursor + main_height;
+  cursor += main_height;
+
+  translation_rect->left = left + 8;
+  translation_rect->right = right - 8;
+  translation_rect->top = cursor;
+  translation_rect->bottom = cursor + translation_height;
+  cursor += translation_height;
+
+  next_rect->left = left + 8;
+  next_rect->right = right - 8;
+  next_rect->top = cursor;
+  next_rect->bottom = cursor + next_height;
 }
 
 RECT FloatingLyricsWindow::GetLockButtonRect() const {
@@ -326,17 +421,20 @@ bool FloatingLyricsWindow::IsInResizeHandle(int x, int y) const {
 }
 
 bool FloatingLyricsWindow::IsMarqueeNeeded(HDC dc) const {
+  RECT main_rect{};
+  RECT translation_rect{};
+  RECT next_rect{};
+  ComputeTextRects(&main_rect, &translation_rect, &next_rect);
+
   HFONT font = CreateLyricsFont(font_size_, true);
   HFONT old_font = static_cast<HFONT>(SelectObject(dc, font));
-  const RECT rect = GetTextRect(!translation_.empty());
-  bool needed = TextWidth(dc, text_) > rect.right - rect.left;
+  bool needed = TextWidth(dc, text_) > main_rect.right - main_rect.left;
   SelectObject(dc, old_font);
   DeleteObject(font);
   if (!needed && !translation_.empty()) {
     HFONT translation_font =
         CreateLyricsFont(std::max(12, font_size_ - 7), false);
     old_font = static_cast<HFONT>(SelectObject(dc, translation_font));
-    const RECT translation_rect = GetTranslationRect();
     needed = TextWidth(dc, translation_) >
              translation_rect.right - translation_rect.left;
     SelectObject(dc, old_font);
@@ -385,7 +483,9 @@ void FloatingLyricsWindow::DrawOutlinedText(HDC dc,
                                             int font_size,
                                             bool bold,
                                             COLORREF color,
-                                            bool marquee) {
+                                            bool marquee,
+                                            COLORREF highlight_color,
+                                            int highlight_characters) {
   if (text.empty()) {
     return;
   }
@@ -405,15 +505,36 @@ void FloatingLyricsWindow::DrawOutlinedText(HDC dc,
   HRGN clip = CreateRectRgn(rect.left, rect.top, rect.right, rect.bottom);
   SelectClipRgn(dc, clip);
 
+  const int x = (marquee && text_width > rect_width)
+                    ? rect.left + MarqueeOffset(text_width, rect_width)
+                    : rect.left + std::max(0, (rect_width - text_width) / 2);
+
   if (marquee && text_width > rect_width) {
-    const int x = rect.left + MarqueeOffset(text_width, rect_width);
     PaintOutlinedGlyphRun(dc, text, x, y, color);
     if (x + text_width + 80 < rect.right) {
       PaintOutlinedGlyphRun(dc, text, x + text_width + 80, y, color);
     }
   } else {
-    const int x = rect.left + std::max(0, (rect_width - text_width) / 2);
     PaintOutlinedGlyphRun(dc, text, x, y, color);
+  }
+
+  // Re-paint the already-sung prefix in the highlight colour. The outline pass
+  // above already drew the black halo, so this pass only replaces the glyph
+  // fill and needs no second outline.
+  if (highlight_color != CLR_INVALID && highlight_characters > 0 &&
+      highlight_characters <= static_cast<int>(text.size())) {
+    const std::wstring prefix = text.substr(0, highlight_characters);
+    const int prefix_width = TextWidth(dc, prefix);
+    if (prefix_width > 0) {
+      const int saved = SaveDC(dc);
+      HRGN prefix_clip =
+          CreateRectRgn(x, rect.top, x + prefix_width, rect.bottom);
+      SelectClipRgn(dc, prefix_clip);
+      SetTextColor(dc, highlight_color);
+      TextOutW(dc, x, y, prefix.c_str(), static_cast<int>(prefix.size()));
+      RestoreDC(dc, saved);
+      DeleteObject(prefix_clip);
+    }
   }
 
   SelectClipRgn(dc, nullptr);

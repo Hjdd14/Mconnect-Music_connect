@@ -68,6 +68,12 @@ dependencies:
 
   # Utils
   intl: 0.20.3
+  # GBK / GB18030 decode for user-supplied .lrc files (a Chinese .lrc is very
+  # often GBK, and UTF-8-only decoding shows mojibake). Declared explicitly
+  # because a package that is only reachable transitively may not be imported
+  # (`depend_on_referenced_packages`); it was already in pubspec.lock as a
+  # transitive dependency of audio_metadata_reader, so this adds no new code.
+  charset: ^2.0.1
   collection: ^1.19.0
   json_annotation: ^4.9.0
   permission_handler: ^11.0.0

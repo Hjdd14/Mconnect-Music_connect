@@ -1,7 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:charset/charset.dart';
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:path/path.dart' as p;
 
 import '../../../lyrics/models/lyrics_line.dart';
@@ -34,6 +35,10 @@ class LocalLyricsPayload {
 /// instead of being stored as ciphertext: the old scanner read every lyric file
 /// with `readText()` and handed the bytes to the LRC parser, which is why
 /// encrypted KRC showed up as a single garbage line — or, worse, printed base64.
+///
+/// Bytes are decoded by [decodeBytes]: UTF-8 BOM → strict UTF-8 → GB18030 →
+/// lenient UTF-8, because sidecar lyrics written by Chinese tools are routinely
+/// GBK and a strict-UTF-8-only read dropped them silently.
 class LocalLyricsLoader {
   static const supportedExtensions = {'.lrc', '.krc', '.qrc', '.txt'};
 
@@ -51,11 +56,53 @@ class LocalLyricsLoader {
 
     String raw;
     try {
-      raw = await File(lyricsPath).readAsString();
+      raw = decodeBytes(
+        await File(lyricsPath).readAsBytes(),
+        source: lyricsPath,
+      );
     } catch (_) {
       return null;
     }
     return decode(raw, extension);
+  }
+
+  /// Decodes the bytes of a user-supplied lyric file.
+  ///
+  /// The files people keep next to their own music are very often GBK/GB18030,
+  /// not UTF-8: reading them with `readAsString()` (strict UTF-8) simply threw,
+  /// the loader returned `null`, and the whole song showed "暂无歌词" — a file
+  /// that was perfectly readable, dropped without a word.
+  ///
+  /// Order is fixed: UTF-8 BOM → **strict** UTF-8 → GB18030 → lenient UTF-8.
+  /// The strict step is what keeps correct files correct: GB18030 happily
+  /// "decodes" valid UTF-8 Chinese byte pairs into mojibake, so trying it first
+  /// would break files that were never broken. The last step never throws — a
+  /// corrupt file must not take the whole scan down with it.
+  static String decodeBytes(List<int> bytes, {String? source}) {
+    if (bytes.isEmpty) return '';
+    final hasUtf8Bom =
+        bytes.length >= 3 &&
+        bytes[0] == 0xEF &&
+        bytes[1] == 0xBB &&
+        bytes[2] == 0xBF;
+    final body = hasUtf8Bom ? bytes.sublist(3) : bytes;
+
+    try {
+      return utf8.decode(body);
+    } on FormatException {
+      // Not UTF-8 — fall through to the legacy Chinese encodings.
+    }
+
+    try {
+      final decoded = gbk.decode(body);
+      if (source != null) {
+        // One diagnostic per file is enough to find the culprit library later.
+        debugPrint('LocalLyricsLoader: $source is not UTF-8, decoded as GB18030');
+      }
+      return decoded;
+    } catch (_) {
+      return utf8.decode(body, allowMalformed: true);
+    }
   }
 
   /// Decodes raw lyric text by extension.
@@ -87,12 +134,12 @@ class LocalLyricsLoader {
   /// This is what stops a mis-named `.lrc`-holding-junk (or a decrypted
   /// payload that turned out to be something else) from being persisted as
   /// "lyrics": nothing parseable means nothing stored.
+  ///
+  /// Delegates to the model so the local side and the player-side format
+  /// sniffing (`LyricsDocument.sniffFormat`) can never disagree about what
+  /// "parses" means.
   static bool parsesToLines(String content, LyricsFormat format) {
-    try {
-      return LyricsDocument.parse(content, format).lines.isNotEmpty;
-    } catch (_) {
-      return false;
-    }
+    return LyricsDocument.parsesToLines(content, format);
   }
 
   static LocalLyricsPayload? _accept(String content, LyricsFormat format) {

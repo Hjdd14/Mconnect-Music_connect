@@ -2,8 +2,11 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mconnect/features/download/data/download_directory_service.dart';
+import 'package:mconnect/features/download/domain/entities/download_task.dart';
+import 'package:mconnect/models/artist.dart';
 import 'package:mconnect/models/audio_quality.dart';
 import 'package:mconnect/models/platform_type.dart';
+import 'package:mconnect/models/song.dart';
 import 'package:path/path.dart' as p;
 
 void main() {
@@ -69,6 +72,7 @@ void main() {
     expect(target.path, p.join(customRoot.path, 'qq', 'mp3'));
 
     await service.resetCustomRootDirectory();
+
 
     final resetRoot = await service.currentRootDirectory();
     expect(store.customRootPath, isNull);
@@ -281,6 +285,48 @@ void main() {
       expect(options, hasLength(1));
       expect(options.single.kind, DownloadRootKind.appDocuments);
     });
+  });
+
+  // ---- W0-C: one path per (song, quality) ---------------------------------
+
+  test('three lossy qualities of one song resolve to three distinct paths',
+      () async {
+    // The directory deliberately stays `平台/{mp3|flac}`: the quality that
+    // separates 标准/较高/极高 belongs in the *file* name, because the SAF
+    // staging file is flat (`staging/<fileName>`) — a directory-only split would
+    // leave SAF targets colliding exactly as before.
+    final service = DownloadDirectoryService(
+      store: store,
+      defaultRootProvider: () async => Directory(p.join(tempDir.path, 'docs')),
+    );
+    const song = Song(
+      id: 's1',
+      platform: PlatformType.netease,
+      name: 'Song 1',
+      artists: [Artist(id: 'a1', name: 'Artist 1')],
+    );
+
+    final paths = <String>{};
+    for (final quality in const [
+      AudioLevel.low,
+      AudioLevel.medium,
+      AudioLevel.high,
+    ]) {
+      final dir = await service.targetDirectory(song.platform, quality);
+      final task = DownloadTask(
+        id: DownloadTask.buildId(song, quality),
+        song: song,
+        quality: quality,
+        createdAt: DateTime(2026, 10, 9),
+      );
+      paths.add(p.join(dir.path, task.fileName));
+    }
+
+    expect(
+      paths,
+      hasLength(3),
+      reason: '三个有损音质必须落到三个不同文件，否则会互相续传、互相删除',
+    );
   });
 }
 

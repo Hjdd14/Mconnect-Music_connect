@@ -128,7 +128,10 @@ class AudioServicePlayerController
         config: const AudioServiceConfig(
           androidNotificationChannelId: 'com.mconnect.mconnect.audio',
           androidNotificationChannelName: 'Mconnect playback',
-          androidNotificationIcon: 'mipmap/ic_launcher',
+          // 状态栏图标必须是纯白单色 drawable：带背景的自适应 launcher 图标会被
+          // Android 5.0+ 的系统整块涂灰（通知栏里的灰方块就是这个原因）。
+          // 【需真机验收】
+          androidNotificationIcon: 'drawable/ic_stat_music',
           androidStopForegroundOnPause: false,
         ),
       );
@@ -310,6 +313,12 @@ class MconnectAudioHandler extends BaseAudioHandler with SeekHandler {
   List<Song>? _publishedPlaylist;
   Song? _publishedSong;
   int _publishedQueueIndex = -1;
+  /// The raw `currentIndex` argument that produced the published structure.
+  ///
+  /// `_normalizeCurrentIndex` returns the caller's index only when it already
+  /// points at the current song; remembering the raw input is what lets the
+  /// P-2 fast path prove that recomputing would return the same index.
+  int _publishedSourceIndex = -1;
   bool _publishedHasCurrentSong = false;
   bool _publishedLiked = false;
   bool _publishedLyrics = false;
@@ -382,11 +391,27 @@ class MconnectAudioHandler extends BaseAudioHandler with SeekHandler {
     final song = currentSong;
     _hasCurrentSong = song != null;
     _isFloatingLyricsEnabled = isFloatingLyricsEnabled;
+    // P-2：这条路径每秒都会被走一次（位置 tick），而 `_normalizePlaylist` 会线性
+    // 扫描整条队列。provider 在"只有位置变了"的 tick 上会把**同一个**
+    // `state.playlist` 实例再传进来，此时 normalize/index 的结果与上次完全相同
+    // （两者都是 (song, playlist, currentIndex) 的纯函数），所以先把 identical
+    // 判断提前：命中就复用上次发布的结果，不再扫队列。
+    //
+    // 判定条件比 `_playlistMatches` 更严（多比 `currentIndex` 与 song），因为这里
+    // 复用的是**计算结果**本身，不只是"要不要重建队列"这个布尔。
+    final published = _publishedPlaylist;
     final List<Song> effectivePlaylist;
     final int effectiveIndex;
     if (song == null) {
       effectivePlaylist = const <Song>[];
       effectiveIndex = -1;
+    } else if (_hasPublishedStructure &&
+        published != null &&
+        identical(playlist, published) &&
+        _sameSongOrNull(song, _publishedSong) &&
+        currentIndex == _publishedSourceIndex) {
+      effectivePlaylist = published;
+      effectiveIndex = _publishedQueueIndex;
     } else {
       effectivePlaylist = _normalizePlaylist(song, playlist);
       effectiveIndex = _normalizeCurrentIndex(
@@ -439,6 +464,9 @@ class MconnectAudioHandler extends BaseAudioHandler with SeekHandler {
       _publishedPlaylist = effectivePlaylist;
       _publishedSong = song;
       _publishedQueueIndex = effectiveIndex;
+      // Remembered so the next position-only tick can reuse this publish's
+      // normalized playlist/index instead of re-scanning the queue (P-2).
+      _publishedSourceIndex = currentIndex;
       _publishedHasCurrentSong = _hasCurrentSong;
       _publishedLiked = _isCurrentSongLiked;
       _publishedLyrics = _isFloatingLyricsEnabled;

@@ -3,11 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:go_router/go_router.dart';
-import '../../../../core/network/api_exception.dart';
 import '../../../../core/network/platform_http.dart';
 import '../../../../core/share/song_actions.dart';
 import '../../../../core/theme/platform_accent.dart';
+import '../../../../core/utils/snackbar_helper.dart';
 import '../../../../core/widgets/app_scrollbar.dart';
+import '../../../../core/widgets/async_state_view.dart';
 import '../../../../models/playlist.dart';
 import '../../../../models/song.dart';
 import '../../../../models/platform_type.dart';
@@ -348,7 +349,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           ),
         ];
         if (all.isEmpty) {
-          return _SearchEmptyState(hasQuery: true);
+          return const _SearchEmptyState();
         }
         return RefreshIndicator(
           onRefresh: () async {
@@ -404,7 +405,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               .search(state.query),
         );
       }
-      return _SearchEmptyState(hasQuery: true);
+      return const _SearchEmptyState();
     }
 
     final songs = state.playableSongs;
@@ -461,7 +462,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     }
     return results.when(
       data: (playlists) {
-        if (playlists.isEmpty) return _SearchEmptyState(hasQuery: true);
+        if (playlists.isEmpty) return const _SearchEmptyState();
         return RefreshIndicator(
           onRefresh: () async => ref.invalidate(playlistSearchResultsProvider),
           child: AppScrollbar(
@@ -482,46 +483,47 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   /// What the page shows before anything is typed: recent queries (tap to
-  /// search, long-press to forget) plus the original prompt.
+  /// search, long-press to forget), or the shared empty state when there is no
+  /// history to show yet.
   Widget _buildIdleState() {
     final history = ref.watch(searchHistoryProvider);
+    if (history.isEmpty) {
+      // Was a bare `Center(Text('请输入关键词'))` coloured with `outline`, which
+      // is a border role. `AsyncStateView` supplies the contrast-correct copy
+      // (rule 2) plus an icon, like every other empty state in the app.
+      return const AsyncStateView.empty(
+        title: '请输入关键词',
+        icon: Icons.search,
+      );
+    }
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       children: [
-        if (history.isNotEmpty) ...[
-          Row(
-            children: [
-              const Text(
-                '搜索历史',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+        Row(
+          children: [
+            const Text(
+              '搜索历史',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            ),
+            const Spacer(),
+            TextButton(
+              onPressed: () => ref.read(searchHistoryProvider.notifier).clear(),
+              child: const Text('清空'),
+            ),
+          ],
+        ),
+        Wrap(
+          spacing: 8,
+          runSpacing: 4,
+          children: [
+            for (final entry in history)
+              InputChip(
+                label: Text(entry),
+                onPressed: () => _submitSearch(value: entry),
+                onDeleted: () =>
+                    ref.read(searchHistoryProvider.notifier).remove(entry),
               ),
-              const Spacer(),
-              TextButton(
-                onPressed: () => ref.read(searchHistoryProvider.notifier).clear(),
-                child: const Text('清空'),
-              ),
-            ],
-          ),
-          Wrap(
-            spacing: 8,
-            runSpacing: 4,
-            children: [
-              for (final entry in history)
-                InputChip(
-                  label: Text(entry),
-                  onPressed: () => _submitSearch(value: entry),
-                  onDeleted: () =>
-                      ref.read(searchHistoryProvider.notifier).remove(entry),
-                ),
-            ],
-          ),
-          const SizedBox(height: 24),
-        ],
-        Center(
-          child: Text(
-            '请输入关键词',
-            style: TextStyle(color: Theme.of(context).colorScheme.outline),
-          ),
+          ],
         ),
       ],
     );
@@ -613,53 +615,43 @@ class _PlatformErrorStrip extends StatelessWidget {
 }
 
 class _SearchEmptyState extends StatelessWidget {
-  final bool hasQuery;
-
-  const _SearchEmptyState({required this.hasQuery});
+  /// Only ever rendered for a *completed* search that matched nothing: the
+  /// "nothing typed yet" prompt lives in `_buildIdleState`, which owns the
+  /// search-history list too.
+  const _SearchEmptyState();
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Text(
-        hasQuery ? '未找到相关内容' : '请输入关键词',
-        style: TextStyle(color: Theme.of(context).colorScheme.outline),
-      ),
+    // "Nothing matched" is not a failure, so this is an empty state with no
+    // retry — and the copy is unchanged from the hand-rolled version.
+    return const AsyncStateView.empty(
+      title: '未找到相关内容',
+      icon: Icons.search_off,
     );
   }
 }
 
+/// A failed search, rendered through the shared error state.
+///
+/// The message is normalised with [apiExceptionOf] so the user sees the app's
+/// translated text rather than a raw `Exception.toString()`.
 class _ErrorState extends StatelessWidget {
   final Object error;
-  final VoidCallback? onRetry;
+  final VoidCallback onRetry;
 
-  const _ErrorState({required this.error, this.onRetry});
+  const _ErrorState({required this.error, required this.onRetry});
 
   @override
   Widget build(BuildContext context) {
     final typed = apiExceptionOf(error);
-    final isNetwork =
-        typed is NetworkException || typed.message.contains('网络');
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            isNetwork ? Icons.wifi_off : Icons.error_outline,
-            size: 48,
-            color: Theme.of(context).colorScheme.outline,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            typed.message,
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Theme.of(context).colorScheme.outline),
-          ),
-          if (onRetry != null) ...[
-            const SizedBox(height: 12),
-            ElevatedButton(onPressed: onRetry, child: const Text('重试')),
-          ],
-        ],
-      ),
+    // Note: the old inline version swapped in `Icons.wifi_off` for network
+    // failures. The shared contract pins the error icon to `Icons.error_outline`
+    // for every page, so the network case is carried by the message
+    // ("网络连接失败，请检查网络后重试") instead of by a second icon.
+    return AsyncStateView.error(
+      title: typed.message,
+      message: typed.details,
+      onRetry: onRetry,
     );
   }
 }
@@ -855,9 +847,15 @@ class _PlaylistTile extends StatelessWidget {
               .collectPlaylist(playlist.id)
               .timeout(const Duration(seconds: 12), onTimeout: () => false);
           if (!context.mounted) return;
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(ok ? '已收藏歌单' : '收藏失败')));
+          // Was a bare `SnackBar`, which painted success and failure with the
+          // same colour and was not `floating` (so the bottom capsules covered
+          // it). The helper gives the failure the theme's error colour and both
+          // the floating behaviour every other toast in the app has.
+          if (ok) {
+            showSuccessSnackBar(context, '已收藏歌单');
+          } else {
+            showErrorSnackBar(context, '收藏失败');
+          }
         },
       ),
       onTap: () => context.push(_route()),

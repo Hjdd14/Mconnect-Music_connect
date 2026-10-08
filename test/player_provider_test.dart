@@ -2038,6 +2038,385 @@ group('diagnostics instrumentation', () {
         reason: '恢复失败必须清 _restoredSourceNeedsLoad，否则每次点击都重进失败路径',
       );
     });
+
+    test('the playback failure chain writes every attempt to diagnostics', () async {
+      final notifier = PlayerNotifier(
+        audioController: _FakeAudioController(),
+        platformResolver: (_) =>
+            _ErroringUrlPlatform(failingIds: const {'chain-1', 'chain-2'}),
+        audioControllerFactory: () => _FakeAudioController(),
+        stuckWatchdogInterval: Duration.zero,
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+      );
+      addTearDown(notifier.dispose);
+
+      await notifier.playPlaylist([_song('chain-1'), _song('chain-2')]);
+      await pumpEventQueue();
+
+      final messages = DiagnosticsService.instance.recentEvents
+          .map((event) => event.message)
+          .toList();
+      expect(
+        messages.any((m) => m.contains('playback_failure_chain_start')),
+        isTrue,
+      );
+      expect(
+        messages.any((m) => m.contains('playback_failure_skip_next')),
+        isTrue,
+        reason: '每次尝试都要有据可查，否则真机上的失败链无法复盘',
+      );
+    });
+  });
+
+  // Wave 0-A (item 2)：playSong 失败分支以前只是 `_setState(error: ...)` ——
+  // 队列里明明还有下一首，用户却只能停在一首永远放不出来的歌上。
+  group('Wave 0-A playback failure chain', () {
+    test('a failed playSong falls back to the next track', () async {
+      final platform = _ErroringUrlPlatform(
+        failingIds: const {'fail-1', 'fail-2'},
+      );
+      final notifier = PlayerNotifier(
+        audioController: _FakeAudioController(),
+        platformResolver: (_) => platform,
+        audioControllerFactory: () => _FakeAudioController(),
+        stuckWatchdogInterval: Duration.zero,
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+      );
+      addTearDown(notifier.dispose);
+
+      await notifier.playPlaylist([_song('fail-1'), _song('fail-2')]);
+      await pumpEventQueue();
+
+      expect(
+        notifier.state.currentSong?.id,
+        'fail-2',
+        reason: '取流全失败必须 skipToNext，而不是停在一首放不出来的歌上',
+      );
+      expect(notifier.state.error, isNotNull);
+    });
+
+    test('a failed playSong retries one quality step down first', () async {
+      final audio = _FakeAudioController();
+      final platform = _FailingHighQualityPlatform();
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        platformResolver: (_) => platform,
+        audioControllerFactory: () => _FakeAudioController(),
+        stuckWatchdogInterval: Duration.zero,
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+      );
+      addTearDown(notifier.dispose);
+
+      await notifier.playPlaylist([_song('quality-fallback')]);
+      await notifier.switchQuality(AudioLevel.high);
+      expect(notifier.state.currentQuality, AudioLevel.high);
+
+      await notifier.playSong(_song('quality-fallback'));
+      await pumpEventQueue();
+
+      expect(notifier.state.error, isNull, reason: '降档成功必须把错误清掉');
+      expect(notifier.state.currentQuality, AudioLevel.medium);
+      expect(notifier.state.currentSong?.id, 'quality-fallback');
+      expect(audio.lastUrl, contains('medium'));
+    });
+
+    test('the last failing track of the queue is reported, not skipped', () async {
+      final notifier = PlayerNotifier(
+        audioController: _FakeAudioController(),
+        platformResolver: (_) =>
+            _ErroringUrlPlatform(failingIds: const {'only-1'}),
+        audioControllerFactory: () => _FakeAudioController(),
+        stuckWatchdogInterval: Duration.zero,
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+      );
+      addTearDown(notifier.dispose);
+
+      await notifier.playPlaylist([_song('only-1')]);
+      await pumpEventQueue();
+
+      expect(notifier.state.currentSong?.id, 'only-1');
+      expect(notifier.state.error, isNotNull);
+      expect(notifier.state.isPlaying, isFalse);
+    });
+  });
+
+  // Wave 0-A (A-2)：播放偏好必须跟着"上次播放"一起持久化。
+  group('Wave 0-A playback preference persistence', () {
+    test('restores playback preferences from the saved memory', () async {
+      final store = _MemoryPlaybackStore(
+        restored: PlayerPlaybackMemory.fromJson({
+          'currentSong': _memorySongJson('pref-1'),
+          'playlist': [_memorySongJson('pref-1')],
+          'currentIndex': 0,
+          'playbackSpeed': 1.5,
+          'skipSilence': true,
+          'isShuffle': true,
+          'repeatMode': 'all',
+          'abLoopStartMs': 12000,
+          'abLoopEndMs': 34000,
+        }),
+      );
+      final notifier = PlayerNotifier(
+        playbackMemoryStore: store,
+        audioController: _FakeAudioController(),
+        platformResolver: (_) => _FakeMusicPlatform(),
+        audioControllerFactory: () => _FakeAudioController(),
+        stuckWatchdogInterval: Duration.zero,
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+      );
+      addTearDown(notifier.dispose);
+
+      await pumpEventQueue();
+
+      expect(notifier.state.currentSong?.id, 'pref-1');
+      expect(notifier.state.playbackSpeed, 1.5);
+      expect(notifier.state.skipSilence, isTrue);
+      expect(notifier.state.isShuffle, isTrue);
+      expect(notifier.state.repeatMode, RepeatMode.all);
+      expect(notifier.state.abLoopStart, const Duration(milliseconds: 12000));
+      expect(notifier.state.abLoopEnd, const Duration(milliseconds: 34000));
+    });
+
+    test('persists playback preference changes', () async {
+      final store = _MemoryPlaybackStore();
+      final audio = _FakeCapableAudioController();
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        platformResolver: (_) => _FakeMusicPlatform(),
+        audioControllerFactory: () => _FakeCapableAudioController(),
+        playbackMemoryStore: store,
+        playbackMemorySaveInterval: Duration.zero,
+        stuckWatchdogInterval: Duration.zero,
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+      );
+      addTearDown(notifier.dispose);
+
+      await notifier.playSong(_song('pref-2'));
+      await notifier.setPlaybackSpeed(1.5);
+      await notifier.setSkipSilence(true);
+      notifier.toggleShuffle();
+      notifier.cycleRepeatMode();
+      notifier.setAbLoopStart(const Duration(seconds: 12));
+      notifier.setAbLoopEnd(const Duration(seconds: 34));
+      await notifier.flushPlaybackMemory();
+
+      final saved = store.saved?.toJson();
+      expect(saved, isNotNull);
+      final json = saved!;
+      expect(json['playbackSpeed'], 1.5);
+      expect(json['skipSilence'], true);
+      expect(json['isShuffle'], true);
+      expect(json['repeatMode'], 'all');
+      expect(json['abLoopStartMs'], 12000);
+      expect(json['abLoopEndMs'], 34000);
+      expect(json['currentSong']['id'], 'pref-2');
+    });
+  });
+
+  // Wave 0-A (item 2)：跨平台换源是**可注入接缝**，本波默认 null。这条用例把
+  // "接缝一旦接上，换源成功就不跳曲"固定下来，W1 接真实实现时不必重写失败链。
+  group('Wave 0-A cross-source seam', () {
+    test('an injected resolver plays the alternative source', () async {
+      final audio = _FakeAudioController();
+      final platform = _ErroringUrlPlatform(
+        failingIds: const {'cross-1', 'cross-2'},
+      );
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        platformResolver: (_) => platform,
+        audioControllerFactory: () => _FakeAudioController(),
+        crossSourceResolver: (song, quality) async => song.id == 'cross-1'
+            ? 'https://example.test/cross-1-alt.mp3'
+            : null,
+        stuckWatchdogInterval: Duration.zero,
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+      );
+      addTearDown(notifier.dispose);
+
+      await notifier.playPlaylist([_song('cross-1'), _song('cross-2')]);
+      await pumpEventQueue();
+
+      expect(audio.lastUrl, 'https://example.test/cross-1-alt.mp3');
+      expect(
+        notifier.state.currentSong?.id,
+        'cross-1',
+        reason: '换源成功就不该再跳曲',
+      );
+      expect(notifier.state.error, isNull);
+      expect(notifier.state.isPlaying, isTrue);
+    });
+  });
+
+  // Wave 0-A (P-1)：位置每秒 tick 一次，以前每次都重扫 likesProvider.songs
+  // （最多 500 首）。现在只在喜欢列表变化时重建 Set。
+  group('Wave 0-A per-tick liked lookup', () {
+    test('position ticks do not re-resolve the liked songs', () async {
+      final audio = _FakeAudioController();
+      final notifications = _FakePlaybackNotificationController();
+      var resolverCalls = 0;
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        platformResolver: (_) => _FakeMusicPlatform(),
+        audioControllerFactory: () => _FakeAudioController(),
+        notificationController: notifications,
+        isSongLiked: (_) {
+          resolverCalls++;
+          return true;
+        },
+        stuckWatchdogInterval: Duration.zero,
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+      );
+      addTearDown(notifier.dispose);
+
+      await notifier.playPlaylist([_song('liked-1')]);
+      notifier.updateLikedSongs([_song('liked-1')]);
+      expect(
+        notifications.updates.last.isCurrentSongLiked,
+        isTrue,
+        reason: 'key 集合必须真的被通知层读到（见 likedSongKeyFor 的拼法）',
+      );
+
+      final resolverCallsAfterSeed = resolverCalls;
+      for (var second = 1; second <= 10; second++) {
+        audio.emitPosition(Duration(seconds: second));
+        await pumpEventQueue();
+      }
+      expect(
+        resolverCalls,
+        resolverCallsAfterSeed,
+        reason: 'P-1：位置 tick 不得再走 likesProvider.songs.any(...)（最多 500 首）',
+      );
+
+      notifier.updateLikedSongs(const <Song>[]);
+      expect(
+        notifications.updates.last.isCurrentSongLiked,
+        isFalse,
+        reason: '取消喜欢（列表变化）必须立刻反映到通知层',
+      );
+    });
+  });
+
+  // Wave 0-A (item 7)：W1-D 的队列页要用的编辑 API。
+  group('Wave 0-A queue editing', () {
+    ({PlayerNotifier notifier, _FakeAudioController audio}) buildQueue({
+      PlayerPlaybackMemoryStore? store,
+    }) {
+      final audio = _FakeAudioController();
+      final notifier = PlayerNotifier(
+        audioController: audio,
+        platformResolver: (_) => _FakeMusicPlatform(),
+        audioControllerFactory: () => _FakeAudioController(),
+        playbackMemoryStore: store ?? const NoopPlayerPlaybackMemoryStore(),
+        stuckWatchdogInterval: Duration.zero,
+        keepAliveController: const NoopPlaybackKeepAliveController(),
+      );
+      addTearDown(notifier.dispose);
+      return (notifier: notifier, audio: audio);
+    }
+
+    test('removeFromQueue drops the song and keeps the current one', () async {
+      final queue = buildQueue();
+      await queue.notifier.playPlaylist([
+        _song('q-1'),
+        _song('q-2'),
+        _song('q-3'),
+      ]);
+
+      await queue.notifier.removeFromQueue(_song('q-3').dedupeKey);
+
+      expect(queue.notifier.state.playlist.map((s) => s.id), ['q-1', 'q-2']);
+      expect(queue.notifier.state.currentSong?.id, 'q-1');
+      expect(queue.notifier.state.currentIndex, 0);
+    });
+
+    test('removeFromQueue hands playback over when the current song goes', () async {
+      final queue = buildQueue();
+      await queue.notifier.playPlaylist([
+        _song('r-1'),
+        _song('r-2'),
+        _song('r-3'),
+      ]);
+
+      await queue.notifier.removeFromQueue(_song('r-1').dedupeKey);
+      await pumpEventQueue();
+
+      expect(queue.notifier.state.playlist.map((s) => s.id), ['r-2', 'r-3']);
+      expect(queue.notifier.state.currentSong?.id, 'r-2');
+      expect(queue.notifier.state.currentIndex, 0);
+    });
+
+    test('removeFromQueue of the last song clears the queue', () async {
+      final queue = buildQueue();
+      await queue.notifier.playPlaylist([_song('s-1')]);
+
+      await queue.notifier.removeFromQueue(_song('s-1').dedupeKey);
+      await pumpEventQueue();
+
+      expect(queue.notifier.state.playlist, isEmpty);
+      expect(queue.notifier.state.currentSong, isNull);
+      expect(queue.notifier.state.isPlaying, isFalse);
+    });
+
+    test('clearQueue stops playback and empties the queue', () async {
+      final store = _MemoryPlaybackStore();
+      final queue = buildQueue(store: store);
+      await queue.notifier.playPlaylist([_song('c-1'), _song('c-2')]);
+      expect(queue.audio.playing, isTrue);
+
+      await queue.notifier.clearQueue();
+
+      expect(queue.notifier.state.playlist, isEmpty);
+      expect(queue.notifier.state.currentSong, isNull);
+      expect(queue.notifier.state.currentIndex, -1);
+      expect(queue.notifier.state.isPlaying, isFalse);
+      expect(queue.audio.playing, isFalse, reason: '清空队列必须真的停掉播放器');
+      expect(
+        store.cleared,
+        isTrue,
+        reason: '清空队列后重启不该把刚清掉的歌恢复回来',
+      );
+    });
+
+    test('moveInQueue reorders without interrupting playback', () async {
+      final queue = buildQueue();
+      await queue.notifier.playPlaylist([
+        _song('m-1'),
+        _song('m-2'),
+        _song('m-3'),
+      ]);
+      final setUrlCallsBefore = queue.audio.setUrlCalls;
+
+      queue.notifier.moveInQueue(2, 0);
+
+      expect(queue.notifier.state.playlist.map((s) => s.id), [
+        'm-3',
+        'm-1',
+        'm-2',
+      ]);
+      expect(queue.notifier.state.currentSong?.id, 'm-1');
+      expect(queue.notifier.state.currentIndex, 1);
+      expect(
+        queue.audio.setUrlCalls,
+        setUrlCallsBefore,
+        reason: '重排队列不得打断正在播的那一首',
+      );
+    });
+
+    test('playAtIndex plays the entry and ignores out-of-range', () async {
+      final queue = buildQueue();
+      await queue.notifier.playPlaylist([_song('p-1'), _song('p-2')]);
+
+      await queue.notifier.playAtIndex(1);
+      expect(queue.notifier.state.currentSong?.id, 'p-2');
+      expect(queue.notifier.state.currentIndex, 1);
+
+      await queue.notifier.playAtIndex(9);
+      expect(
+        queue.notifier.state.currentSong?.id,
+        'p-2',
+        reason: '越界必须是 no-op',
+      );
+    });
   });
 }
 
@@ -2052,6 +2431,17 @@ Song _song(
   duration: duration,
   artists: const [Artist(id: 'artist', name: 'artist')],
 );
+
+/// 与 [_song] 等价的一份 JSON，用来构造 `PlayerPlaybackMemory`（A-2 用例）。
+Map<String, dynamic> _memorySongJson(String id) => {
+  'id': id,
+  'platform': 'netease',
+  'name': 'song $id',
+  'artists': [
+    {'id': 'artist', 'name': 'artist'},
+  ],
+  'durationMs': 180000,
+};
 
 class _FakeClock {
   DateTime _now = DateTime(2026);
@@ -2310,6 +2700,29 @@ class _ErroringUrlPlatform extends _FakeMusicPlatform {
   }
 }
 
+/// 第 2 次请求 [AudioLevel.high] 时失败：用来驱动"降一档音质"重试。
+///
+/// 第 1 次让 [PlayerNotifier.switchQuality] 成功把当前音质抬到 high，第 2 次
+/// （playSong 取流）失败，于是失败链必须退到 medium 才可能播出来。
+class _FailingHighQualityPlatform extends _FakeMusicPlatform {
+  int highRequests = 0;
+
+  @override
+  Future<String> getSongUrl(
+    String songId, {
+    AudioLevel quality = AudioLevel.low,
+  }) {
+    if (quality == AudioLevel.high) {
+      highRequests++;
+      if (highRequests > 1) {
+        requestedQualities.add((songId: songId, quality: quality));
+        return Future.error(StateError('high quality unavailable'));
+      }
+    }
+    return super.getSongUrl(songId, quality: quality);
+  }
+}
+
 class _FakePlaybackKeepAliveController implements PlaybackKeepAliveController {
   final List<bool> playingStates = [];
   final List<bool> forceStates = [];
@@ -2388,6 +2801,7 @@ class _FakePlaybackNotificationController
 class _MemoryPlaybackStore implements PlayerPlaybackMemoryStore {
   PlayerPlaybackMemory? restored;
   PlayerPlaybackMemory? saved;
+  bool cleared = false;
 
   _MemoryPlaybackStore({this.restored});
 
@@ -2401,6 +2815,7 @@ class _MemoryPlaybackStore implements PlayerPlaybackMemoryStore {
 
   @override
   Future<void> clear() async {
+    cleared = true;
     saved = null;
     restored = null;
   }

@@ -55,6 +55,36 @@ class LyricsDocument {
     }
   }
 
+  /// True when [content] really yields at least one timed line in [format].
+  ///
+  /// Format *sniffing* must never trust the presence of a few punctuation marks:
+  /// an ordinary LRC that happens to contain `<` and `,` (a smiley, a comma in
+  /// the lyrics) used to be routed to the KRC parser, which found no
+  /// `[start,duration]` line and blanked the entire song.
+  static bool parsesToLines(String content, LyricsFormat format) {
+    try {
+      return LyricsDocument.parse(content, format).lines.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// The first format in [candidates] that [parsesToLines], else the last one.
+  ///
+  /// Callers list their format guesses most-specific first and end with
+  /// [LyricsFormat.lrc], which needs no markers at all.
+  static LyricsFormat sniffFormat(
+    String content,
+    List<LyricsFormat> candidates, {
+    LyricsFormat fallback = LyricsFormat.lrc,
+  }) {
+    if (candidates.isEmpty) return fallback;
+    for (final candidate in candidates) {
+      if (parsesToLines(content, candidate)) return candidate;
+    }
+    return candidates.last;
+  }
+
   /// Parse standard LRC format (NetEase, basic QQ)
   static LyricsDocument _parseLrc(String content) {
     final lines = <LyricsLine>[];
@@ -62,22 +92,40 @@ class LyricsDocument {
     String? artist;
 
     final timeRegex = RegExp(r'\[(\d{2}):(\d{2})\.(\d{2,3})\]');
-    final tagRegex = RegExp(r'\[(ti|ar):([^\]]+)\]');
+    final tagRegex = RegExp(
+      r'\[(ti|ar|al|by|offset|length):([^\]]*)\]',
+      caseSensitive: false,
+    );
 
-    for (final line in content.split('\n')) {
-      final tagMatch = tagRegex.firstMatch(line);
-      if (tagMatch != null) {
-        final tag = tagMatch.group(1);
+    // `[offset:±ms]` shifts the whole timeline and is accepted anywhere in the
+    // file — some writers put it in a trailing footer — so it is collected in a
+    // first pass instead of while streaming the lines.
+    var offsetMs = 0;
+    for (final rawLine in content.split('\n')) {
+      for (final tagMatch in tagRegex.allMatches(rawLine)) {
+        final tag = tagMatch.group(1)?.toLowerCase();
         final value = tagMatch.group(2)?.trim();
-        if (tag == 'ti') title = value;
-        if (tag == 'ar') artist = value;
-        continue;
+        if (tag == 'ti') {
+          title = value;
+        } else if (tag == 'ar') {
+          artist = value;
+        } else if (tag == 'offset') {
+          // A malformed value keeps the previous offset rather than throwing.
+          offsetMs = int.tryParse(value ?? '') ?? offsetMs;
+        }
       }
+    }
 
-      final times = timeRegex.allMatches(line).toList();
+    for (final rawLine in content.split('\n')) {
+      final times = timeRegex.allMatches(rawLine).toList();
       if (times.isEmpty) continue;
 
-      final text = line.replaceAll(timeRegex, '').trim();
+      // Tags are stripped instead of skipping the line: `[offset:250][00:01.00]词`
+      // is a legal single line and used to be dropped whole.
+      final text = rawLine
+          .replaceAll(timeRegex, '')
+          .replaceAll(tagRegex, '')
+          .trim();
       if (text.isEmpty) continue;
 
       for (final match in times) {
@@ -85,16 +133,18 @@ class LyricsDocument {
         final sec = int.parse(match.group(2)!);
         final msStr = match.group(3)!;
         final ms = msStr.length == 2 ? int.parse(msStr) * 10 : int.parse(msStr);
+        final base = Duration(minutes: min, seconds: sec, milliseconds: ms);
 
         lines.add(LyricsLine(
-          timestamp: Duration(minutes: min, seconds: sec, milliseconds: ms),
+          timestamp: Duration(
+            milliseconds: base.inMilliseconds + offsetMs,
+          ),
           text: text,
         ));
       }
     }
 
-    lines.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-    final mergedLines = _mergeSameTimestampLines(lines);
+    final mergedLines = _mergeSameTimestampLines(_stableSortByTimestamp(lines));
 
     return LyricsDocument(
       title: title,
@@ -104,26 +154,66 @@ class LyricsDocument {
     );
   }
 
+  /// Sorts by timestamp while preserving the file order of equal timestamps.
+  ///
+  /// `List.sort` gives no stability guarantee: past a few dozen entries Dart's
+  /// quicksort is free to swap the two lines that share one timestamp, which
+  /// displayed the translation as the main lyric. The original index is carried
+  /// along so equal timestamps keep the order the file listed them in.
+  static List<LyricsLine> _stableSortByTimestamp(List<LyricsLine> lines) {
+    final decorated = [
+      for (var index = 0; index < lines.length; index++)
+        (index: index, line: lines[index]),
+    ];
+    decorated.sort((a, b) {
+      final byTime = a.line.timestamp.compareTo(b.line.timestamp);
+      return byTime != 0 ? byTime : a.index.compareTo(b.index);
+    });
+    return [for (final entry in decorated) entry.line];
+  }
+
+  /// Pairs the lines sharing one timestamp into `(original, translation)`.
+  ///
+  /// The original is the line the file listed **first** for that timestamp (the
+  /// sort above is stable, so "first" means "first in the file"), and the first
+  /// *different* text becomes its translation. Every further line with the same
+  /// timestamp is kept as its own line: from the third line on, the old code
+  /// silently dropped it (a romanisation, a second translation) and, worse, kept
+  /// showing the first translation while dropping the new text.
   static List<LyricsLine> _mergeSameTimestampLines(List<LyricsLine> lines) {
     final merged = <LyricsLine>[];
-    for (final line in lines) {
-      if (merged.isEmpty || merged.last.timestamp != line.timestamp) {
-        merged.add(line);
-        continue;
+    var index = 0;
+    while (index < lines.length) {
+      final timestamp = lines[index].timestamp;
+      var end = index + 1;
+      while (end < lines.length && lines[end].timestamp == timestamp) {
+        end++;
       }
 
-      final previous = merged.last;
-      final knownTexts = {
-        previous.text,
-        if (previous.translation != null) previous.translation!,
-      };
-      if (knownTexts.contains(line.text)) continue;
-      merged[merged.length - 1] = LyricsLine(
-        timestamp: previous.timestamp,
-        text: previous.text,
-        translation: previous.translation ?? line.text,
-        words: previous.words,
-      );
+      final first = lines[index];
+      final seen = <String>{first.text};
+      String? translation;
+      final extras = <LyricsLine>[];
+      for (var i = index + 1; i < end; i++) {
+        final candidate = lines[i];
+        // A repeated text at the same timestamp is a duplicate line, not a
+        // translation of itself.
+        if (!seen.add(candidate.text)) continue;
+        if (translation == null) {
+          translation = candidate.text;
+          continue;
+        }
+        extras.add(candidate);
+      }
+
+      merged.add(LyricsLine(
+        timestamp: timestamp,
+        text: first.text,
+        translation: translation,
+        words: first.words,
+      ));
+      merged.addAll(extras);
+      index = end;
     }
     return merged;
   }
@@ -167,10 +257,10 @@ class LyricsDocument {
       ));
     }
 
-    lines.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    final sorted = _stableSortByTimestamp(lines);
 
     return LyricsDocument(
-      lines: lines,
+      lines: sorted,
       format: LyricsFormat.krc,
     );
   }
@@ -207,10 +297,10 @@ class LyricsDocument {
       ));
     }
 
-    lines.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    final sorted = _stableSortByTimestamp(lines);
 
     return LyricsDocument(
-      lines: lines,
+      lines: sorted,
       format: LyricsFormat.qrc,
     );
   }

@@ -4,12 +4,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/utils/snackbar_helper.dart';
 import '../../../../core/widgets/app_scrollbar.dart';
+import '../../../../core/widgets/async_state_view.dart';
 import '../../../../models/platform_type.dart';
 import '../../../../models/playlist.dart';
 import '../providers/my_playlists_provider.dart';
 import '../providers/platform_playlists_provider.dart';
-import '../../../../core/utils/snackbar_helper.dart';
 
 class PlatformPlaylistsPage extends ConsumerStatefulWidget {
   const PlatformPlaylistsPage({super.key});
@@ -264,18 +265,19 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
           final isLoading = state.isLoadingFor(platform);
 
           if (isLoading && playlists.isEmpty) {
-            return const Center(child: CircularProgressIndicator());
+            return const AsyncStateView.loading();
           }
           if (error != null && playlists.isEmpty) {
-            return Center(child: Text(error));
+            return AsyncStateView.error(
+              title: '加载歌单失败',
+              message: error,
+              onRetry: () => ref
+                  .read(platformPlaylistsProvider.notifier)
+                  .loadPlatform(platform),
+            );
           }
           if (playlists.isEmpty) {
-            return Center(
-              child: Text(
-                '暂无歌单，或当前平台未登录',
-                style: TextStyle(color: Theme.of(context).colorScheme.outline),
-              ),
-            );
+            return const AsyncStateView.empty(title: '暂无歌单，或当前平台未登录');
           }
           return Column(
             children: [
@@ -375,31 +377,18 @@ class _MyPlaylistsTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     if (state.isLoading && state.playlists.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return const AsyncStateView.loading();
     }
     if (state.error != null && state.playlists.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(state.error!, style: TextStyle(color: cs.error)),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh, size: 18),
-              label: const Text('重试'),
-            ),
-          ],
-        ),
+      return AsyncStateView.error(
+        title: '加载歌单失败',
+        message: state.error!,
+        onRetry: onRetry,
       );
     }
     if (state.playlists.isEmpty) {
-      return Center(
-        child: Text(
-          '暂无我的歌单，可点击右上角新建或从分享链接导入',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: cs.outline),
-        ),
+      return const AsyncStateView.empty(
+        title: '暂无我的歌单，可点击右上角新建或从分享链接导入',
       );
     }
     return Column(

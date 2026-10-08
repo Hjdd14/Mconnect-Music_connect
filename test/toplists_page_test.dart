@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -12,6 +14,27 @@ import 'package:mconnect/models/toplist.dart';
 
 import 'qq_fixtures.dart';
 import 'support/content_page_fakes.dart';
+
+/// A platform whose chart catalogue never answers.
+///
+/// The loading state is otherwise untestable here: [FakeContentPlatform]
+/// resolves in a microtask, so by the second pump the page has already left
+/// `isLoading`.
+///
+/// **[gate] must be completed before the test ends.** `ToplistsNotifier` wraps
+/// the call in `.timeout(operationTimeout)` (15 s by default —
+/// `toplists_provider.dart:197`), and a still-pending `Timer` trips
+/// `flutter_test`'s `!timersPending` invariant once the tree is disposed.
+/// Completing the gate lets that future finish normally, which is what cancels
+/// the timeout timer.
+class _PendingToplistsPlatform extends FakeContentPlatform {
+  _PendingToplistsPlatform() : super(type: PlatformType.qq);
+
+  final Completer<List<Toplist>> gate = Completer<List<Toplist>>();
+
+  @override
+  Future<List<Toplist>> getToplists() => gate.future;
+}
 
 void main() {
   group('榜单中心 provider', () {
@@ -169,6 +192,46 @@ void main() {
       expect(find.textContaining('热歌榜'), findsWidgets);
     });
 
+    testWidgets('加载中显示共享骨架屏（sliver 内），没有转圈', (tester) async {
+      final qq = _PendingToplistsPlatform();
+      registerFake(qq);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            toplistsProvider.overrideWith(
+              (ref) => ToplistsNotifier(
+                supportedTypes: const [PlatformType.qq],
+                platformResolver: (_) => qq,
+              ),
+            ),
+          ],
+          child: const MaterialApp(home: ToplistsPage()),
+        ),
+      );
+      // `pump` only — the skeleton's `Shimmer` is an infinite animation, so
+      // `pumpAndSettle` would time out.
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byKey(const Key('async-skeleton-list')), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      // 置顶卡片必须在加载态也可见：热歌榜入口不能因为目录还没回来而消失。
+      expect(find.text('置顶'), findsOneWidget);
+
+      // 收尾：让 getToplists() 正常返回。这一步是必需的，不是清理仪式的装饰：
+      // `_loadPlatform` 的 `.timeout()` 会留下一个 pending Timer，测试结束时
+      // `!timersPending` 会直接失败（本用例第一次跑就是这么失败的）。
+      // 不能用 pumpAndSettle —— 骨架屏的 Shimmer 是无限动画，settle 必超时。
+      qq.gate.complete(const <Toplist>[]);
+      await tester.pump();
+      await tester.pump();
+      expect(
+        find.byKey(const Key('async-skeleton-list')),
+        findsNothing,
+        reason: '加载结束后骨架屏必须消失（Shimmer 的动画也随之停止）',
+      );
+    });
+
     testWidgets('平台失败时页面显示错误行与重试按钮', (tester) async {
       final qq = registerFake(
         FakeContentPlatform(
@@ -193,6 +256,15 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
 
       expect(find.textContaining('QQ音乐榜单加载失败'), findsOneWidget);
+      // 契约变更（W0-E）：平台错误行里的重试控件从 `TextButton` 换成
+      // `ElevatedButton`（`AsyncStateView` 规则 1：重试永远是 ElevatedButton）。
+      // 文案不变，所以下面这条断言仍然只锁文本；上面这条锁控件类型。
+      expect(
+        find.widgetWithText(ElevatedButton, '重试'),
+        findsOneWidget,
+        reason: '重试必须是 ElevatedButton（不再接受 TextButton）',
+      );
+      expect(find.widgetWithText(TextButton, '重试'), findsNothing);
       expect(find.text('重试'), findsOneWidget);
     });
   });

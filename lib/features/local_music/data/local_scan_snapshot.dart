@@ -21,6 +21,16 @@ class LocalScannedFile {
   /// Sidecar `.lrc`/`.krc`/`.qrc`/`.txt` files that exist for this track.
   final List<String> lyricCandidates;
 
+  /// Lyrics read from the audio container's own tag (`USLT`, `©lyr`, …), or
+  /// `null` when the file carries none.
+  ///
+  /// Carried under the `embeddedLyrics` record key — the hand-off contract with
+  /// `LocalLibraryReconciler`, which uses it **only after** every entry of
+  /// [lyricCandidates] failed to decode. Kept as raw tag text: interpreting it
+  /// belongs to the lyrics loader, and the plain-string codec below is shared
+  /// with the Android method-channel payload.
+  final String? embeddedLyrics;
+
   const LocalScannedFile({
     required this.path,
     required this.mtime,
@@ -33,6 +43,7 @@ class LocalScannedFile {
     this.trackNumber,
     this.coverPath,
     this.lyricCandidates = const [],
+    this.embeddedLyrics,
   });
 
   Map<String, Object?> toMap() => {
@@ -47,6 +58,7 @@ class LocalScannedFile {
     if (trackNumber != null) 'trackNumber': trackNumber,
     if (coverPath != null) 'coverPath': coverPath,
     if (lyricCandidates.isNotEmpty) 'lyrics': lyricCandidates,
+    if (embeddedLyrics != null) 'embeddedLyrics': embeddedLyrics,
   };
 
   /// Tolerant by design: the map may come from the Dart isolate walk or from the
@@ -66,6 +78,7 @@ class LocalScannedFile {
           : _asInt(map['trackNumber']),
       coverPath: _asString(map['coverPath']),
       lyricCandidates: _asStringList(map['lyrics']),
+      embeddedLyrics: _asString(map['embeddedLyrics']),
     );
   }
 

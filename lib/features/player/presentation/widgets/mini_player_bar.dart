@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../core/diagnostics/diagnostics_service.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/utils/snackbar_helper.dart';
 import '../../../../core/widgets/miuix_bottom_layout.dart';
 import '../../../../models/song.dart';
 import '../providers/player_provider.dart';
@@ -81,8 +82,28 @@ class _MiniPlayerBarState extends ConsumerState<MiniPlayerBar> {
     });
   }
 
+  /// 把播放错误提示给用户（Wave 0-A / item 1）。
+  ///
+  /// `PlayerState.error` 有 14 处赋值但修复前没有任何 widget 读它 —— 用户眼里
+  /// 就是"点了没反应"。去重状态是共享的 [playbackErrorDeduper]：`/player` 压在
+  /// shell 上时 mini player 与全屏播放页**同时活着**，各弹一条就是同一个错误弹两次。
+  void _announcePlaybackError(String? error) {
+    if (error == null || error.isEmpty) {
+      // 错误被清除 → 重置记忆，使之后同一条错误能再次提示。
+      playbackErrorDeduper.shouldAnnounce(null);
+      return;
+    }
+    if (!playbackErrorDeduper.shouldAnnounce(error)) return;
+    showErrorSnackBar(context, error);
+  }
+
   @override
   Widget build(BuildContext context) {
+    // 必须注册在 `song == null` 的提前 return **之前**：空闲状态下也会有错误
+    // （换音质失败、设置倍速失败），那些提示同样要能弹出来。
+    ref.listen<String?>(playerProvider.select((s) => s.error), (_, next) {
+      _announcePlaybackError(next);
+    });
     final song = ref.watch(playerProvider.select((s) => s.currentSong));
     final isPlaying = ref.watch(playerProvider.select((s) => s.isPlaying));
 

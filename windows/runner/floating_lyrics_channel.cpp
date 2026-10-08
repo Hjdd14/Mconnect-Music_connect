@@ -72,6 +72,25 @@ bool GetBool(const flutter::EncodableMap& map, const char* key, bool fallback) {
   return fallback;
 }
 
+double GetDouble(const flutter::EncodableMap& map,
+                 const char* key,
+                 double fallback) {
+  const auto* value = FindValue(map, key);
+  if (value == nullptr || value->IsNull()) {
+    return fallback;
+  }
+  if (const auto* double_value = std::get_if<double>(value)) {
+    return *double_value;
+  }
+  if (const auto* int32_value = std::get_if<int32_t>(value)) {
+    return static_cast<double>(*int32_value);
+  }
+  if (const auto* int64_value = std::get_if<int64_t>(value)) {
+    return static_cast<double>(*int64_value);
+  }
+  return fallback;
+}
+
 bool GetColorArgb(const flutter::EncodableMap& map,
                   const char* key,
                   std::uint32_t* argb) {
@@ -177,18 +196,29 @@ void FloatingLyricsChannel::HandleMethodCall(
     const std::wstring text = Utf8ToWide(GetString(*arguments, "text"));
     const std::wstring translation =
         Utf8ToWide(GetString(*arguments, "translation"));
+    // Drawn under the active pair; previously received and thrown away.
+    const std::wstring next_text =
+        Utf8ToWide(GetString(*arguments, "nextText"));
     const int width = GetInt(*arguments, "width", 420);
     const int height = GetInt(*arguments, "height", 112);
     const int font_size = GetInt(*arguments, "fontSize", 24);
     const COLORREF text_color =
         GetColor(*arguments, "textColor", RGB(255, 255, 255));
+    // Colours the already-sung prefix instead of the hard-coded white pair.
+    const COLORREF highlight_color =
+        GetColor(*arguments, "highlightColor", RGB(255, 212, 74));
+    const double highlight_progress =
+        GetDouble(*arguments, "highlightProgress", 0.0);
     const bool locked = GetBool(*arguments, "isLocked", false);
 
-    const bool ok = method == "show"
-                        ? window_.Show(text, translation, width, height,
-                                       font_size, text_color, locked)
-                        : window_.Update(text, translation, width, height,
-                                         font_size, text_color, locked);
+    const bool ok =
+        method == "show"
+            ? window_.Show(text, translation, width, height, font_size,
+                           text_color, locked, next_text, highlight_color,
+                           highlight_progress)
+            : window_.Update(text, translation, width, height, font_size,
+                             text_color, locked, next_text, highlight_color,
+                             highlight_progress);
     result->Success(flutter::EncodableValue(ok));
     return;
   }

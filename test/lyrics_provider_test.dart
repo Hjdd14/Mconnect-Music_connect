@@ -97,6 +97,56 @@ void main() {
     expect(document, isNull);
   });
 
+  test('a Kugou LRC carrying "<" and "," is not misdetected as KRC', () async {
+    // Sniffing on `[` + `<` + `,` alone used to send ordinary LRC to the KRC
+    // parser, which found no `[start,duration]` line and returned "暂无歌词"
+    // for the whole song.
+    const raw = '[00:01.00]你好 <3\n[00:03.00]a, b';
+    final kugou = _FakeLyricsPlatform(
+      PlatformType.kugou,
+      lyrics: {'kugou-1': raw},
+    );
+
+    final document = await resolveLyricsForSong(
+      song: _song('kugou-1', platform: PlatformType.kugou),
+      platforms: [kugou],
+    );
+
+    expect(document, isNotNull);
+    expect(document!.format, LyricsFormat.lrc);
+    expect(document.lines.map((line) => line.text), ['你好 <3', 'a, b']);
+  });
+
+  test('a local .lrc carrying "<" and "," still parses', () async {
+    const raw = '[00:01.00]你好 <3\n[00:03.00]a, b';
+
+    final document = await resolveLyricsForSong(
+      song: _song('local-1', platform: PlatformType.local),
+      localRawLyrics: raw,
+    );
+
+    expect(document, isNotNull);
+    expect(document!.format, LyricsFormat.lrc);
+    expect(document.lines, hasLength(2));
+  });
+
+  test('a real KRC payload is still detected as KRC', () async {
+    const raw = '[0,1200]<0,600,0>你<600,600,0>好';
+    final kugou = _FakeLyricsPlatform(
+      PlatformType.kugou,
+      lyrics: {'kugou-2': raw},
+    );
+
+    final document = await resolveLyricsForSong(
+      song: _song('kugou-2', platform: PlatformType.kugou),
+      platforms: [kugou],
+    );
+
+    expect(document, isNotNull);
+    expect(document!.format, LyricsFormat.krc);
+    expect(document.lines.single.text, '你好');
+  });
+
   test('keeps the fetched lyrics when the cache write fails', () async {
     final netease = _FakeLyricsPlatform(
       PlatformType.netease,

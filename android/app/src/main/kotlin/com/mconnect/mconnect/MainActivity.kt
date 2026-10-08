@@ -7,6 +7,7 @@ import android.content.res.Configuration
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.StrictMode
+import android.util.Log
 import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
 import androidx.documentfile.provider.DocumentFile
@@ -14,6 +15,10 @@ import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.charset.CharacterCodingException
+import java.nio.charset.Charset
+import java.nio.charset.CodingErrorAction
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
@@ -574,13 +579,59 @@ class MainActivity : AudioServiceActivity() {
         skippedFiles: MutableList<String>,
     ): String? {
         return try {
-            contentResolver.openInputStream(document.uri)?.bufferedReader()?.use {
-                it.readText()
-            }
+            val bytes = contentResolver.openInputStream(document.uri)?.use {
+                it.readBytes()
+            } ?: return null
+            decodeLyricsBytes(document.uri.toString(), bytes)
         } catch (_: Exception) {
             skippedFiles.add(document.uri.toString())
             null
         }
+    }
+
+    /**
+     * Decodes a lyric file the user supplied themselves.
+     *
+     * Those are very often GBK/GB18030 rather than UTF-8: `bufferedReader()`
+     * decoded them as UTF-8, threw, and the whole song silently showed
+     * "暂无歌词" (the same class of bug as the Dart side, `local_lyrics_loader`).
+     *
+     * Order is fixed: UTF-8 BOM → strict UTF-8 → GB18030 → lenient UTF-8.
+     * The strict UTF-8 step is what keeps correct files correct —
+     * GB18030 happily "decodes" valid UTF-8 Chinese byte pairs into mojibake, so
+     * trying it first would break files that were never broken.
+     */
+    private fun decodeLyricsBytes(uri: String, bytes: ByteArray): String {
+        if (bytes.isEmpty()) return ""
+        val hasUtf8Bom = bytes.size >= 3 &&
+            bytes[0] == 0xEF.toByte() &&
+            bytes[1] == 0xBB.toByte() &&
+            bytes[2] == 0xBF.toByte()
+        if (hasUtf8Bom) {
+            return String(bytes, 3, bytes.size - 3, Charsets.UTF_8)
+        }
+        return try {
+            decodeStrict(bytes, "UTF-8")
+        } catch (_: CharacterCodingException) {
+            try {
+                val decoded = decodeStrict(bytes, "GB18030")
+                Log.d(TAG, "lyrics decoded with GB18030 fallback: $uri")
+                decoded
+            } catch (_: CharacterCodingException) {
+                // Neither encoding is valid: a lenient decode still beats
+                // dropping the file, and the UI can show the replacement glyphs.
+                String(bytes, Charsets.UTF_8)
+            }
+        }
+    }
+
+    private fun decodeStrict(bytes: ByteArray, charsetName: String): String {
+        return Charset.forName(charsetName)
+            .newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(bytes))
+            .toString()
     }
 
     private fun extensionOf(name: String): String {
@@ -615,6 +666,8 @@ class MainActivity : AudioServiceActivity() {
     )
 
     companion object {
+        private const val TAG = "MconnectMainActivity"
+
         /**
          * Highest preference first; Dart falls back to the next entry when a
          * payload cannot be decoded (e.g. an undecryptable KRC).

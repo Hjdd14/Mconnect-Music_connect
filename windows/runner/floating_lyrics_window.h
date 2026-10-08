@@ -19,14 +19,20 @@ class FloatingLyricsWindow {
             int height,
             int font_size,
             COLORREF text_color,
-            bool locked);
+            bool locked,
+            const std::wstring& next_text = L"",
+            COLORREF highlight_color = RGB(255, 212, 74),
+            double highlight_progress = 0.0);
   bool Update(const std::wstring& text,
               const std::wstring& translation,
               int width,
               int height,
               int font_size,
               COLORREF text_color,
-              bool locked);
+              bool locked,
+              const std::wstring& next_text = L"",
+              COLORREF highlight_color = RGB(255, 212, 74),
+              double highlight_progress = 0.0);
   void Hide();
 
   int GetWidth() const { return width_; }
@@ -42,10 +48,18 @@ class FloatingLyricsWindow {
   HWND window_ = nullptr;
   std::wstring text_;
   std::wstring translation_;
+  // Upcoming lyric line, drawn under the pair as a dimmed preview. Empty when
+  // the current line is the last visible one.
+  std::wstring next_text_;
   int width_ = 420;
   int height_ = 112;
   int font_size_ = 24;
   COLORREF text_color_ = RGB(255, 255, 255);
+  // Colour of the already-sung prefix of `text_`, mirroring the Android
+  // overlay's `highlightColor` setting.
+  COLORREF highlight_color_ = RGB(255, 212, 74);
+  // Fraction (0..1) of `text_` playback has reached; drives the swept prefix.
+  double highlight_progress_ = 0.0;
   bool is_locked_ = false;
   bool close_hovered_ = false;
   bool lock_hovered_ = false;
@@ -79,8 +93,12 @@ class FloatingLyricsWindow {
   void FinishResize();
   void SendEvent(const std::string& event);
 
-  RECT GetTextRect(bool has_translation) const;
-  RECT GetTranslationRect() const;
+  /// Vertical bands for the three lyric rows: the active line, its translation
+  /// and the dimmed next line. A band is zero-height when its text is absent, so
+  /// the active line never gives up room it does not have to.
+  void ComputeTextRects(RECT* main_rect,
+                        RECT* translation_rect,
+                        RECT* next_rect) const;
   RECT GetLockButtonRect() const;
   RECT GetCloseButtonRect() const;
   RECT GetResizeHandleRect() const;
@@ -90,13 +108,17 @@ class FloatingLyricsWindow {
   bool IsMarqueeNeeded(HDC dc) const;
   void RefreshMarqueeTimer();
   int MarqueeOffset(int text_width, int rect_width) const;
+  /// Draws [text] with a black outline, optionally re-painting the first
+  /// [highlight_characters] glyphs in [highlight_color].
   void DrawOutlinedText(HDC dc,
                         const std::wstring& text,
                         RECT rect,
                         int font_size,
                         bool bold,
                         COLORREF color,
-                        bool marquee);
+                        bool marquee,
+                        COLORREF highlight_color = CLR_INVALID,
+                        int highlight_characters = 0);
   void DrawControls(HDC dc);
   void UpdateHoverState(int x, int y);
 };

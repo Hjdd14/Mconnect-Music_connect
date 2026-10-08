@@ -77,13 +77,20 @@ void main() {
     expect(find.textContaining('album list unavailable'), findsOneWidget);
   });
 
-  testWidgets('艺人信息为空时说明暂无', (tester) async {
+  testWidgets('艺人信息为空时说明暂无，且这是空态而不是错误态', (tester) async {
     final empty = FakeContentPlatform(type: PlatformType.qq);
     await tester.pumpWidget(wrap(empty));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(find.text('暂无艺人信息'), findsOneWidget);
+
+    // Changed by the W0-F three-state migration: this branch used to reuse the
+    // *error* widget and offer "重试"; there is nothing for a retry to change on
+    // a page that legitimately has no content, so it is now the shared
+    // `AsyncStateView.empty` (no retry by contract).
+    expect(find.text('重试'), findsNothing);
+    expect(find.byType(ElevatedButton), findsNothing);
   });
 
   testWidgets('平台不支持艺人页时说明暂不支持且不请求', (tester) async {
@@ -97,5 +104,8 @@ void main() {
 
     expect(find.textContaining('暂不支持'), findsOneWidget);
     expect(unsupported.artistCalls, isEmpty);
+    // The platform throwing `UnsupportedActionException` is a real failure, so
+    // it keeps a retry — and that retry is an `ElevatedButton` (contract rule 1).
+    expect(find.widgetWithText(ElevatedButton, '重试'), findsOneWidget);
   });
 }

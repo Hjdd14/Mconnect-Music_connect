@@ -18,6 +18,14 @@ class LocalAudioMetadata {
   final int? trackNumber;
   final String? coverPath;
 
+  /// Lyrics embedded in the file's own tag container (`ID3v2` `USLT`, MP4
+  /// `©lyr`, Vorbis `LYRICS`, APEv2 `Lyrics`), or `null`.
+  ///
+  /// `audio_metadata_reader` parses this unconditionally; the value used to be
+  /// read and thrown away. It ranks **below** a sidecar file with the same base
+  /// name (`LocalLibraryReconciler`), so a hand-edited `.lrc` always wins.
+  final String? lyrics;
+
   const LocalAudioMetadata({
     this.title,
     this.artist,
@@ -25,6 +33,7 @@ class LocalAudioMetadata {
     this.durationMs = 0,
     this.trackNumber,
     this.coverPath,
+    this.lyrics,
   });
 
   static const empty = LocalAudioMetadata();
@@ -32,7 +41,9 @@ class LocalAudioMetadata {
   @override
   String toString() =>
       'LocalAudioMetadata(title=$title, artist=$artist, album=$album, '
-      'durationMs=$durationMs, trackNumber=$trackNumber, cover=$coverPath)';
+      'durationMs=$durationMs, trackNumber=$trackNumber, cover=$coverPath, '
+      // Never inline the lyrics themselves: they can be kilobytes long.
+      'lyrics=${lyrics == null ? 'none' : '${lyrics!.length} chars'})';
 }
 
 /// Reads tags from a local audio file.
@@ -84,6 +95,10 @@ class AudioMetadataReader implements LocalMetadataReader {
         durationMs: metadata.duration?.inMilliseconds ?? 0,
         trackNumber: metadata.trackNumber,
         coverPath: _writeCover(path, metadata.pictures),
+        // Read unconditionally by the package, so this costs nothing extra. The
+        // reconciler stores it with the `embedded` marker and only when no
+        // sidecar lyric file next to the track decoded.
+        lyrics: _clean(metadata.lyrics),
       );
     } on MetadataParserException {
       // A recognized-but-corrupt container. The package leaks the handle here

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
@@ -867,6 +868,86 @@ void main() {
       );
     });
   });
+
+  // Wave 0-A (P-2)：`updatePlayback` 每秒都被调用一次（位置 tick），而它先前
+  // **每次**都先跑一遍 `_normalizePlaylist`（线性扫描整条队列）再去 `identical`
+  // 短路。下面用一条会数 `iterator` 次数的 List 把这次线性扫描变成可观测的。
+  group('P-2 per-tick playlist normalization', () {
+    test('a position-only tick does not scan the queue again', () async {
+      final handler = MconnectAudioHandler();
+      final playlist = _CountingSongList([_song('1'), _song('2'), _song('3')]);
+      final song = playlist[0];
+
+      void update(Duration position) {
+        handler.updatePlayback(
+          currentSong: song,
+          playlist: playlist,
+          currentIndex: 0,
+          isCurrentSongLiked: false,
+          isFloatingLyricsEnabled: false,
+          isPlaying: true,
+          position: position,
+          duration: const Duration(minutes: 4),
+        );
+      }
+
+      update(Duration.zero);
+      expect(
+        playlist.scans,
+        greaterThan(0),
+        reason: '首次发布必须走一次 normalize（队列非空且含当前曲目 → 会扫一遍）',
+      );
+
+      final scansAfterFirstPublish = playlist.scans;
+      for (var second = 1; second <= 10; second++) {
+        update(Duration(seconds: second));
+      }
+
+      expect(
+        playlist.scans,
+        scansAfterFirstPublish,
+        reason:
+            '同一个 playlist 实例的位置 tick 必须走 O(1) 短路，'
+            '不得再对整条队列做线性扫描',
+      );
+    });
+  });
+
+  // Wave 0-A (item 5)：'mipmap/ic_launcher' 是带背景的自适应图标，Android 5.0+
+  // 的状态栏会把它渲染成一块灰方块。必须换成纯白单色 vector。【需真机验收】
+  group('notification small icon', () {
+    test('uses a monochrome drawable instead of the launcher mipmap', () {
+      // 相对路径与 `player_provider_test.dart` 里读源码的写法一致：测试的
+      // 工作目录就是 package 根目录。
+      final source = File(
+        'lib/features/player/data/playback_notification_service.dart',
+      ).readAsStringSync();
+
+      expect(source, contains("androidNotificationIcon: 'drawable/ic_stat_music'"));
+      // 只盯**配置行**本身：整份源码里出现旧字面量（例如注释里提到它）不该把测试
+      // 打红 —— 这条断言要防的是"图标又被改回彩色 launcher 图标"，不是防提及。
+      final iconConfigLine = source
+          .split('\n')
+          .firstWhere((line) => line.contains('androidNotificationIcon:'));
+      expect(iconConfigLine, contains("'drawable/ic_stat_music'"));
+      expect(iconConfigLine, isNot(contains('mipmap')));
+
+      final icon = File('android/app/src/main/res/drawable/ic_stat_music.xml');
+      expect(
+        icon.existsSync(),
+        isTrue,
+        reason: 'smallIcon 指向的 drawable 必须真的存在，否则通知栏没有图标',
+      );
+      final xml = icon.readAsStringSync();
+      expect(xml, contains('<vector'));
+      expect(xml, contains('android:fillColor="#FFFFFFFF"'));
+      expect(
+        xml,
+        isNot(contains('gradient')),
+        reason: 'smallIcon 只能是单色，渐变会被系统涂成灰块',
+      );
+    });
+  });
 }
 
 /// Counts how often a handler stream actually published.
@@ -999,5 +1080,72 @@ class _FakeHandlerAudioController implements PlayerAudioController {
     await _positionController.close();
     await _durationController.close();
     await _playerStateController.close();
+  }
+}
+
+/// 一条会数"线性扫描次数"的队列。
+///
+/// P-2 的热点只能这样观测到：修复前后队列内容、通知内容、发布次数**完全一样**，
+/// 唯一区别是每秒对整条队列多做一次线性扫描。
+///
+/// 注意**不能只数 `iterator`**：`ListBase` 走 `ListMixin`，而 `ListMixin` 为
+/// `any` / `map` / `where` / `forEach` 提供了基于 `length + []` 的实现，根本不经过
+/// `iterator` —— 第一版计数器就是因此读到 0（`greaterThan(0)` 失败），把"没测到"
+/// 误判成"没扫"。所以这里直接拦截真正被调用的那几个扫描入口。
+class _CountingSongList extends ListBase<Song> {
+  _CountingSongList(this._inner);
+
+  final List<Song> _inner;
+
+  /// 线性扫描整条队列的次数（`any` / `indexWhere` / `map` / `where` / `forEach`
+  /// 以及任何走 `iterator` 的遍历）。
+  int scans = 0;
+
+  @override
+  int get length => _inner.length;
+
+  @override
+  set length(int value) => _inner.length = value;
+
+  @override
+  Song operator [](int index) => _inner[index];
+
+  @override
+  void operator []=(int index, Song value) => _inner[index] = value;
+
+  @override
+  Iterator<Song> get iterator {
+    scans++;
+    return _inner.iterator;
+  }
+
+  @override
+  bool any(bool Function(Song element) test) {
+    scans++;
+    return _inner.any(test);
+  }
+
+  @override
+  int indexWhere(bool Function(Song element) test, [int start = 0]) {
+    scans++;
+    return _inner.indexWhere(test, start);
+  }
+
+  @override
+  Iterable<T> map<T>(T Function(Song element) toElement) {
+    scans++;
+    return _inner.map(toElement);
+  }
+
+  @override
+  Iterable<Song> where(bool Function(Song element) test) {
+    scans++;
+    return _inner.where(test);
+  }
+
+  @override
+  void forEach(void Function(Song element) action) {
+    scans++;
+    _inner.forEach(action);
   }
 }

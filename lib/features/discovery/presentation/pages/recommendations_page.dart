@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/platform_accent.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/widgets/app_scrollbar.dart';
+import '../../../../core/widgets/async_state_view.dart';
 import '../../../../models/song.dart';
 import '../../../../models/platform_type.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
@@ -94,35 +95,20 @@ class _RecommendationsPageState extends ConsumerState<RecommendationsPage>
             : null,
       ),
       body: state.isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const AsyncStateView.loading()
           : platforms.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.wb_sunny_outlined,
-                    size: 64,
-                    color: Theme.of(context).colorScheme.outlineVariant,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    state.error ?? '请先登录平台账号',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.outline,
-                      fontSize: 16,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  ElevatedButton(
-                    onPressed: () => ref
+          ? state.error != null
+                ? AsyncStateView.error(
+                    title: '加载失败',
+                    message: state.error!,
+                    onRetry: () => ref
                         .read(recommendationsProvider.notifier)
                         .loadRecommendations(),
-                    child: const Text('重试'),
-                  ),
-                ],
-              ),
-            )
+                  )
+                : const AsyncStateView.empty(
+                    title: '请先登录平台账号',
+                    icon: Icons.wb_sunny_outlined,
+                  )
           : TabBarView(
               controller: _tabController!,
               children: platforms.map((platform) {
@@ -132,6 +118,9 @@ class _RecommendationsPageState extends ConsumerState<RecommendationsPage>
                   songs: songs,
                   error: state.errorsByPlatform[platform],
                   platformColor: _platformColor(platform),
+                  onRetry: () => ref
+                      .read(recommendationsProvider.notifier)
+                      .loadRecommendations(),
                 );
               }).toList(),
             ),
@@ -145,11 +134,16 @@ class _PlatformRecommendations extends StatelessWidget {
   final String? error;
   final Color platformColor;
 
+  /// Retries the recommendation load. The provider has no per-platform entry
+  /// point, so a failed platform is reloaded together with the others.
+  final VoidCallback onRetry;
+
   const _PlatformRecommendations({
     required this.platform,
     required this.songs,
     required this.error,
     required this.platformColor,
+    required this.onRetry,
   });
 
   @override
@@ -158,43 +152,19 @@ class _PlatformRecommendations extends StatelessWidget {
       return _SongList(songs: songs, platformColor: platformColor);
     }
 
-    final cs = Theme.of(context).colorScheme;
-    final hasError = error != null && error!.isNotEmpty;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              hasError ? Icons.error_outline : Icons.music_note_outlined,
-              size: 56,
-              color: hasError ? cs.error : cs.outlineVariant,
-            ),
-            const SizedBox(height: 14),
-            Text(
-              hasError
-                  ? '${platform.displayName}每日推荐加载失败'
-                  : '${platform.displayName}暂无每日推荐',
-              style: TextStyle(
-                color: hasError ? cs.error : cs.outline,
-                fontSize: 16,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            if (hasError) ...[
-              const SizedBox(height: 8),
-              Text(
-                error!,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: cs.outline, fontSize: 12),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ],
-        ),
-      ),
+    // A failed platform used to render as an error with no way out. Rule 3 of
+    // `AsyncStateView` is exactly this case: an error state must offer a retry.
+    if (error != null && error!.isNotEmpty) {
+      return AsyncStateView.error(
+        title: '${platform.displayName}每日推荐加载失败',
+        message: error,
+        onRetry: onRetry,
+      );
+    }
+
+    return AsyncStateView.empty(
+      title: '${platform.displayName}暂无每日推荐',
+      icon: Icons.music_note_outlined,
     );
   }
 }

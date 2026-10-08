@@ -19,7 +19,16 @@
 
 # Keep flutter_secure_storage (EncryptedSharedPreferences)
 -keep class androidx.security.crypto.** { *; }
--keep class com.tobsef.** { *; }
+# The plugin's own classes live in `com.it_nomads.fluttersecurestorage` (verified
+# against flutter_secure_storage 9.2.4 in the pub cache: every file under
+# android/src/main/java/com/it_nomads/fluttersecurestorage/). This line used to
+# read `com.tobsef.**`, which matches no package in this project's dependency
+# graph at all — i.e. it kept nothing while the plugin the comment names was
+# left unkept. The plugin ships no consumer ProGuard rules, so the keep has to
+# live here. Reverting to a non-existent package name silently reintroduces the
+# gap, which is exactly the class of mistake that only shows up as a
+# release-only crash of the session/credential path.
+-keep class com.it_nomads.fluttersecurestorage.** { *; }
 
 # Flutter's Android embedding references Play Core split-install classes for
 # optional deferred components. This app does not define deferred components,

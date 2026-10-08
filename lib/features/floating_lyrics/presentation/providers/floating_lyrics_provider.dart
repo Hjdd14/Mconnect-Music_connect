@@ -6,6 +6,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 
 import '../../../../lyrics/lyrics_progress.dart';
 import '../../../../lyrics/models/lyrics_line.dart';
+import '../../../player/presentation/providers/lyrics_offset_provider.dart';
 import '../../../player/presentation/providers/lyrics_provider.dart';
 import '../../../player/presentation/providers/player_provider.dart';
 import '../../data/floating_lyrics_models.dart';
@@ -165,6 +166,15 @@ class FloatingLyricsSyncController {
     _subscriptions.add(
       _ref.listen<Duration>(
         playerProvider.select((state) => state.position),
+        (previous, next) => unawaited(sync()),
+      ),
+    );
+    // The overlay must follow the manual calibration exactly like the in-app
+    // player does. Without this listener a calibration made while playback is
+    // paused would not reach the overlay until the position ticked again.
+    _subscriptions.add(
+      _ref.listen<Duration>(
+        lyricsOffsetProvider,
         (previous, next) => unawaited(sync()),
       ),
     );
@@ -394,10 +404,16 @@ class FloatingLyricsSyncController {
     _updateSweepTimer(
       running: playerState.isPlaying && playerState.currentSong != null,
     );
+    // Same shift the player page applies (`position + offset`), through the one
+    // shared definition, so the overlay can never pick a different line.
+    final lyricsOffset = _ref.read(lyricsOffsetProvider);
     final basePayload = payloadForPosition(
       lyrics,
-      playerState.position,
-      highlightPosition: _estimatedPosition(playerState),
+      applyLyricsOffset(playerState.position, lyricsOffset),
+      highlightPosition: applyLyricsOffset(
+        _estimatedPosition(playerState),
+        lyricsOffset,
+      ),
     );
     if (basePayload.text.trim().isEmpty &&
         (basePayload.translation?.trim().isEmpty ?? true)) {

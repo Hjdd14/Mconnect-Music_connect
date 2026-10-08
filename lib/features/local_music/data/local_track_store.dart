@@ -26,6 +26,15 @@ class LocalTrackEntry {
   final String? coverPath;
   final int? scannedAt;
 
+  /// `(mtime, size)` of the sidecar lyric file this row's lyrics were read from
+  /// (schema v3), or null when the row predates v3 or the sidecar cannot be
+  /// stat'ed (a SAF `content://` path is opaque to `dart:io`).
+  ///
+  /// The reconciler compares these against the sidecar's current stamp to decide
+  /// whether replacing a `.lrc` in place means "read it again".
+  final int? lyricsMtime;
+  final int? lyricsSize;
+
   const LocalTrackEntry({
     required this.path,
     required this.mtime,
@@ -37,6 +46,8 @@ class LocalTrackEntry {
     this.trackNumber,
     this.coverPath,
     this.scannedAt,
+    this.lyricsMtime,
+    this.lyricsSize,
   });
 
   bool get hasTitle => title != null && title!.trim().isNotEmpty;
@@ -96,6 +107,14 @@ class LocalTrackEntry {
     return name.isEmpty ? p.basename(path) : name;
   }
 
+  /// Copy with overrides.
+  ///
+  /// The two stamp fields take the `Function()` wrapper the rest of the codebase
+  /// uses for nullable overrides (`PlayerState.copyWith`, `DownloadTask.copyWith`):
+  /// `null` means "keep", and `() => null` means "clear". Clearing matters here —
+  /// when the stored lyrics came from an embedded tag rather than a sidecar file
+  /// there is no file stamp to record, and keeping a stale one would make the
+  /// embedded copy shadow a valid sidecar that appears later.
   LocalTrackEntry copyWith({
     String? title,
     String? artistName,
@@ -104,6 +123,8 @@ class LocalTrackEntry {
     int? trackNumber,
     String? coverPath,
     int? scannedAt,
+    int? Function()? lyricsMtime,
+    int? Function()? lyricsSize,
   }) {
     return LocalTrackEntry(
       path: path,
@@ -116,6 +137,8 @@ class LocalTrackEntry {
       trackNumber: trackNumber ?? this.trackNumber,
       coverPath: coverPath ?? this.coverPath,
       scannedAt: scannedAt ?? this.scannedAt,
+      lyricsMtime: lyricsMtime != null ? lyricsMtime() : this.lyricsMtime,
+      lyricsSize: lyricsSize != null ? lyricsSize() : this.lyricsSize,
     );
   }
 
@@ -174,14 +197,11 @@ class DriftLocalTrackStore extends LocalTrackStore {
   Future<void> removePaths(Iterable<String> paths) async {
     final list = paths.toList(growable: false);
     if (list.isEmpty) return;
-    // Removals are rare (a file or a whole folder disappeared), so the DAO's
-    // per-path delete is enough; it runs in one transaction so a 1000-row
-    // cleanup does not pay 1000 fsyncs.
-    await _db.transaction(() async {
-      for (final path in list) {
-        await _db.localTracksDao.deleteByPath(path);
-      }
-    });
+    // One `DELETE ... WHERE path IN (...)` per 400 paths instead of one statement
+    // per path: a moved library reports every old path at once, and the previous
+    // per-path loop meant thousands of statements inside the transaction (a
+    // 1000-row cleanup paid 1000 round trips for the same work).
+    await _db.localTracksDao.deletePaths(list);
   }
 
   @override
@@ -200,6 +220,8 @@ class DriftLocalTrackStore extends LocalTrackStore {
     trackNumber: row.trackNumber,
     coverPath: row.coverPath,
     scannedAt: row.scannedAt,
+    lyricsMtime: row.lyricsMtime,
+    lyricsSize: row.lyricsSize,
   );
 
   static LocalTracksCompanion _toCompanion(LocalTrackEntry entry) {
@@ -214,6 +236,8 @@ class DriftLocalTrackStore extends LocalTrackStore {
       trackNumber: Value(entry.trackNumber),
       coverPath: Value(entry.coverPath),
       scannedAt: Value(entry.scannedAt),
+      lyricsMtime: Value(entry.lyricsMtime),
+      lyricsSize: Value(entry.lyricsSize),
     );
   }
 }

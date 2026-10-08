@@ -6,7 +6,9 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/network/platform_http.dart';
 import '../../../../core/share/song_actions.dart';
 import '../../../../core/theme/platform_accent.dart';
+import '../../../../core/utils/snackbar_helper.dart';
 import '../../../../core/widgets/app_scrollbar.dart';
+import '../../../../core/widgets/async_state_view.dart';
 import '../../../../models/album.dart';
 import '../../../../models/audio_quality.dart';
 import '../../../../models/platform_type.dart';
@@ -57,19 +59,23 @@ class _AlbumPageState extends ConsumerState<AlbumPage> {
         ],
       ),
       body: async.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => _AlbumMessage(
-          icon: Icons.error_outline,
-          message: apiExceptionOf(error).message,
-          details: apiExceptionOf(error).details,
-          onRetry: () => ref.invalidate(albumDetailProvider(_key)),
-        ),
+        loading: () => const AsyncStateView.loading(),
+        error: (error, _) {
+          final typed = apiExceptionOf(error);
+          return AsyncStateView.error(
+            title: typed.message,
+            message: typed.details,
+            onRetry: () => ref.invalidate(albumDetailProvider(_key)),
+          );
+        },
         data: (data) {
           if (data.isEmpty) {
-            return _AlbumMessage(
+            // An album with no tracks is not a failure: there is nothing to
+            // retry, so this is an `empty` state rather than an `error` one
+            // (the shared contract keeps the two apart).
+            return const AsyncStateView.empty(
+              title: '暂无专辑信息',
               icon: Icons.album_outlined,
-              message: '暂无专辑信息',
-              onRetry: () => ref.invalidate(albumDetailProvider(_key)),
             );
           }
           final songs = data.songs;
@@ -129,13 +135,13 @@ class _AlbumPageState extends ConsumerState<AlbumPage> {
         .cacheSongs(songs, quality: AudioLevel.low);
     if (!mounted) return;
     final started = report.started + report.queued;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          '已加入离线缓存 $started 首'
-          '${report.skipped > 0 ? '，跳过 ${report.skipped} 首' : ''}',
-        ),
-      ),
+    // Goes through the shared helper (not a bare `ScaffoldMessenger` SnackBar):
+    // the bare form was not `floating`, so the bottom navigation capsule and
+    // the mini player covered it, and it carried no success/error colour.
+    showSuccessSnackBar(
+      context,
+      '已加入离线缓存 $started 首'
+      '${report.skipped > 0 ? '，跳过 ${report.skipped} 首' : ''}',
     );
   }
 }
@@ -383,48 +389,6 @@ class _AlbumCover extends StatelessWidget {
               placeholder: (_, _) => placeholder,
               errorWidget: (_, _, _) => placeholder,
             ),
-    );
-  }
-}
-
-class _AlbumMessage extends StatelessWidget {
-  const _AlbumMessage({
-    required this.icon,
-    required this.message,
-    required this.onRetry,
-    this.details,
-  });
-
-  final IconData icon;
-  final String message;
-  final String? details;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 48, color: cs.outline),
-            const SizedBox(height: 12),
-            Text(message, textAlign: TextAlign.center),
-            if (details != null) ...[
-              const SizedBox(height: 6),
-              Text(
-                details!,
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12, color: cs.outline),
-              ),
-            ],
-            const SizedBox(height: 12),
-            ElevatedButton(onPressed: onRetry, child: const Text('重试')),
-          ],
-        ),
-      ),
     );
   }
 }
