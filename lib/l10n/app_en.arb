@@ -274,5 +274,11 @@
   "libraryPlaylistActions": "Playlist actions",
   "libraryExportPlaylist": "Export playlist",
 
-  "libraryShareFailed": "Couldn't share: {error}"
+  "libraryShareFailed": "Couldn't share: {error}",
+
+  "libraryPlaylistMissingId": "This playlist has no accessible ID — refresh and try again",
+  "libraryExportPlaylistNamed": "Export \"{name}\"",
+  "libraryExportFailed": "Export failed",
+  "libraryScanImportNamed": "Scan to import \"{name}\"",
+  "libraryQrTooLong": "This playlist is too long to fit in a QR code — use \"share link\" instead"
 }

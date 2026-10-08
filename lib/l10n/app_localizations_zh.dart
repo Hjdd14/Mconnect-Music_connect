@@ -699,4 +699,23 @@ class AppLocalizationsZh extends AppLocalizations {
   String libraryShareFailed(String error) {
     return '分享失败：$error';
   }
+
+  @override
+  String get libraryPlaylistMissingId => '该歌单缺少可访问ID，请刷新后重试';
+
+  @override
+  String libraryExportPlaylistNamed(String name) {
+    return '导出「$name」';
+  }
+
+  @override
+  String get libraryExportFailed => '导出失败';
+
+  @override
+  String libraryScanImportNamed(String name) {
+    return '扫码导入「$name」';
+  }
+
+  @override
+  String get libraryQrTooLong => '这个歌单太长，链接放不进二维码，请改用「分享链接」';
 }

@@ -424,5 +424,25 @@
         "type": "String"
       }
     }
-  }
+  },
+
+  "libraryPlaylistMissingId": "该歌单缺少可访问ID，请刷新后重试",
+  "libraryExportPlaylistNamed": "导出「{name}」",
+  "@libraryExportPlaylistNamed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryExportFailed": "导出失败",
+  "libraryScanImportNamed": "扫码导入「{name}」",
+  "@libraryScanImportNamed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryQrTooLong": "这个歌单太长，链接放不进二维码，请改用「分享链接」"
 }

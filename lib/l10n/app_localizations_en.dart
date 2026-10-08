@@ -725,4 +725,25 @@ class AppLocalizationsEn extends AppLocalizations {
   String libraryShareFailed(String error) {
     return 'Couldn\'t share: $error';
   }
+
+  @override
+  String get libraryPlaylistMissingId =>
+      'This playlist has no accessible ID — refresh and try again';
+
+  @override
+  String libraryExportPlaylistNamed(String name) {
+    return 'Export \"$name\"';
+  }
+
+  @override
+  String get libraryExportFailed => 'Export failed';
+
+  @override
+  String libraryScanImportNamed(String name) {
+    return 'Scan to import \"$name\"';
+  }
+
+  @override
+  String get libraryQrTooLong =>
+      'This playlist is too long to fit in a QR code — use \"share link\" instead';
 }

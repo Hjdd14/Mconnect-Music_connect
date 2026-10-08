@@ -163,7 +163,7 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
 
   void _openPlaylist(Playlist playlist) {
     if (playlist.id.trim().isEmpty) {
-      showErrorSnackBar(context, '该歌单缺少可访问ID，请刷新后重试');
+      showErrorSnackBar(context, context.l10n.libraryPlaylistMissingId);
       return;
     }
     context.push(_playlistRoute(playlist));
@@ -228,7 +228,7 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
               ListTile(
                 dense: true,
                 title: Text(
-                  '导出「${playlist.name}」',
+                  context.l10n.libraryExportPlaylistNamed(playlist.name),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(sheetContext).textTheme.titleSmall,
@@ -269,7 +269,7 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
         .exportPlaylistLink(playlist.id);
     if (!mounted) return;
     if (link == null || link.isEmpty) {
-      showErrorSnackBar(context, '导出失败');
+      showErrorSnackBar(context, context.l10n.libraryExportFailed);
       return;
     }
 
@@ -343,15 +343,15 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  '扫码导入「${playlist.name}」',
+                  context.l10n.libraryScanImportNamed(playlist.name),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(sheetContext).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 16),
                 if (payload == null)
-                  const Text(
-                    '这个歌单太长，链接放不进二维码，请改用「分享链接」',
+                  Text(
+                    context.l10n.libraryQrTooLong,
                     textAlign: TextAlign.center,
                   )
                 else
@@ -484,7 +484,7 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        subtitle: Text('${playlist.songCount} 首'),
+                        subtitle: Text(context.l10n.librarySongCount(playlist.songCount)),
                         trailing: playlist.editable
                             ? const Icon(Icons.edit_note)
                             : const Icon(Icons.bookmark),

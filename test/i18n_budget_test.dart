@@ -114,8 +114,23 @@ void main() {
   //   上一片的 `libraryPlaylistLoadFailed`）。
   //   整棵树 882/98 → **876/98**（−6，与文件实测吻合）；**孤儿 = 0**。
   //   ⚠️ 该文件**还剩 7 处**（导出/二维码/分享区），下一批继续。
-  const baselineTotal = 876;
-  const baselineFiles = 98;
+  //
+  // W3-D B4-2（收尾片，`platform_playlists_page` **完成：37 → 0**）：
+  //   本片 7 → 0：`'分享失败：{error}'`→`libraryShareFailed`（上片）、
+  //   `'该歌单缺少可访问ID…'`→`libraryPlaylistMissingId`、`'导出「{name}」'`→
+  //   `libraryExportPlaylistNamed`、`'导出失败'`→`libraryExportFailed`、
+  //   `'扫码导入「{name}」'`→`libraryScanImportNamed`、`'这个歌单太长…'`→
+  //   `libraryQrTooLong`、平台列表 `'{n} 首'`→**复用** `librarySongCount`。
+  //   新增 5 个 key（本片）。
+  //
+  //   ⇒ **i18n 迁移在 v1.5 冻结：整棵树 869/97**（876/98 → 869/97，−7/−1 = 该文件归零）。
+  //   裁定（Lead）：剩余 **170 处**（`playlist_detail_page` 29、`download_page` 37、
+  //   `import_playlist_page` 29、B4-3a 46、B4-3b 29）**为放开 `en` 那一版预留，不再阻塞 v1.5**；
+  //   但**本护栏继续生效**：常量只降不升，谁新增硬编码中文谁立刻红。
+  //   届时模式 B 的 override 落在 `MaterialApp.builder`（`lib/app.dart`），
+  //   `l10n_provider.dart` 已就位；`main.dart`/`app.dart` 现在不用动。
+  const baselineTotal = 869;
+  const baselineFiles = 97;
 
   test('lib/ 的硬编码中文不得超过基线（总数与文件数都不许涨）', () {
     var total = 0;

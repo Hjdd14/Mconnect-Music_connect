@@ -1369,6 +1369,36 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'分享失败：{error}'**
   String libraryShareFailed(String error);
+
+  /// No description provided for @libraryPlaylistMissingId.
+  ///
+  /// In zh, this message translates to:
+  /// **'该歌单缺少可访问ID，请刷新后重试'**
+  String get libraryPlaylistMissingId;
+
+  /// No description provided for @libraryExportPlaylistNamed.
+  ///
+  /// In zh, this message translates to:
+  /// **'导出「{name}」'**
+  String libraryExportPlaylistNamed(String name);
+
+  /// No description provided for @libraryExportFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'导出失败'**
+  String get libraryExportFailed;
+
+  /// No description provided for @libraryScanImportNamed.
+  ///
+  /// In zh, this message translates to:
+  /// **'扫码导入「{name}」'**
+  String libraryScanImportNamed(String name);
+
+  /// No description provided for @libraryQrTooLong.
+  ///
+  /// In zh, this message translates to:
+  /// **'这个歌单太长，链接放不进二维码，请改用「分享链接」'**
+  String get libraryQrTooLong;
 }
 
 class _AppLocalizationsDelegate
