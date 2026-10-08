@@ -11,6 +11,7 @@ import '../../../../core/transfer/transfer_format.dart';
 import '../../../../core/utils/snackbar_helper.dart';
 import '../../../../core/widgets/app_scrollbar.dart';
 import '../../../../core/widgets/async_state_view.dart';
+import '../../../../l10n/l10n.dart';
 import '../../../../models/platform_type.dart';
 import '../../../../models/playlist.dart';
 import '../../../../models/song.dart';

@@ -250,5 +250,9 @@
   "downloadLosslessFormat": "{format} · lossless",
   "downloadNeedsSvip": "SVIP is required to download {quality}",
   "downloadNeedsVip": "VIP is required to download {quality}",
-  "downloadStarted": "Download started: {name} ({quality})"
+  "downloadStarted": "Download started: {name} ({quality})",
+
+  "libraryRefreshCurrentPlaylist": "Refresh the current playlists",
+  "libraryNewPlaylist": "New playlist",
+  "libraryMyPlaylists": "My playlists"
 }

@@ -3470,3 +3470,43 @@ final gTk = pSkey != null ? _hash5381(pSkey) : 5381;   // ← int（:614 定义 
 ### 34.4 一条流程教训：**"改一行"也可能需要一次完整的门禁**
 
 本段我为了修一个编译错误，改了 `settings_page_test.dart` 的一行测试机制（`pumpAndSettle` → 有界 pump），结果连续两轮复跑都在**同一处**花掉 10 分钟。教训：**测试机制的改动和实现改动一样需要"改完立刻在干净态复跑"**；而且"10 分钟超时"这种失败形态**必须当成"有 await 永不完成"**来查（而不是先怀疑动画），否则会像本段一样把预算花在错的方向上。
+
+---
+
+## 35. 阶段 v1.5：scrobble 接线收口 + d/e 范围裁定
+
+### 35.1 scrobble 设置区块终于接线（三个波次之后）
+
+连续三个波次的重构（减订阅、延迟读、把订阅从 provider body 移到 widget）**都没消掉** `CircularDependencyError`。真正解决它的是 owner 排查时发现的**一个正确性 bug，不是重构**：
+
+> refresh 的门槛设成"已开启"，而 `enabled` **只有 refresh 之后才可能为真** ⇒ 永远刷不到；而开关的**真值又取自那个 refresh 才填充的 status 快照** ⇒ 永远显示"关闭"。
+
+修法：开关真值直接读 `scrobblePreferencesProvider.enabled`（widget 订阅即可，不需要 refresh），**凭据只在开启时读** ⇒ **默认关闭路径完全不碰 keystore 与数据库**，异常随之消失。四个探针变体一致：`exceptions=0 diagnosticsAfterDrag=1`（此前同一个探针报 `takeException=CircularDependencyError`、`backup=0 diagnostics=0`）。
+
+**顺带**消掉了接线的测试代价：三个渲染 `SettingsPage` 的测试文件本来就有 `Hive.init` + `openBox('settings')` ⇒ 关闭路径零真实 I/O，不需要额外 override。
+
+**入线时又抓到一处 API 错误**：新写法用了 `fireImmediately: true`，而 **`WidgetRef.listen` 没有这个参数**（只有 `listenManual` 有）。而且它也不必要——preferences 是异步从 Hive 载入的，所以"存的就是开启"会以 `false → true` 的**跃迁**到达，监听器看得到。
+
+**教训**：**先确认失败类别与上报路径，再改代码**。这条在本阶段反复收费：
+- 23 条 scrobble 用例的红，**根因不是 widget 代码**，而是 **Hive 自己通过 `FlutterError` 上报**打开失败，而 `flutter_test` 的规则是"一次测试里只要发生 `reportError` 就失败，**与调用方有没有 catch 无关**" ⇒ 我在 `_load` 里加的 try/catch 从一开始就不可能有用；正解是那些用例 override 两个 store 成内存实现。
+- 一条 10 分钟挂死，根因是**点击触发的 fire-and-forget 真实 Hive 写**（探针 A/B/C/D：不点就 ok、点了复现、换开关同样复现、`runAsync` 救不了），且 `addTearDown` 标记证明卡点在**文件级 `tearDown` 的 `Hive.close()`**。修法是**产品侧持久化可注入**（`PersistSleepTimer` 的同一个范式），不是测试侧 hack。
+
+### 35.2 d（gapless）与 e（缓存 LRU）：**本波都不做实现**（裁定）
+
+**d-1 = (C) 不做，本波只留"能力位 + 接口草案 + 文档"**。依据是 owner 的取证，不另加猜测：
+1. 现状是**单 URL 传输**（全仓 `AudioSource|setAudioSource|ConcatenatingAudioSource` **只命中 2 处**：CHANGELOG 历史 + 注释）⇒ 要改**接口 + 3 个实现 + MediaSession 队列语义**；
+2. "最小可用（本地/已缓存）"**仍然要动这套接口** ⇒ 它的低风险只覆盖在线路径，接口面风险一点没少；
+3. "在线流完整 gapless" 要**拆掉 `_safeStop()` 这条防线**，而围绕它的历史事故面（平台通道卡死、双实例、`_AudioMutex`、`_recreatePlayer` 单飞）是本项目**最贵**的 bug 区；且它要求"预解析到可播"，而"可播"只有真取流才知道 ⇒ **是语义近似，不是工程细节**；
+4. 与刚落地的**切歌 400ms 淡出天然对立**（真 gapless 交接在解码器内部，没有那个窗口）；
+5. **最关键的验收条件本机做不到**：判据是"连切 3 首的 gap / 与淡出·EQ 组合 / 队列里放坏源能否走失败链 / 与通知栏 `skipToNext` 的索引一致性"，**全部需要 Android 真机**。**发版在即，不接受把一个无法在本机验证、且落点在最贵 bug 区的改动塞进这一版。**
+**d-2（实现时的默认方向）**：手动切歌**保留** 400ms 淡出，gapless 交接用 **≤50ms 极短淡出**防爆音（"完全不淡出"在真机上有爆音风险）。
+**d-3**：先落能力位与接口草案、**不动热路径实现**。
+**【证据不足，明确记录】**：`ConcatenatingAudioSource` 在 just_audio **0.9.46** 的实际行为、以及与 `audio_service` MediaSession 队列的协同，**owner 读不到 pub cache，未凭文档断言**——这四项真机判据是本项下一版的前置输入。
+
+**e-1 = (B) 本波不做，记账**。因为**仓库已有一个生产中的 LRU**：`download_provider.dart:490`（注释写明 "LRU, not FIFO"）、`:492` `cleanupOfflineCache({sizeLimitMb})`、`:542`（按最后访问时间排序）、`:767`（按 `policy.sizeLimitMb` 触发）、`download_task.dart:142`（排序时间戳定义）。**再写一份 = 同一块磁盘两个清理器互相淘汰**；且 `lib/features/download/**` 此刻正被 B4-2 迁移。
+**e-2（下一版落地时）**：**"这是缓存文件、可删"的标记必须在下载模块内**（owner 不可跨 scope），播放层只保留**只读注入**（目录/上限从哪来）。这条已入档，不会丢。
+**owner 这一轮的形态值得记**：**一行码没写**，把两个决策点问成选择题，并**明确区分"我读了什么"与"我证据不足的是什么"**（含沙箱读不到 pub cache 的实测原因）；**e 的结论直接避免了一次架构债**——他没有去实现"边下边播的 LRU"，而是先发现**它已经存在**。
+
+### 35.3 W4 前置门禁实测
+
+`flutter test test/version_sync_test.dart` → **`+14 All tests passed!`**，打印 **`checked 7 of 7 points; untracked docs verified: PROJECT.md, CHANGELOG.md`** ⇒ 发布 runbook 里"7 处版本点一次改齐"这条**机器校验已实测通过**（此前只在文档里写过）。

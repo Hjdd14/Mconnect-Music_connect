@@ -379,5 +379,9 @@
         "type": "String"
       }
     }
-  }
+  },
+
+  "libraryRefreshCurrentPlaylist": "刷新当前歌单",
+  "libraryNewPlaylist": "新建歌单",
+  "libraryMyPlaylists": "我的歌单"
 }
