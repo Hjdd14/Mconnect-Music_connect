@@ -669,4 +669,33 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get libraryMyPlaylists => 'My playlists';
+
+  @override
+  String get libraryPlaylistName => 'Playlist name';
+
+  @override
+  String get libraryCreate => 'Create';
+
+  @override
+  String get libraryCreatePlaylistFailed => 'Couldn\'t create the playlist';
+
+  @override
+  String get libraryPlaylistCreated => 'Playlist created';
+
+  @override
+  String get libraryDeletePlaylist => 'Delete playlist';
+
+  @override
+  String libraryDeletePlaylistConfirm(String name) {
+    return 'Delete \"$name\"?';
+  }
+
+  @override
+  String get libraryPlaylistDeleted => 'Playlist deleted';
+
+  @override
+  String get libraryDeletePlaylistFailed => 'Couldn\'t delete the playlist';
+
+  @override
+  String get commonDelete => 'Delete';
 }

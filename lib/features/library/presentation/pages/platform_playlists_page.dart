@@ -62,26 +62,29 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
     final controller = TextEditingController();
     final name = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('新建歌单'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: '歌单名称'),
-          textInputAction: TextInputAction.done,
-          onSubmitted: (value) => Navigator.pop(context, value.trim()),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
+      builder: (context) {
+        final l = context.l10n;
+        return AlertDialog(
+          title: Text(l.libraryNewPlaylist),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: InputDecoration(labelText: l.libraryPlaylistName),
+            textInputAction: TextInputAction.done,
+            onSubmitted: (value) => Navigator.pop(context, value.trim()),
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('新建'),
-          ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(l.actionCancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, controller.text.trim()),
+              child: Text(l.libraryCreate),
+            ),
+          ],
+        );
+      },
     );
     controller.dispose();
     if (name == null || name.isEmpty) return;
@@ -89,7 +92,12 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
         .read(platformPlaylistsProvider.notifier)
         .create(platform, name);
     if (!mounted) return;
-    showInfoSnackBar(context, playlist == null ? '新建歌单失败' : '已新建歌单');
+    showInfoSnackBar(
+      context,
+      playlist == null
+          ? context.l10n.libraryCreatePlaylistFailed
+          : context.l10n.libraryPlaylistCreated,
+    );
   }
 
   Future<void> _createMyPlaylist() async {
@@ -101,33 +109,41 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
 
     final playlist = await ref.read(myPlaylistsProvider.notifier).create(name);
     if (!mounted) return;
-    showInfoSnackBar(context, playlist == null ? '新建歌单失败' : '已新建歌单');
+    showInfoSnackBar(
+      context,
+      playlist == null
+          ? context.l10n.libraryCreatePlaylistFailed
+          : context.l10n.libraryPlaylistCreated,
+    );
   }
 
   Future<String?> _askPlaylistName() async {
     final controller = TextEditingController();
     final name = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('新建歌单'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: '歌单名称'),
-          textInputAction: TextInputAction.done,
-          onSubmitted: (value) => Navigator.pop(context, value.trim()),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
+      builder: (context) {
+        final l = context.l10n;
+        return AlertDialog(
+          title: Text(l.libraryNewPlaylist),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: InputDecoration(labelText: l.libraryPlaylistName),
+            textInputAction: TextInputAction.done,
+            onSubmitted: (value) => Navigator.pop(context, value.trim()),
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: const Text('新建'),
-          ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(l.actionCancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, controller.text.trim()),
+              child: Text(l.libraryCreate),
+            ),
+          ],
+        );
+      },
     );
     controller.dispose();
     return name;
@@ -156,27 +172,35 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
   Future<void> _deleteMyPlaylist(Playlist playlist) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('删除歌单'),
-        content: Text('确定要删除“${playlist.name}”吗？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
+      builder: (context) {
+        final l = context.l10n;
+        return AlertDialog(
+          title: Text(l.libraryDeletePlaylist),
+          content: Text(l.libraryDeletePlaylistConfirm(playlist.name)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(l.actionCancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(l.commonDelete),
+            ),
+          ],
+        );
+      },
     );
     if (confirmed != true) return;
     final ok = await ref
         .read(myPlaylistsProvider.notifier)
         .deletePlaylist(playlist.id);
     if (!mounted) return;
-    showInfoSnackBar(context, ok ? '已删除歌单' : '删除歌单失败');
+    showInfoSnackBar(
+      context,
+      ok
+          ? context.l10n.libraryPlaylistDeleted
+          : context.l10n.libraryDeletePlaylistFailed,
+    );
   }
 
   /// Opens the export chooser for [playlist], then produces the chosen payload.

@@ -383,5 +383,22 @@
 
   "libraryRefreshCurrentPlaylist": "刷新当前歌单",
   "libraryNewPlaylist": "新建歌单",
-  "libraryMyPlaylists": "我的歌单"
+  "libraryMyPlaylists": "我的歌单",
+
+  "libraryPlaylistName": "歌单名称",
+  "libraryCreate": "新建",
+  "libraryCreatePlaylistFailed": "新建歌单失败",
+  "libraryPlaylistCreated": "已新建歌单",
+  "libraryDeletePlaylist": "删除歌单",
+  "libraryDeletePlaylistConfirm": "确定要删除“{name}”吗？",
+  "@libraryDeletePlaylistConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "libraryPlaylistDeleted": "已删除歌单",
+  "libraryDeletePlaylistFailed": "删除歌单失败",
+  "commonDelete": "删除"
 }

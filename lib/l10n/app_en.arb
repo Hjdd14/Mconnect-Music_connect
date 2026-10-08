@@ -254,5 +254,15 @@
 
   "libraryRefreshCurrentPlaylist": "Refresh the current playlists",
   "libraryNewPlaylist": "New playlist",
-  "libraryMyPlaylists": "My playlists"
+  "libraryMyPlaylists": "My playlists",
+
+  "libraryPlaylistName": "Playlist name",
+  "libraryCreate": "Create",
+  "libraryCreatePlaylistFailed": "Couldn't create the playlist",
+  "libraryPlaylistCreated": "Playlist created",
+  "libraryDeletePlaylist": "Delete playlist",
+  "libraryDeletePlaylistConfirm": "Delete \"{name}\"?",
+  "libraryPlaylistDeleted": "Playlist deleted",
+  "libraryDeletePlaylistFailed": "Couldn't delete the playlist",
+  "commonDelete": "Delete"
 }

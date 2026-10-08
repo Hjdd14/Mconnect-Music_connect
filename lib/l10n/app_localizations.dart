@@ -1273,6 +1273,60 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'我的歌单'**
   String get libraryMyPlaylists;
+
+  /// No description provided for @libraryPlaylistName.
+  ///
+  /// In zh, this message translates to:
+  /// **'歌单名称'**
+  String get libraryPlaylistName;
+
+  /// No description provided for @libraryCreate.
+  ///
+  /// In zh, this message translates to:
+  /// **'新建'**
+  String get libraryCreate;
+
+  /// No description provided for @libraryCreatePlaylistFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'新建歌单失败'**
+  String get libraryCreatePlaylistFailed;
+
+  /// No description provided for @libraryPlaylistCreated.
+  ///
+  /// In zh, this message translates to:
+  /// **'已新建歌单'**
+  String get libraryPlaylistCreated;
+
+  /// No description provided for @libraryDeletePlaylist.
+  ///
+  /// In zh, this message translates to:
+  /// **'删除歌单'**
+  String get libraryDeletePlaylist;
+
+  /// No description provided for @libraryDeletePlaylistConfirm.
+  ///
+  /// In zh, this message translates to:
+  /// **'确定要删除“{name}”吗？'**
+  String libraryDeletePlaylistConfirm(String name);
+
+  /// No description provided for @libraryPlaylistDeleted.
+  ///
+  /// In zh, this message translates to:
+  /// **'已删除歌单'**
+  String get libraryPlaylistDeleted;
+
+  /// No description provided for @libraryDeletePlaylistFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'删除歌单失败'**
+  String get libraryDeletePlaylistFailed;
+
+  /// No description provided for @commonDelete.
+  ///
+  /// In zh, this message translates to:
+  /// **'删除'**
+  String get commonDelete;
 }
 
 class _AppLocalizationsDelegate

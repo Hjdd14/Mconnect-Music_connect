@@ -645,4 +645,33 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get libraryMyPlaylists => '我的歌单';
+
+  @override
+  String get libraryPlaylistName => '歌单名称';
+
+  @override
+  String get libraryCreate => '新建';
+
+  @override
+  String get libraryCreatePlaylistFailed => '新建歌单失败';
+
+  @override
+  String get libraryPlaylistCreated => '已新建歌单';
+
+  @override
+  String get libraryDeletePlaylist => '删除歌单';
+
+  @override
+  String libraryDeletePlaylistConfirm(String name) {
+    return '确定要删除“$name”吗？';
+  }
+
+  @override
+  String get libraryPlaylistDeleted => '已删除歌单';
+
+  @override
+  String get libraryDeletePlaylistFailed => '删除歌单失败';
+
+  @override
+  String get commonDelete => '删除';
 }

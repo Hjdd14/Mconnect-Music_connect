@@ -89,7 +89,19 @@ void main() {
   //   （`libraryRefreshCurrentPlaylist`/`libraryNewPlaylist`/`libraryMyPlaylists`）。
   //   整棵树 904/98 → **900/98**（−4，与文件实测吻合）。
   //   ⚠️ 该文件**还剩 33 处**（对话框/导出/二维码/列表区），下一批继续。
-  const baselineTotal = 900;
+  //
+  // W3-D B4-2（继续，`platform_playlists_page` 的对话框区）：
+  //   该文件 33 → **15**（本批 −18）：两个**逐字相同**的"新建歌单"对话框用一次
+  //   `replace_all` 一起改（各 4 处：标题/名称标签/取消/新建），加两条
+  //   `'新建歌单失败'/'已新建歌单'` snackbar、"删除歌单"对话框（标题/确认正文/取消/删除）
+  //   与 `'已删除歌单'/'删除歌单失败'` snackbar。
+  //   新增 10 个 key：`libraryPlaylistName`、`libraryCreate`、
+  //   `libraryCreatePlaylistFailed`、`libraryPlaylistCreated`、`libraryDeletePlaylist`、
+  //   `libraryDeletePlaylistConfirm`、`libraryPlaylistDeleted`、
+  //   `libraryDeletePlaylistFailed`、`commonDelete`（+ 复用 `actionCancel`）。
+  //   整棵树 900/98 → **882/98**（−18，与文件实测吻合）；孤儿仍为 **0**。
+  //   ⚠️ 该文件**还剩 15 处**（导出/二维码/分享 + 列表空态/错误区），下一批继续。
+  const baselineTotal = 882;
   const baselineFiles = 98;
 
   test('lib/ 的硬编码中文不得超过基线（总数与文件数都不许涨）', () {
