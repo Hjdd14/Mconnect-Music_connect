@@ -301,13 +301,36 @@ $t.GetEnumerator() | Sort-Object -Property Value -Descending | Select-Object -Fi
   };
   ```
   适用于：`api_exception.dart`、`download_failure.dart`、`backup_models.dart`（BackupFormatException）、`smart_playlist_rule.dart`、`share_service.dart` 的 `'未命名歌单'`（改由调用方传入名字）。
-- **模式 B（providers 专用）：注入 AppLocalizations。** 在 `lib/main.dart` 的 `ProviderScope` 上 `overrides` 一个 `l10nProvider`，provider 里 `ref.read(l10nProvider)`：
+- **模式 B（providers 专用）：注入 AppLocalizations。**
+  ⚠️ **本仓库的落点与本节原先的示意不同——原先的写法在本仓库不成立（2026-04 实测发现）**：
+  > `ProviderScope` 在 `lib/main.dart`，**高于** `MaterialApp` ⇒ **那一层拿不到 `AppLocalizations.of(context)`**（`main.dart` 里 grep `overrides` 零命中，本来也没有任何 override）。所以下面这段"在 `ProviderScope` 的 overrides 里写 `AppLocalizations.of(context)!`"是**错的**，不要照抄。
   ```dart
-  final l10nProvider = Provider<AppLocalizations>((_) => lookupAppLocalizations(const Locale('zh')));
-  // MconnectApp 的 build 里按当前 locale override：
+  // ❌ 在本仓库不成立：ProviderScope 在 MaterialApp 之上，context 里没有 Localizations
   ProviderScope(overrides: [l10nProvider.overrideWithValue(AppLocalizations.of(context)!)], child: …)
   ```
-  ⚠️ 这个方案要求"页面构建时 l10n 已可用"，且 locale 变化要重建——**只在模式 A 不划算的地方用**（如 `player_provider` 的 toast 文案）。
+
+  **✅ 正确落点是 `MaterialApp.builder`**（`lib/app.dart:120/132` 的 `buildGlassShell` 那一层）——**`builder` 的 context 在 `Localizations` 之下**，那里能拿到 `context.l10n`：
+  ```dart
+  builder: (context, child) => ProviderScope(
+    overrides: [l10nProvider.overrideWithValue(context.l10n)],
+    child: buildGlassShell(context, child),
+  ),
+  ```
+  嵌套 `ProviderScope` 的 override 对**其子树的所有读点**生效，而这几个 `StateNotifierProvider` 都是**页面首次读取时才实例化**的，所以碰不到"根 scope 已构建"的问题。
+
+  **今天还不需要动 `app.dart`**：应用当前只声明 `zh`（`app.dart:75` 的 `appSupportedLocales`），所以 `l10nProvider` 的**默认值 `zhAppLocalizations` 就是"当前语言"的正确答案**：
+  ```dart
+  // lib/l10n/l10n_provider.dart —— 零出边叶子（连 ref 都不用），结构上不可能参与任何环
+  final l10nProvider = Provider<AppLocalizations>((_) => zhAppLocalizations);
+  ```
+  上面那段 `builder:` 的 override **只在将来放开 `en` 时**才需要加。
+
+  **两条硬规矩（配套，必须遵守）**：
+  1. notifier 里**只用 `ref.read(l10nProvider)`，且只在 async 方法内部**（就是现在拼中文串的那几行）；
+  2. **禁止 `ref.watch(l10nProvider)`** —— watch 会让 locale 变化时**重建 notifier、丢掉在飞的加载**，正是本项目在别处付过代价的那类事故。
+
+  **为什么这个形状对 `CircularDependencyError` 免疫（对照教训）**：override **永远来自更高的 scope**，notifier 只**消费**、从不**提供** ⇒ 没有**自依赖**，而且**一条 provider→provider 的边都不新增**。这与 scrobble 那次事故形状相反：那次是**自依赖**（refresh 的门槛依赖了只有那次 refresh 才会填上的值），花了**三个波次**才收口。残余风险量级也如实记下：**即使有人误用 `watch`，最坏是 locale 变化时重建 notifier（可恢复），不会死锁。**
+  ⚠️ 适用性不变：**只在模式 A 不划算的地方用**（如 `player_provider` 的 toast 文案）。
 - **注意 `_status` / `_error` 这类"state 里存字符串"的写法**（`backup_page.dart:113`、`download_page` 等）必须改成 **state 存枚举/参数，build 时翻译**；否则切 locale 后旧消息还是旧语言。
 
 ### 3.4 `// i18n-exempt:` 白名单（必须保留的解析常量）
