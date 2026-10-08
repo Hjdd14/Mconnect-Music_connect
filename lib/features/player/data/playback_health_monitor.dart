@@ -128,8 +128,12 @@ extension PlayerPlaybackHealthOps on PlayerNotifier {
   // 位置停滞，而真机日志里的死法是 `is_playing:false` + 位置冻住 —— 那时
   // `_canCheckPlaybackHealth` 与新加的 `_ensurePlaybackVolume` 都因为
   // `isPlaying` 为假而永不触发。因此这条看门狗**不以 isPlaying 为前提**：
-  // 只要"有当前曲目 + 处于过渡/换音质/恢复中 + 超过阈值没有任何位置或状态
+  // 只要"有当前曲目 + **有真正在飞的转场动作** + 超过阈值没有任何位置或状态
   // 推进"，就强制把播放面复位到可用状态。
+  //
+  // ⚠️ 判据只认"真的在飞"的动作（见 [_isTransportSuspicious]）。
+  // 曾把"已恢复播放记忆、等用户点播放"也算进来，结果安静放着 30s 就会被无端
+  // 复位（并作废在途请求 ⇒ 用户点播放没反应），见方法注释里的真机日志。
 
   void _startStuckWatchdog() {
     if (_stuckWatchdogInterval <= Duration.zero) return;
@@ -139,12 +143,26 @@ extension PlayerPlaybackHealthOps on PlayerNotifier {
     );
   }
 
+  /// True while a transport operation is genuinely **in flight** and therefore
+  /// expected to make progress shortly.
+  ///
+  /// ⚠️ `_restoredSourceNeedsLoad` is deliberately NOT part of this. It means
+  /// "a song was restored from memory and is waiting for the user to press
+  /// play" — that is an **idle** state, not a stuck one. Including it made the
+  /// 30s watchdog force-reset a perfectly healthy player whenever the user
+  /// opened the app and did not immediately press play; the reset bumps
+  /// `_playRequestId` (invalidating any in-flight play) and recreates the
+  /// platform player, so the tap that followed appeared to do nothing
+  /// ("音乐无法播放"). Measured in log日志/10-8.txt:
+  ///
+  ///     player_forced_reset {"reason":"transport_stuck",
+  ///       "restored_source_needs_load":true,"is_playing":false,"position_ms":3100}
+  ///
+  /// A failed *restore* still gets its own protection: `_playRestoredSong`
+  /// starts a transition watchdog and its URL fetch is bounded by a 10s timeout.
   bool _isTransportSuspicious() {
     if (_s.currentSong == null) return false;
-    return _s.isTransitioning ||
-        _isSwitchingQuality ||
-        _isRecoveringPlayback ||
-        _restoredSourceNeedsLoad;
+    return _s.isTransitioning || _isSwitchingQuality || _isRecoveringPlayback;
   }
 
   Future<void> _checkStuckTransport() async {

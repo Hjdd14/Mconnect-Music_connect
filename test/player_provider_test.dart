@@ -2118,8 +2118,71 @@ group('diagnostics instrumentation', () {
       );
     });
 
-    test('the playback failure chain writes every attempt to diagnostics', () async {
-      final notifier = PlayerNotifier(
+    test(
+      'a restored-but-idle player is NOT treated as a stuck transport',
+      () async {
+        // 真机日志（log日志/10-8.txt）里的死法：
+        //   启动恢复播放记忆 → _restoredSourceNeedsLoad = true（用户还没点播放）
+        //   → 卡死看门狗把"等我点播放"当成"卡死"
+        //   → 30s 后 player_forced_reset {"reason":"transport_stuck",
+        //      "restored_source_needs_load":true,"is_playing":false}
+        //   → _playRequestId++ 作废在途请求 + _recreatePlayer()
+        //   ⇒ 用户此刻点播放没有任何反应（"音乐无法播放"）。
+        //
+        // 本用例把这条链钉住：恢复记忆后**什么都不做**，看门狗不得复位。
+        final store = _MemoryPlaybackStore(
+          restored: PlayerPlaybackMemory(
+            currentSong: _song('restored-idle'),
+            playlist: [_song('restored-idle')],
+            currentIndex: 0,
+            position: const Duration(seconds: 9),
+            duration: const Duration(minutes: 3),
+            currentQuality: AudioLevel.low,
+          ),
+        );
+        final notifier = PlayerNotifier(
+          audioController: _FakeAudioController(),
+          platformResolver: (_) => _ErroringUrlPlatform(failingIds: const {}),
+          audioControllerFactory: () => _FakeAudioController(),
+          playbackMemoryStore: store,
+          playbackMemorySaveInterval: Duration.zero,
+          // 阈值远长于本用例的观察窗（400ms），确保不靠"没到点"蒙过去。
+          stuckWatchdogInterval: const Duration(milliseconds: 20),
+          stuckWatchdogThreshold: const Duration(milliseconds: 60),
+          keepAliveController: const NoopPlaybackKeepAliveController(),
+        );
+        addTearDown(notifier.dispose);
+
+        await pumpEventQueue();
+        expect(notifier.state.currentSong?.id, 'restored-idle');
+        expect(notifier.isTransportBusyForTest, isTrue, reason: '恢复态已置位');
+
+        // 用户没点任何东西，静置超过阈值。
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+        await pumpEventQueue();
+
+        expect(
+          DiagnosticsService.instance.recentEvents.any(
+            (e) => e.type == 'player' && e.message.contains('player_forced_reset'),
+          ),
+          isFalse,
+          reason: '恢复后等用户点播放 = 空闲，不是卡死；复位会作废在途请求并让播放无反应',
+        );
+        expect(
+          notifier.isTransportBusyForTest,
+          isTrue,
+          reason: '不得被看门狗清掉恢复标志 —— 那会让首次点击走错分支',
+        );
+
+        // 真正的"点播放"仍然必须走恢复路径并成功出声。
+        await notifier.togglePlay();
+        await pumpEventQueue();
+        expect(notifier.state.isPlaying, isTrue);
+        expect(notifier.isTransportBusyForTest, isFalse);
+      },
+    );
+
+    test('the playback failure chain writes every attempt to diagnostics', () async {      final notifier = PlayerNotifier(
         audioController: _FakeAudioController(),
         platformResolver: (_) =>
             _ErroringUrlPlatform(failingIds: const {'chain-1', 'chain-2'}),
