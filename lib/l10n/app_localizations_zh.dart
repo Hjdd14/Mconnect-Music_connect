@@ -721,4 +721,57 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get libraryRemoveUnsupported => '该平台无法从歌单移除歌曲（暂不支持）';
+
+  @override
+  String get libraryPlatformUnsupported => '该平台暂不支持此操作';
+
+  @override
+  String get libraryPlaylistRenamed => '歌单已重命名';
+
+  @override
+  String get librarySelectNone => '全不选';
+
+  @override
+  String get libraryPlaylistCopyFailed => '复制歌单失败';
+
+  @override
+  String get libraryCopyToLocal => '复制到我的歌单（本地）';
+
+  @override
+  String libraryPlaylistCopiedLocal(String name) {
+    return '已复制为「$name」';
+  }
+
+  @override
+  String get libraryRenamePlaylist => '重命名歌单';
+
+  @override
+  String libraryPlaylistRenameError(String error) {
+    return '重命名歌单失败：$error';
+  }
+
+  @override
+  String get libraryPlaylistDuplicateFailed => '复制失败：歌单不存在';
+
+  @override
+  String libraryPlaylistCopyOf(String name) {
+    return '$name 副本';
+  }
+
+  @override
+  String get libraryPlaylistCopy => '副本';
+
+  @override
+  String libraryPlaylistCopyError(String error) {
+    return '复制歌单失败：$error';
+  }
+
+  @override
+  String get libraryPlaylistRenameFailed => '重命名失败（名称为空或歌单不存在）';
+
+  @override
+  String get librarySelectAll => '全选';
+
+  @override
+  String get libraryPlaylistCopyEmpty => '该歌单没有可复制的歌曲';
 }

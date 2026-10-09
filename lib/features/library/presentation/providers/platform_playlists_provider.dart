@@ -5,6 +5,7 @@ import '../../../../core/network/api_exception.dart';
 import '../../../../core/network/platform_http.dart';
 import '../../../../models/platform_type.dart';
 import '../../../../models/playlist.dart';
+import '../../../../models/song.dart';
 import '../../../../platform/base/music_platform.dart';
 import '../../../../platform/base/platform_registry.dart';
 
@@ -202,6 +203,24 @@ class PlatformPlaylistsNotifier extends StateNotifier<PlatformPlaylistsState> {
         platformType: loading,
       },
     );
+  }
+
+  /// Fetches one playlist's songs, for "copy to a local playlist".
+  ///
+  /// Read-only, so it works even on platforms whose write endpoints are not
+  /// available — the copy itself is created locally and needs no platform write.
+  /// Returns an empty list on any failure; the caller reports it rather than
+  /// creating an empty copy.
+  Future<List<Song>> loadSongs(Playlist playlist) async {
+    try {
+      final platform = _platformResolver(playlist.platform);
+      if (!platform.isLoggedIn) return const [];
+      return await platform
+          .getPlaylistDetail(playlist.id)
+          .timeout(_operationTimeout, onTimeout: () => const <Song>[]);
+    } catch (_) {
+      return const [];
+    }
   }
 
   void _setPlatformCreating(

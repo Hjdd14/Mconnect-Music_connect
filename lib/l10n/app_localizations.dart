@@ -1405,6 +1405,96 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'该平台无法从歌单移除歌曲（暂不支持）'**
   String get libraryRemoveUnsupported;
+
+  /// No description provided for @libraryPlatformUnsupported.
+  ///
+  /// In zh, this message translates to:
+  /// **'该平台暂不支持此操作'**
+  String get libraryPlatformUnsupported;
+
+  /// No description provided for @libraryPlaylistRenamed.
+  ///
+  /// In zh, this message translates to:
+  /// **'歌单已重命名'**
+  String get libraryPlaylistRenamed;
+
+  /// No description provided for @librarySelectNone.
+  ///
+  /// In zh, this message translates to:
+  /// **'全不选'**
+  String get librarySelectNone;
+
+  /// No description provided for @libraryPlaylistCopyFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'复制歌单失败'**
+  String get libraryPlaylistCopyFailed;
+
+  /// No description provided for @libraryCopyToLocal.
+  ///
+  /// In zh, this message translates to:
+  /// **'复制到我的歌单（本地）'**
+  String get libraryCopyToLocal;
+
+  /// No description provided for @libraryPlaylistCopiedLocal.
+  ///
+  /// In zh, this message translates to:
+  /// **'已复制为「{name}」'**
+  String libraryPlaylistCopiedLocal(String name);
+
+  /// No description provided for @libraryRenamePlaylist.
+  ///
+  /// In zh, this message translates to:
+  /// **'重命名歌单'**
+  String get libraryRenamePlaylist;
+
+  /// No description provided for @libraryPlaylistRenameError.
+  ///
+  /// In zh, this message translates to:
+  /// **'重命名歌单失败：{error}'**
+  String libraryPlaylistRenameError(String error);
+
+  /// No description provided for @libraryPlaylistDuplicateFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'复制失败：歌单不存在'**
+  String get libraryPlaylistDuplicateFailed;
+
+  /// No description provided for @libraryPlaylistCopyOf.
+  ///
+  /// In zh, this message translates to:
+  /// **'{name} 副本'**
+  String libraryPlaylistCopyOf(String name);
+
+  /// No description provided for @libraryPlaylistCopy.
+  ///
+  /// In zh, this message translates to:
+  /// **'副本'**
+  String get libraryPlaylistCopy;
+
+  /// No description provided for @libraryPlaylistCopyError.
+  ///
+  /// In zh, this message translates to:
+  /// **'复制歌单失败：{error}'**
+  String libraryPlaylistCopyError(String error);
+
+  /// No description provided for @libraryPlaylistRenameFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'重命名失败（名称为空或歌单不存在）'**
+  String get libraryPlaylistRenameFailed;
+
+  /// No description provided for @librarySelectAll.
+  ///
+  /// In zh, this message translates to:
+  /// **'全选'**
+  String get librarySelectAll;
+
+  /// No description provided for @libraryPlaylistCopyEmpty.
+  ///
+  /// In zh, this message translates to:
+  /// **'该歌单没有可复制的歌曲'**
+  String get libraryPlaylistCopyEmpty;
 }
 
 class _AppLocalizationsDelegate

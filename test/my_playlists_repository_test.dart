@@ -132,6 +132,67 @@ void main() {
     expect(imported!.id, isNot(playlist.id));
     expect((await repository.getSongs(imported.id)).map((s) => s.id), ['s1', 's2']);
   });
+
+  test('renames a local playlist and persists the new name', () async {
+    final playlist = await repository.createPlaylist('旧名字');
+
+    expect(await repository.renamePlaylist(playlist.id, '  新名字  '), isTrue);
+    expect(
+      (await repository.getPlaylist(playlist.id))!.name,
+      '新名字',
+      reason: '应该去掉首尾空白',
+    );
+
+    // 落盘后再读一次：只改内存不算改好。
+    final reopened = MyPlaylistsRepository(storageDirectory: tempDir);
+    expect((await reopened.getPlaylist(playlist.id))!.name, '新名字');
+  });
+
+  test('refuses a blank rename instead of inventing a name', () async {
+    final playlist = await repository.createPlaylist('原名');
+
+    expect(
+      await repository.renamePlaylist(playlist.id, '   '),
+      isFalse,
+      reason: '改名为空白几乎是误操作；静默替换成"未命名歌单"比拒绝更糟',
+    );
+    expect((await repository.getPlaylist(playlist.id))!.name, '原名');
+  });
+
+  test('renaming a missing playlist reports failure', () async {
+    expect(await repository.renamePlaylist('my_nope', 'x'), isFalse);
+  });
+
+  test('duplicates a local playlist with its songs', () async {
+    final source = await repository.importPlaylist(
+      name: '源歌单',
+      songs: [_song('s1', '歌曲 1'), _song('s2', '歌曲 2')],
+    );
+
+    // 后缀由调用方给：这一层没有 BuildContext，中文/英文后缀属于展示层
+    //（i18n 棘轮会统计这里的中文字面量）。
+    final copy = await repository.duplicatePlaylist(
+      source.id,
+      nameSuffix: '副本',
+    );
+
+    expect(copy, isNotNull);
+    expect(copy!.id, isNot(source.id), reason: '副本必须是新歌单');
+    expect(copy.name, '源歌单 副本');
+    expect(
+      (await repository.getSongs(copy.id)).map((s) => s.id),
+      ['s1', 's2'],
+      reason: '副本要带上原来的歌曲',
+    );
+    // 原歌单不受影响。
+    expect((await repository.getSongs(source.id)).map((s) => s.id), ['s1', 's2']);
+    // 两份歌单都在。
+    expect((await repository.getPlaylists()).length, 2);
+  });
+
+  test('duplicating a missing playlist returns null', () async {
+    expect(await repository.duplicatePlaylist('my_nope'), isNull);
+  });
 }
 
 Song _song(String id, String name) {

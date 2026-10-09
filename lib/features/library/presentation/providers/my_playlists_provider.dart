@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../l10n/l10n.dart';
 import '../../../../models/playlist.dart';
 import '../../../../models/song.dart';
 import '../../data/my_playlists_repository.dart';
@@ -190,9 +191,104 @@ class MyPlaylistsNotifier extends StateNotifier<MyPlaylistsState> {
     }
   }
 
+  /// Creates a local playlist from an already-fetched song list.
+  ///
+  /// Used by "copy a platform playlist": the songs are read from the platform and
+  /// written locally, so no platform *write* capability is required.
+  Future<Playlist?> copySongsToLocal({
+    required String name,
+    required List<Song> songs,
+  }) async {
+    if (state.isSaving) return null;
+    state = state.copyWith(isSaving: true, error: () => null);
+    try {
+      final created = await _repository.importPlaylist(
+        name: name,
+        songs: songs,
+      );
+      final playlists = await _repository.getPlaylists();
+      if (mounted) {
+        state = state.copyWith(playlists: playlists, isSaving: false);
+      }
+      return created;
+    } catch (e) {
+      if (mounted) {
+        state = state.copyWith(
+          isSaving: false,
+          error: () => zhAppLocalizations.libraryPlaylistCopyError('$e'),
+        );
+      }
+      return null;
+    }
+  }
+
   Future<String?> exportPlaylistLink(String playlistId) {
     return _repository.exportPlaylistLink(playlistId);
   }
+
+  /// Renames a local playlist and refreshes the list so the new name shows.
+  Future<bool> renamePlaylist(String playlistId, String newName) async {
+    if (state.isSaving) return false;
+    state = state.copyWith(isSaving: true, error: () => null);
+    try {
+      final ok = await _repository.renamePlaylist(playlistId, newName);
+      final playlists = await _repository.getPlaylists();
+      if (mounted) {
+        state = state.copyWith(
+          playlists: playlists,
+          isSaving: false,
+          error: ok ? () => null : () => _renameFailedMessage,
+        );
+      }
+      return ok;
+    } catch (e) {
+      if (mounted) {
+        state = state.copyWith(
+          isSaving: false,
+          error: () => zhAppLocalizations.libraryPlaylistRenameError('$e'),
+        );
+      }
+      return false;
+    }
+  }
+
+  /// Copies a local playlist (songs included) and refreshes the list.
+  Future<Playlist?> duplicatePlaylist(String playlistId) async {
+    if (state.isSaving) return null;
+    state = state.copyWith(isSaving: true, error: () => null);
+    try {
+      final copy = await _repository.duplicatePlaylist(
+      playlistId,
+      nameSuffix: zhAppLocalizations.libraryPlaylistCopy,
+    );
+      final playlists = await _repository.getPlaylists();
+      if (mounted) {
+        state = state.copyWith(
+          playlists: playlists,
+          isSaving: false,
+          error: copy == null ? () => _duplicateFailedMessage : () => null,
+        );
+      }
+      return copy;
+    } catch (e) {
+      if (mounted) {
+        state = state.copyWith(
+          isSaving: false,
+          error: () => zhAppLocalizations.libraryPlaylistCopyError('$e'),
+        );
+      }
+      return null;
+    }
+  }
+
+  // Localised through `zhAppLocalizations` — the same "no BuildContext" source
+  // `lib/core/network/api_exception.dart` uses. This provider has no context, and
+  // the i18n ratchet counts every hard-coded Chinese literal, so the strings come
+  // from the ARB rather than being inlined here.
+  String get _renameFailedMessage =>
+      zhAppLocalizations.libraryPlaylistRenameFailed;
+  String get _duplicateFailedMessage =>
+      zhAppLocalizations.libraryPlaylistDuplicateFailed;
 
   /// Persists a new song order for [playlistId] (drag-to-reorder) and returns
   /// whether the write succeeded.

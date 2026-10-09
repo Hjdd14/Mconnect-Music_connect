@@ -126,6 +126,47 @@ class MyPlaylistsRepository {
     return true;
   }
 
+  /// Renames a local playlist. Returns false when it does not exist.
+  ///
+  /// An empty/whitespace name is rejected rather than silently becoming
+  /// "未命名歌单": renaming to blank is almost certainly a mistake, and quietly
+  /// substituting text the user did not type is worse than refusing.
+  Future<bool> renamePlaylist(String playlistId, String newName) async {
+    final trimmed = newName.trim();
+    if (trimmed.isEmpty) return false;
+    final state = await _readState();
+    final playlist = state.playlists[playlistId];
+    if (playlist == null) return false;
+    playlist.name = trimmed;
+    playlist.updatedAt = DateTime.now().millisecondsSinceEpoch;
+    await _writeState(state);
+    return true;
+  }
+
+  /// Copies a local playlist (songs included) under a new name.
+  ///
+  /// Reuses [importPlaylist] so the copy goes through exactly one code path for
+  /// "materialise a playlist from a song list" — duplicating the song-key logic
+  /// here would be a second way to get it wrong. Returns null when the source
+  /// does not exist.
+  ///
+  /// [nameSuffix] is passed in by the caller rather than built here: this layer has
+  /// no `BuildContext`, and the i18n ratchet counts hard-coded Chinese literals, so
+  /// the visible suffix ("副本" / "copy") belongs to the presentation layer.
+  Future<Playlist?> duplicatePlaylist(
+    String playlistId, {
+    String? newName,
+    String nameSuffix = '',
+  }) async {
+    final source = await getPlaylist(playlistId);
+    if (source == null) return null;
+    final songs = await getSongs(playlistId);
+    final name = (newName?.trim().isNotEmpty ?? false)
+        ? newName!.trim()
+        : '${source.name} $nameSuffix'.trim();
+    return importPlaylist(name: name, songs: songs);
+  }
+
   /// Persists a new song order for [playlistId] (drag-to-reorder).
   ///
   /// [ordered] is the full desired order. Keys that are not already in the
@@ -384,7 +425,11 @@ class _MyPlaylistsState {
 
 class _StoredPlaylist {
   final String id;
-  final String name;
+
+  /// Mutable so [MyPlaylistsRepository.renamePlaylist] can update it in place,
+  /// the same way [updatedAt] is bumped on every mutation.
+  String name;
+
   final int createdAt;
   int updatedAt;
   final List<String> songKeys;

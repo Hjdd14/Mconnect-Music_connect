@@ -445,5 +445,24 @@
     }
   },
   "libraryQrTooLong": "这个歌单太长，链接放不进二维码，请改用「分享链接」",
-  "libraryRemoveUnsupported": "该平台无法从歌单移除歌曲（暂不支持）"
+  "libraryRemoveUnsupported": "该平台无法从歌单移除歌曲（暂不支持）",
+  "libraryPlatformUnsupported": "该平台暂不支持此操作",
+  "libraryPlaylistRenamed": "歌单已重命名",
+  "librarySelectNone": "全不选",
+  "libraryPlaylistCopyFailed": "复制歌单失败",
+  "libraryCopyToLocal": "复制到我的歌单（本地）",
+  "libraryPlaylistCopiedLocal": "已复制为「{name}」",
+  "@libraryPlaylistCopiedLocal": { "placeholders": { "name": { "type": "String" } } },
+  "libraryRenamePlaylist": "重命名歌单",
+  "libraryPlaylistRenameError": "重命名歌单失败：{error}",
+  "libraryPlaylistDuplicateFailed": "复制失败：歌单不存在",
+  "libraryPlaylistCopyOf": "{name} 副本",
+  "@libraryPlaylistCopyOf": { "placeholders": { "name": { "type": "String" } } },
+  "libraryPlaylistCopy": "副本",
+  "libraryPlaylistCopyError": "复制歌单失败：{error}",
+  "libraryPlaylistRenameFailed": "重命名失败（名称为空或歌单不存在）",
+  "@libraryPlaylistCopyError": { "placeholders": { "error": { "type": "String" } } },
+  "@libraryPlaylistRenameError": { "placeholders": { "error": { "type": "String" } } },
+  "librarySelectAll": "全选",
+  "libraryPlaylistCopyEmpty": "该歌单没有可复制的歌曲"
 }

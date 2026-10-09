@@ -15,6 +15,7 @@ import '../../../../l10n/l10n.dart';
 import '../../../../models/platform_type.dart';
 import '../../../../models/playlist.dart';
 import '../../../../models/song.dart';
+import '../../../../platform/base/platform_registry.dart';
 import '../providers/my_playlists_provider.dart';
 import '../providers/platform_playlists_provider.dart';
 
@@ -200,6 +201,127 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
       ok
           ? context.l10n.libraryPlaylistDeleted
           : context.l10n.libraryDeletePlaylistFailed,
+    );
+  }
+
+  // ── 平台歌单：改名 / 删除 ───────────────────────────────────────────────
+  //
+  // 走平台适配器的 deletePlaylist / renamePlaylist。这两项在 MusicPlatform 上的
+  // 默认实现返回 false（"本平台不支持"），所以**能力不足时 UI 会如实说不支持**，
+  // 而不是给一个点了没反应的按钮。
+
+  Future<void> _renamePlatformPlaylist(Playlist playlist) async {
+    final controller = TextEditingController(text: playlist.name);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        final l = context.l10n;
+        return AlertDialog(
+          title: Text(l.libraryRenamePlaylist),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            decoration: InputDecoration(labelText: l.libraryPlaylistName),
+            textInputAction: TextInputAction.done,
+            onSubmitted: (value) => Navigator.pop(context, value.trim()),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(l.actionCancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, controller.text.trim()),
+              child: Text(l.commonConfirm),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+    if (name == null || name.isEmpty || name == playlist.name) return;
+    if (!mounted) return;
+
+    final ok = await PlatformRegistry.get(playlist.platform)
+        .renamePlaylist(playlist.editableId, name)
+        .timeout(const Duration(seconds: 8), onTimeout: () => false);
+    if (!mounted) return;
+    if (ok) {
+      await ref
+          .read(platformPlaylistsProvider.notifier)
+          .loadPlatform(playlist.platform);
+      if (!mounted) return;
+      showInfoSnackBar(context, context.l10n.libraryPlaylistRenamed);
+    } else {
+      showErrorSnackBar(context, context.l10n.libraryPlatformUnsupported);
+    }
+  }
+
+  Future<void> _deletePlatformPlaylist(Playlist playlist) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        final l = context.l10n;
+        return AlertDialog(
+          title: Text(l.libraryDeletePlaylist),
+          content: Text(l.libraryDeletePlaylistConfirm(playlist.name)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(l.actionCancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(l.commonDelete),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !mounted) return;
+
+    final ok = await PlatformRegistry.get(playlist.platform)
+        .deletePlaylist(playlist.editableId)
+        .timeout(const Duration(seconds: 8), onTimeout: () => false);
+    if (!mounted) return;
+    if (ok) {
+      await ref
+          .read(platformPlaylistsProvider.notifier)
+          .loadPlatform(playlist.platform);
+      if (!mounted) return;
+      showInfoSnackBar(context, context.l10n.libraryPlaylistDeleted);
+    } else {
+      showErrorSnackBar(context, context.l10n.libraryPlatformUnsupported);
+    }
+  }
+
+  /// Copies a platform playlist into a LOCAL playlist.
+  ///
+  /// Local rather than "same platform again": a same-platform copy needs that
+  /// platform's create + per-song add, and on the platforms whose write endpoints
+  /// are not verified that would be a button that silently fails. Importing the
+  /// already-fetched song list needs no platform write at all, so it always works.
+  Future<void> _copyPlatformPlaylistToLocal(Playlist playlist) async {
+    final songs = await ref.read(platformPlaylistsProvider.notifier).loadSongs(
+      playlist,
+    );
+    if (!mounted) return;
+    if (songs.isEmpty) {
+      showErrorSnackBar(context, context.l10n.libraryPlaylistCopyEmpty);
+      return;
+    }
+    final copy = await ref
+        .read(myPlaylistsProvider.notifier)
+        .copySongsToLocal(
+      name: context.l10n.libraryPlaylistCopyOf(playlist.name),
+      songs: songs,
+    );
+    if (!mounted) return;
+    showInfoSnackBar(
+      context,
+      copy == null
+          ? context.l10n.libraryPlaylistCopyFailed
+          : context.l10n.libraryPlaylistCopiedLocal(copy.name),
     );
   }
 
@@ -485,9 +607,48 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
                           overflow: TextOverflow.ellipsis,
                         ),
                         subtitle: Text(context.l10n.librarySongCount(playlist.songCount)),
-                        trailing: playlist.editable
-                            ? const Icon(Icons.edit_note)
-                            : const Icon(Icons.bookmark),
+                        trailing: PopupMenuButton<String>(
+                          tooltip: context.l10n.libraryPlaylistActions,
+                          onSelected: (value) {
+                            switch (value) {
+                              case 'rename':
+                                _renamePlatformPlaylist(playlist);
+                                break;
+                              case 'delete':
+                                _deletePlatformPlaylist(playlist);
+                                break;
+                              case 'copyLocal':
+                                _copyPlatformPlaylistToLocal(playlist);
+                                break;
+                            }
+                          },
+                          itemBuilder: (context) {
+                            final l = context.l10n;
+                            return [
+                              PopupMenuItem(
+                                value: 'rename',
+                                child: ListTile(
+                                  leading: const Icon(Icons.drive_file_rename_outline),
+                                  title: Text(l.libraryRenamePlaylist),
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: 'copyLocal',
+                                child: ListTile(
+                                  leading: const Icon(Icons.copy_all_outlined),
+                                  title: Text(l.libraryCopyToLocal),
+                                ),
+                              ),
+                              PopupMenuItem(
+                                value: 'delete',
+                                child: ListTile(
+                                  leading: const Icon(Icons.delete_outline),
+                                  title: Text(l.libraryDeletePlaylist),
+                                ),
+                              ),
+                            ];
+                          },
+                        ),
                         onTap: () => _openPlaylist(playlist),
                       );
                     },

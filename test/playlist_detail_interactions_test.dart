@@ -439,10 +439,14 @@ void main() {
     expect(find.byTooltip('多选'), findsOneWidget);
     expect(find.byIcon(Icons.file_download_outlined), findsNWidgets(2));
 
-    // Multi-select there offers no "移出": the platform owns the playlist.
     await tester.tap(find.byTooltip('多选'));
     await tester.pumpAndSettle();
-    expect(find.byTooltip('批量移出'), findsNothing);
+
+    // 这条断言原先写的是"平台歌单不提供批量移出"—— 那正是用户报的
+    // 「无法删除歌单内歌曲」。排序仍归平台（上面两条不变），但**移出歌曲**现在
+    // 走平台适配器 `removeSongFromPlaylist`：平台支持就成功，不支持就如实提示
+    // "暂不支持"，而不是把这个入口藏起来让用户以为功能不存在。
+    expect(find.byTooltip('批量移出'), findsOneWidget);
     expect(find.byTooltip('批量下载'), findsOneWidget);
   });
 }

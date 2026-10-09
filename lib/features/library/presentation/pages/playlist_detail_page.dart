@@ -125,16 +125,20 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage> {
     });
   }
 
-  void _toggleSelectAll() {
+  /// Selects every song in the playlist.
+  void _selectAll() {
     setState(() {
-      if (_selectedKeys.length == _songsOrEmpty.length) {
-        _selectedKeys.clear();
-        _selectionMode = false;
-      } else {
-        _selectedKeys
-          ..clear()
-          ..addAll(_songsOrEmpty.map(_keyOf));
-      }
+      _selectedKeys
+        ..clear()
+        ..addAll(_songsOrEmpty.map(_keyOf));
+    });
+  }
+
+  /// Clears the selection and leaves selection mode.
+  void _selectNone() {
+    setState(() {
+      _selectedKeys.clear();
+      _selectionMode = false;
     });
   }
 
@@ -336,10 +340,18 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage> {
     final allSelected =
         songs.isNotEmpty && _selectedKeys.length == songs.length;
     return [
+      // Two explicit entries rather than one toggle: "全选 / 全不选" is what the
+      // user asked for, and a single icon whose meaning flips is easy to
+      // mis-tap. Each is disabled when it would do nothing.
       IconButton(
-        icon: Icon(allSelected ? Icons.deselect : Icons.select_all),
-        tooltip: allSelected ? '取消全选' : '全选',
-        onPressed: _busy ? null : _toggleSelectAll,
+        icon: const Icon(Icons.select_all),
+        tooltip: context.l10n.librarySelectAll,
+        onPressed: _busy || allSelected ? null : _selectAll,
+      ),
+      IconButton(
+        icon: const Icon(Icons.deselect),
+        tooltip: context.l10n.librarySelectNone,
+        onPressed: _busy || _selectedKeys.isEmpty ? null : _selectNone,
       ),
       IconButton(
         icon: const Icon(Icons.download_outlined),
@@ -355,14 +367,17 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage> {
             ? null
             : () => unawaited(_batchAddToPlaylist()),
       ),
-      if (_isLocalPlaylist)
-        IconButton(
-          icon: const Icon(Icons.remove_circle_outline),
-          tooltip: '批量移出',
-          onPressed: _busy || _selectedKeys.isEmpty
-              ? null
-              : () => unawaited(_batchRemove()),
-        ),
+      // Available for platform playlists too. It used to be local-only, which is
+      // exactly why songs could not be removed from a platform playlist at all.
+      // The platform path reports "unsupported" honestly when the platform has no
+      // such operation, instead of offering nothing.
+      IconButton(
+        icon: const Icon(Icons.remove_circle_outline),
+        tooltip: '批量移出',
+        onPressed: _busy || _selectedKeys.isEmpty
+            ? null
+            : () => unawaited(_batchRemove()),
+      ),
     ];
   }
 

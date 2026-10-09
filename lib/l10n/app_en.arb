@@ -281,5 +281,20 @@
   "libraryExportFailed": "Export failed",
   "libraryScanImportNamed": "Scan to import \"{name}\"",
   "libraryQrTooLong": "This playlist is too long to fit in a QR code — use \"share link\" instead",
-  "libraryRemoveUnsupported": "This platform can't remove songs from a playlist yet"
+  "libraryRemoveUnsupported": "This platform can't remove songs from a playlist yet",
+  "libraryPlatformUnsupported": "This platform does not support this yet",
+  "libraryPlaylistRenamed": "Playlist renamed",
+  "librarySelectNone": "Deselect all",
+  "libraryPlaylistCopyFailed": "Could not copy the playlist",
+  "libraryCopyToLocal": "Copy into a local playlist",
+  "libraryPlaylistCopiedLocal": "Copied as \"{name}\"",
+  "libraryRenamePlaylist": "Rename playlist",
+  "libraryPlaylistRenameError": "Could not rename the playlist: {error}",
+  "libraryPlaylistDuplicateFailed": "Copy failed: playlist not found",
+  "libraryPlaylistCopyOf": "{name} copy",
+  "libraryPlaylistCopy": "copy",
+  "libraryPlaylistCopyError": "Could not copy the playlist: {error}",
+  "libraryPlaylistRenameFailed": "Rename failed (blank name, or playlist missing)",
+  "librarySelectAll": "Select all",
+  "libraryPlaylistCopyEmpty": "This playlist has no songs to copy"
 }

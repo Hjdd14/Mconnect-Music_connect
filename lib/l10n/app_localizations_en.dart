@@ -750,4 +750,60 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get libraryRemoveUnsupported =>
       'This platform can\'t remove songs from a playlist yet';
+
+  @override
+  String get libraryPlatformUnsupported =>
+      'This platform does not support this yet';
+
+  @override
+  String get libraryPlaylistRenamed => 'Playlist renamed';
+
+  @override
+  String get librarySelectNone => 'Deselect all';
+
+  @override
+  String get libraryPlaylistCopyFailed => 'Could not copy the playlist';
+
+  @override
+  String get libraryCopyToLocal => 'Copy into a local playlist';
+
+  @override
+  String libraryPlaylistCopiedLocal(String name) {
+    return 'Copied as \"$name\"';
+  }
+
+  @override
+  String get libraryRenamePlaylist => 'Rename playlist';
+
+  @override
+  String libraryPlaylistRenameError(String error) {
+    return 'Could not rename the playlist: $error';
+  }
+
+  @override
+  String get libraryPlaylistDuplicateFailed =>
+      'Copy failed: playlist not found';
+
+  @override
+  String libraryPlaylistCopyOf(String name) {
+    return '$name copy';
+  }
+
+  @override
+  String get libraryPlaylistCopy => 'copy';
+
+  @override
+  String libraryPlaylistCopyError(String error) {
+    return 'Could not copy the playlist: $error';
+  }
+
+  @override
+  String get libraryPlaylistRenameFailed =>
+      'Rename failed (blank name, or playlist missing)';
+
+  @override
+  String get librarySelectAll => 'Select all';
+
+  @override
+  String get libraryPlaylistCopyEmpty => 'This playlist has no songs to copy';
 }
