@@ -132,6 +132,47 @@ void main() {
       );
     }
 
+    testWidgets('lays out in landscape without a RenderFlex overflow', (
+      tester,
+    ) async {
+      // 真机事故（2026-10-09，横屏）：截图里那条黄黑警示条
+      //   BOTTOM OVERFLOWED BY 35 PIXELS
+      // App 诊断日志在同一次会话里记录了 13 / 35 / 87 像素三种溢出量级：
+      //   23:02:10  13 pixels   23:02:11  35 pixels   23:02:30  87 pixels
+      // 本用例把常见横屏尺寸逐一钉住：任何一处溢出都会让 `takeException()` 非空。
+      //
+      // 发现页是一个**不可滚动**的 Column（标题 + 三张卡片 + 标题行 + Expanded），
+      // 横屏时可用高度骤降，固定部分就装不下了。
+      for (final size in const <Size>[
+        // 实测 MuMu 模拟器（截图那台）：physical 2160x3840，density 960 → 缩放 6.0
+        //   portrait  360 x 640
+        //   landscape 640 x 360   ← 用户看到溢出的真实逻辑尺寸
+        // 高度只有 360，比我第一版猜的 600 少了 40%，所以之前测不出来。
+        Size(640, 360),
+        Size(360, 640), // 竖屏一并守住
+        Size(800, 360), // 更宽但同样矮
+        Size(1024, 600), // 平板/桌面横屏
+      ]) {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpWidget(
+          wrapWithNotifier(
+            PlaylistRecommendationsNotifier(supportedTypes: const []),
+          ),
+        );
+        await tester.pump();
+
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: '$size 下发现页不得溢出（真机横屏量到 35px）',
+        );
+      }
+    });
+
     testWidgets('a platform failure is an error state with a retry', (
       tester,
     ) async {

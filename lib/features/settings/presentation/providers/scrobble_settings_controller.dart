@@ -160,9 +160,12 @@ class RiverpodScrobbleSettingsController implements ScrobbleSettingsController {
       hasCredentials: status.hasCredentials,
       needsReauth: status.needsReauth,
       pendingCount: status.pendingCount,
-      // 延迟读：`backendLastError` 会 read(scrobbleBackendProvider)，在 build 期读它
-      // 正是那个环最初的成因。
-      lastError: status.lastError ?? _backendLastError(),
+      // 只读 status：`status.lastError` 已由 `ScrobbleStatusNotifier.refresh()`
+      // 从 coordinator 取好（它带的就是传输层的措辞）。
+      // 这里**不再**去读 backend —— 那正是 `CircularDependencyError` 的成因：
+      // `scrobbleBackendProvider` watch 了 preferences，而从 preferences notifier
+      // 里反读 backend 就成环。只把调用推迟到闭包里并不能拆环（试过了）。
+      lastError: status.lastError,
       apiKey: secrets.apiKey,
       apiSecret: secrets.apiSecret,
       sessionKey: secrets.sessionKey,
@@ -170,8 +173,6 @@ class RiverpodScrobbleSettingsController implements ScrobbleSettingsController {
     );
   }
 
-  String? _backendLastError() =>
-      _ref.read(scrobblePreferencesProvider.notifier).backendLastError;
 
   @override
   Future<void> setEnabled(bool enabled) async {
@@ -215,9 +216,9 @@ class RiverpodScrobbleSettingsController implements ScrobbleSettingsController {
 
   @override
   Future<bool> testConnection() async {
-    final ok = await _ref
-        .read(scrobblePreferencesProvider.notifier)
-        .testConnection();
+    // 从 status notifier 走，而不是 preferences notifier：后者的 `_ref` 就是
+    // `scrobblePreferencesProvider`，反读 backend 会成环（见类注释与真机日志）。
+    final ok = await _ref.read(scrobbleStatusProvider.notifier).testConnection();
     refresh();
     return ok;
   }

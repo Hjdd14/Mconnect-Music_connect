@@ -49,69 +49,100 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '发现',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            // Three side-by-side entries, all the same compact weight.
-            //
-            // The 每日推荐 and 榜单中心 cards that used to sit above this row are
-            // gone: 榜单中心 was listed twice (card + tile), the cards' subtitles
-            // did not fit a compact layout, and the 艺人 / 专辑 tile only handed
-            // over to the search tab, which is already one tap away in the bottom
-            // bar. Each button keeps the destination it always had.
-            Row(
-              children: [
-                Expanded(
-                  child: _DiscoveryEntry(
-                    icon: Icons.wb_sunny,
-                    label: '每日推荐',
-                    onTap: () => context.push('/recommendations'),
+        // Scrollable, not a bare Column.
+        //
+        // Device log 2026-10-09 while the phone was in LANDSCAPE (the screenshot
+        // shows the yellow "BOTTOM OVERFLOWED BY 35 PIXELS" bar):
+        //   23:02:10  13 pixels   23:02:11  35 pixels   23:02:30  87 pixels
+        // A fixed Column (title + three entry cards + a section header + an
+        // Expanded area) cannot fit when the available height drops from ~640 to
+        // ~360 logical pixels, and the `Expanded` child cannot absorb the
+        // shortfall. Making the page scrollable removes the whole class instead of
+        // tuning one height: whatever the shortfall is, the user can reach it.
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '发现',
+                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              // Three side-by-side entries, all the same compact weight.
+              //
+              // The 每日推荐 and 榜单中心 cards that used to sit above this row are
+              // gone: 榜单中心 was listed twice (card + tile), the cards' subtitles
+              // did not fit a compact layout, and the 艺人 / 专辑 tile only handed
+              // over to the search tab, which is already one tap away in the bottom
+              // bar. Each button keeps the destination it always had.
+              Row(
+                children: [
+                  Expanded(
+                    child: _DiscoveryEntry(
+                      icon: Icons.wb_sunny,
+                      label: '每日推荐',
+                      onTap: () => context.push('/recommendations'),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _DiscoveryEntry(
-                    icon: Icons.leaderboard_outlined,
-                    label: '榜单中心',
-                    onTap: () => context.push('/toplists'),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _DiscoveryEntry(
+                      icon: Icons.leaderboard_outlined,
+                      label: '榜单中心',
+                      onTap: () => context.push('/toplists'),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _DiscoveryEntry(
-                    icon: Icons.fiber_new_outlined,
-                    label: '新歌速递',
-                    onTap: () => context.push('/new-songs'),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _DiscoveryEntry(
+                      icon: Icons.fiber_new_outlined,
+                      label: '新歌速递',
+                      onTap: () => context.push('/new-songs'),
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  '歌单推荐',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-                ),
-                if (recState.hasData)
-                  TextButton(
-                    onPressed: () => context.push('/recommendations'),
-                    child: const Text('查看全部'),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    '歌单推荐',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
                   ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Expanded(child: _recommendationsArea(recState)),
-          ],
+                  if (recState.hasData)
+                    TextButton(
+                      onPressed: () => context.push('/recommendations'),
+                      child: const Text('查看全部'),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              // The grid gets a bounded viewport instead of `Expanded`: inside a
+              // scroll view there is no incoming height constraint to expand into,
+              // so the recommendation area is given a sensible fixed height and
+              // becomes one more thing the page scrolls past.
+              SizedBox(
+                height: _recommendationsViewportHeight(context),
+                child: _recommendationsArea(recState),
+              ),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  /// Height for the recommendation grid inside the scroll view.
+  ///
+  /// Two rows of cards plus the gap, measured against the grid's own item extent;
+  /// proportionally smaller on a short (landscape) viewport so the page does not
+  /// become mostly one oversized grid.
+  static double _recommendationsViewportHeight(BuildContext context) {
+    final available = MediaQuery.sizeOf(context).height;
+    if (available < 420) return 220;
+    if (available < 700) return 300;
+    return 360;
   }
 
   /// The 歌单推荐 area below the three compact entries.

@@ -9,6 +9,8 @@ import 'package:mconnect/core/source_matching/source_match_settings.dart';
 import 'package:mconnect/core/theme/app_background.dart';
 import 'package:mconnect/core/theme/app_background_provider.dart';
 import 'package:mconnect/features/settings/presentation/pages/settings_page.dart';
+import 'package:mconnect/features/scrobble/data/scrobble_config.dart';
+import 'package:mconnect/features/scrobble/presentation/providers/scrobble_provider.dart';
 
 void main() {
   late Directory tempDir;
@@ -174,6 +176,64 @@ void main() {
       ]) {
         expect(find.text(label), findsOneWidget);
       }
+    },
+  );
+
+  testWidgets(
+    'an ENABLED scrobble section does not throw CircularDependencyError',
+    (tester) async {
+      // 真机事故（2026-10-09）：设置页红屏
+      //   Instance of 'CircularDependencyError'
+      // 完整栈指向
+      //   ScrobblePreferencesNotifier.backendLastError
+      //   → RiverpodScrobbleSettingsController._backendLastError → .view
+      //   → _ScrobbleSettingsSectionState.build
+      // 成因：`backendLastError` 在 preferences notifier 里 read 了
+      // `scrobbleBackendProvider`，而后者 watch 了 preferences —— 成环。
+      //
+      // 为什么既有用例没抓到：关闭状态下 `view` 走的是**提前返回**的分支，根本
+      // 不碰 lastError。用户是**开启**状态才崩的。所以本用例必须把开关打开，
+      // 否则它会像之前那样"绿着放行一个必崩路径"。
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            scrobblePreferencesProvider.overrideWith(
+              (ref) => ScrobblePreferencesNotifier(
+                ref,
+                initial: const ScrobblePreferences(enabled: true),
+              ),
+            ),
+          ],
+          child: const MaterialApp(home: SettingsPage()),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: '开启状态下不得再抛 CircularDependencyError',
+      );
+
+      // 区块后面的条目仍然渲染 ⇒ 区块自身的 build 没有抛异常打断列表。
+      // 页面是 ListView（懒构建）：开启 scrobble 后多了整个区块，把后面的条目推到
+      // 视口外而不再构建，所以要滚过去找 —— 这是本仓库吃过多次亏的那个坑，用
+      // 有界 pump（不是 pumpAndSettle）。
+      Future<void> settle() async {
+        for (var i = 0; i < 40; i++) {
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+      }
+
+      await tester.dragUntilVisible(
+        find.text('诊断与关于'),
+        find.byType(ListView),
+        const Offset(0, -260),
+      );
+      await settle();
+
+      expect(find.text('诊断与关于'), findsOneWidget);
+      expect(tester.takeException(), isNull);
     },
   );
 

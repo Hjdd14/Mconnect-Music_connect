@@ -146,23 +146,24 @@ class ScrobblePreferencesNotifier extends StateNotifier<ScrobblePreferences> {
     return true;
   }
 
-  /// A zero-side-effect probe: `user.getInfo` without a `user` parameter returns
-  /// the account the session belongs to, and creates nothing.
+  /// ⚠️ `backendLastError` and `testConnection()` used to live here and did
+  /// `_ref.read(scrobbleBackendProvider)`. That is a **cycle**: this notifier IS
+  /// `scrobblePreferencesProvider`, while `scrobbleBackendProvider` does
+  /// `ref.watch(scrobblePreferencesProvider)`. Reading the backend from here means
+  /// "the provider I am building watches me back", and Riverpod throws
+  /// `CircularDependencyError`.
   ///
-  /// Returns true when the credentials work. The message to show on failure is
-  /// [backendLastError] (the transport's own wording), not a string invented here.
-  ///
-  /// 【需联网验证】the exact endpoint for an already-authorised session is not
-  /// documented — the spec's fallback is `user.getRecentTracks&limit=1`.
-  Future<bool> testConnection() async {
-    final backend = _ref.read(scrobbleBackendProvider);
-    if (backend == null) return false;
-    return backend.validate();
-  }
-
-  /// The current transport's own last message, for the settings page to display.
-  String? get backendLastError =>
-      _ref.read(scrobbleBackendProvider)?.lastError;
+  /// Device log, 2026-10-09 (settings page red screen):
+  /// ```
+  /// #3 ScrobblePreferencesNotifier.backendLastError  (scrobble_provider.dart:165)
+  /// #4 RiverpodScrobbleSettingsController._backendLastError
+  /// #5 RiverpodScrobbleSettingsController.view
+  /// #6 _ScrobbleSettingsSectionState.build
+  /// ```
+  /// Both operations now hang off the transport layer instead — see
+  /// [ScrobbleStatusNotifier.backendLastError] / `.testConnection()`, which read
+  /// the coordinator. Do not move them back: an earlier attempt only deferred the
+  /// *call* into a closure, which does not remove the edge.
 }
 
 final scrobblePreferencesProvider =
@@ -332,11 +333,35 @@ class ScrobbleStatusNotifier extends StateNotifier<ScrobbleStatus> {
     }
   }
 
+  /// The transport's own last message, for the settings page to display.
+  ///
+  /// Lives on the STATUS notifier, not on the preferences one: reading
+  /// `scrobbleBackendProvider` from `ScrobblePreferencesNotifier` created a
+  /// `CircularDependencyError` (see the note on that class). The coordinator
+  /// already owns this value, and reading the coordinator is a one-way edge.
+  String? get backendLastError {
+    try {
+      return _ref.read(scrobbleCoordinatorProvider).lastError;
+    } catch (_) {
+      return state.lastError;
+    }
+  }
+
+  /// A zero-side-effect probe: `user.getInfo` without a `user` parameter returns
+  /// the account the session belongs to, and creates nothing.
+  ///
+  /// 【需联网验证】the exact endpoint for an already-authorised session is not
+  /// documented — the spec's fallback is `user.getRecentTracks&limit=1`.
+  Future<bool> testConnection() async {
+    final backend = _ref.read(scrobbleBackendProvider);
+    if (backend == null) return false;
+    return backend.validate();
+  }
+
   /// "立即补交": drains once and refreshes the count.
   Future<ScrobbleDrainOutcome?> drainNow() async {
     final coordinator = _ref.read(scrobbleCoordinatorProvider);
-    ScrobbleDrainOutcome? outcome;
-    try {
+    ScrobbleDrainOutcome? outcome;    try {
       outcome = await coordinator.drainOnce();
     } catch (_) {
       outcome = null;
