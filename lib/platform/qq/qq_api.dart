@@ -451,11 +451,10 @@ class QqApi {
         },
         options: Options(responseType: ResponseType.bytes),
       );
-      // Store qrsig cookie
+      // Store qrsig cookie (attribute segments stripped — see [_mergeSetCookies]).
       final cookies = res.headers['set-cookie'];
-      if (cookies != null) {
-        final cookieStr = cookies.join('; ');
-        setCookie(cookieStr);
+      if (cookies != null && cookies.isNotEmpty) {
+        setCookie(_mergeSetCookies(existing: _cookie ?? '', setCookieLines: cookies));
       }
       return res.data as List<int>?;
     } catch (_) {
@@ -493,7 +492,12 @@ class QqApi {
       );
       final text = res.data.toString();
       final cookieHeaders = res.headers['set-cookie'];
-      final cookieStr = cookieHeaders?.join('; ');
+      // Raw lines are returned so the caller can merge them with
+      // [_mergeSetCookies]; joining here would leak attribute segments into the
+      // jar, which is precisely the bug that made graph.qq.com reject the session.
+      final cookieStr = cookieHeaders == null
+          ? null
+          : _mergeSetCookies(existing: _cookie ?? '', setCookieLines: cookieHeaders);
       return {'raw': text, 'cookies': cookieStr};
     } catch (e) {
       return {'error': e.toString()};
@@ -537,11 +541,30 @@ class QqApi {
 
         final hopCookies = res.headers['set-cookie'];
         if (hopCookies != null && hopCookies.isNotEmpty) {
-          final existing = _cookie ?? '';
-          _cookie = existing.isEmpty
-              ? hopCookies.join('; ')
-              : '$existing; ${hopCookies.join('; ')}';
+          // Merge REAL cookie pairs. `hopCookies.join('; ')` pasted the attribute
+          // segments (Path=/, Domain=..., HttpOnly...) into the jar as if they
+          // were cookies, which is what made graph.qq.com return the
+          // "QQ帐号安全登录" page — see [_mergeSetCookies].
+          _cookie = _mergeSetCookies(
+            existing: _cookie ?? '',
+            setCookieLines: hopCookies,
+          );
         }
+
+        // Which cookie NAMES came in on this hop, and from which host. The
+        // "QQ帐号安全登录" page returned by `oauth2.0/show` proves graph.qq.com
+        // does NOT accept this session even though p_skey is present — the usual
+        // reason is that the session cookies were issued for
+        // `ptlogin2.graph.qq.com` rather than for `.qq.com`, so the names exist in
+        // our jar but are not valid for the host we send them to. Logging the
+        // names + the request host answers that without exposing values.
+        final hopHost = Uri.tryParse(currentUrl)?.host ?? '?';
+        final names = (hopCookies ?? const <String>[])
+            .map((c) => c.split('=').first.trim())
+            .join(',');
+        debugPrint(
+          'QQ OAuth: hop=$hop host=$hopHost cookieNames=[$names]',
+        );
 
         final location = res.headers.value('location');
         debugPrint(
@@ -581,6 +604,18 @@ class QqApi {
         'QQ OAuth: calling oauth2.0/show, surl=$surl '
         '(fromRedirect=${uri.queryParameters.containsKey('surl')})',
       );
+      // The names we are ABOUT to send to graph.qq.com. Comparing this list with
+      // the "QQ帐号安全登录" outcome is what separates "cookie lost" (a name
+      // missing) from "cookie not valid for this host" (name present, domain
+      // wrong) — the two have different fixes.
+      final sentNames = (_cookie ?? '')
+          .split(';')
+          .map((p) => p.split('=').first.trim())
+          .where((n) => n.isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort();
+      debugPrint('QQ OAuth: sending cookie names to graph: $sentNames');
       final authRes = await _dio.get(
         QqEndpoints.graphShow,
         queryParameters: {
@@ -595,19 +630,29 @@ class QqApi {
         },
         options: Options(
           responseType: ResponseType.plain,
-          headers: {'cookie': _cookie ?? ''},
+          followRedirects: false,
+          validateStatus: (status) => status != null && status < 400,
+          headers: {
+            'Referer': 'https://xui.ptlogin2.qq.com/',
+            'cookie': _cookie ?? '',
+          },
         ),
       );
       // Capture more cookies
       final cookies2 = authRes.headers['set-cookie'];
-      if (cookies2 != null) {
-        _cookie = '$_cookie; ${cookies2.join('; ')}';
+      if (cookies2 != null && cookies2.isNotEmpty) {
+        // Same defect as the check_sig merge: these lines carry attribute
+        // segments that must not enter the jar.
+        _cookie = _mergeSetCookies(
+          existing: _cookie ?? '',
+          setCookieLines: cookies2,
+        );
       }
-      // `oauth2.0/show` is the step that normally REDIRECTS to redirect_uri with
-      // `?code=...`. This call does not follow redirects, so if the code arrives
-      // in a Location header it must be read here — dropping it would make the
-      // following `authorize` POST the only remaining route, and the device log
-      // shows that route being bounced back to the login page.
+      // `oauth2.0/show` normally answers 200 with an HTML page that EMBEDS the
+      // authorization form (hidden fields such as `state`/`scope`/`s_url`). If it
+      // instead redirects, the Location is the shortcut carrying `?code=...`.
+      // Log enough of the page to see which shape came back — the device log only
+      // said status=200, which told us nothing about whether the form was there.
       final showLocation = authRes.headers.value('location');
       debugPrint(
         'QQ OAuth: show status=${authRes.statusCode} '
@@ -615,6 +660,21 @@ class QqApi {
       );
       if (showLocation != null && showLocation.isNotEmpty) {
         debugPrint('QQ OAuth: show location=$showLocation');
+      }
+      if (authRes.data != null) {
+        final body = authRes.data.toString();
+        // Name the decisive markers instead of dumping the page: a 200 that
+        // contains these inputs means "we served the authorize form" (the session
+        // was NOT accepted); a page that instead embeds a redirect target means
+        // the session WAS accepted and we must submit the form.
+        final hasForm = body.contains('authorize') || body.contains('<form');
+        final hasLoginUi = body.contains('pt_login') || body.contains('loginbtn');
+        debugPrint(
+          'QQ OAuth: show body len=${body.length} authorizeForm=$hasForm '
+          'loginUi=$hasLoginUi',
+        );
+        final head = body.length > 400 ? body.substring(0, 400) : body;
+        debugPrint('QQ OAuth: show body(head)=$head');
       }
       if (showLocation != null) {
         final showCode = RegExp(r'code=([^&]+)').firstMatch(showLocation);
@@ -630,15 +690,26 @@ class QqApi {
         QqEndpoints.graphAuthorize,
         data:
             'response_type=code&client_id=100497308'
-            '&redirect_uri=${QqEndpoints.oauthRedirectUri}'
-            '&g_tk=$gTk&from_ptlogin=1&src=1&update_auth=1&openapi=1010&g_tk=$gTk'
+            '&redirect_uri=${Uri.encodeComponent(QqEndpoints.oauthRedirectUri)}'
+            '&scope=get_user_info&state=${DateTime.now().millisecondsSinceEpoch ~/ 1000}'
+            '&g_tk=$gTk&from_ptlogin=1&src=1&update_auth=1&openapi=1010'
             '&q_login_code=&q_state=&from=login',
         options: Options(
           contentType: 'application/x-www-form-urlencoded',
           responseType: ResponseType.plain,
           followRedirects: false,
           validateStatus: (s) => s != null && s < 400,
-          headers: {'cookie': _cookie ?? ''},
+          headers: {
+            // The browser reached `authorize` FROM the `show` page, so QQ expects
+            // both headers; their absence is one plausible reason the endpoint
+            // treats the request as not part of a login flow and bounces it back
+            // to `show`. `redirect_uri`/`scope`/`state` are now also sent
+            // properly encoded (they were missing from the body entirely, and an
+            // authorize request without them cannot name a client).
+            'Referer': QqEndpoints.graphShow,
+            'Origin': 'https://graph.qq.com',
+            'cookie': _cookie ?? '',
+          },
         ),
       );
 
@@ -689,8 +760,67 @@ class QqApi {
     }
   }
 
-  /// Steps 5–6 of the login flow: exchange an OAuth `code` for QQ Music cookies.
+  /// Merges raw `Set-Cookie` lines into a cookie header, correctly.
   ///
+  /// ⚠️ This exists because the previous merge was wrong in a way that broke the
+  /// whole login. A `Set-Cookie` header line is NOT a cookie — it is a cookie
+  /// PLUS attributes:
+  ///
+  /// ```
+  /// p_skey=xxx; Path=/; Domain=.ptlogin2.graph.qq.com; HttpOnly; Secure
+  /// ```
+  ///
+  /// The old code did `hopCookies.join('; ')`, i.e. it pasted whole lines into the
+  /// jar, so `Path=/`, `Domain=...`, `HttpOnly`... all entered the jar as if they
+  /// were cookies named `Path`/`Domain`/`HttpOnly`. The device log caught it
+  /// exactly:
+  ///
+  /// ```
+  /// QQ OAuth: sending cookie names to graph: [Domain, ETK, Expires, HttpOnly,
+  ///   Path, RK, SameSite, Secure, airkey, p_skey, p_skey_forbid, ...]
+  /// ```
+  ///
+  /// graph.qq.com then saw a malformed `Cookie` header and answered every request
+  /// with the "QQ帐号安全登录" page even though `p_skey` was present — the cookie
+  /// NAMES existed, but the header itself was garbage.
+  ///
+  /// This function keeps only real `name=value` pairs (the first segment of each
+  /// line), later values winning, so the jar stays a valid cookie header.
+  @visibleForTesting
+  static String mergeSetCookiesForTest({
+    required String existing,
+    required List<String> setCookieLines,
+  }) {
+    return _mergeSetCookies(existing: existing, setCookieLines: setCookieLines);
+  }
+
+  static String _mergeSetCookies({
+    required String existing,
+    required List<String> setCookieLines,
+  }) {
+    // name=value only, in order; later duplicates replace earlier ones.
+    final jar = <String, String>{};
+    void absorb(String line) {
+      final firstPair = line.split(';').first.trim();
+      final eq = firstPair.indexOf('=');
+      if (eq <= 0) return; // no "=", or empty name — not a cookie
+      final name = firstPair.substring(0, eq).trim();
+      final value = firstPair.substring(eq + 1).trim();
+      if (name.isEmpty) return;
+      jar[name] = value;
+    }
+
+    // Existing jar: parse the pairs we already hold.
+    for (final pair in existing.split(';')) {
+      absorb(pair);
+    }
+    for (final line in setCookieLines) {
+      absorb(line);
+    }
+    return jar.entries.map((e) => '${e.key}=${e.value}').join('; ');
+  }
+
+  /// Steps 5–6 of the login flow: exchange an OAuth `code` for QQ Music cookies.  ///
   /// Split out so the code can arrive from either place it legitimately appears:
   /// the `Location` of `oauth2.0/show` (the normal path), or the `Location` of
   /// `oauth2.0/authorize`. Both callers pass the `g_tk` derived from the `p_skey`

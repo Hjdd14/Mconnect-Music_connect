@@ -98,6 +98,54 @@ void main() {
     },
   );
 
+  test(
+    'merging Set-Cookie lines keeps cookie pairs, NOT attribute segments',
+    () {
+      // 真机证据（2026-10-10）：登录一直弹回「QQ帐号安全登录」页，而
+      // `sending cookie names to graph` 打出：
+      //   [Domain, ETK, Expires, HttpOnly, Path, RK, SameSite, Secure,
+      //    airkey, p_skey, p_skey_forbid, p_uin, pt2gguin, ...]
+      // —— `Domain`/`Path`/`Expires`/`HttpOnly` 根本不是 cookie，是
+      // Set-Cookie 的属性片段。旧的 `hopCookies.join('; ')` 把整行塞进 jar，
+      // graph.qq.com 收到的 Cookie 头是畸形的，直接判"未登录"。
+      // 本用例把真机那条形态原样钉死。
+      final merged = QqApi.mergeSetCookiesForTest(
+        existing: 'qrsig=OLD',
+        setCookieLines: const [
+          'p_skey=NEW_PSKEY; Path=/; Domain=.ptlogin2.graph.qq.com; '
+              'HttpOnly; Secure; SameSite=None',
+          'p_uin=o2443599899; Path=/; Domain=.qq.com; HttpOnly',
+          'pt4_token=TOKEN; Path=/; Domain=.ptlogin2.graph.qq.com; HttpOnly',
+        ],
+      );
+
+      final names = merged.split('; ').map((p) => p.split('=').first).toSet();
+      expect(
+        names,
+        isNot(contains('Path')),
+        reason: 'Path 是属性片段，不是 cookie —— 出现即说明 jar 被污染',
+      );
+      expect(
+        names,
+        isNot(contains('Domain')),
+        reason: 'Domain 是属性片段，不是 cookie',
+      );
+      expect(
+        names,
+        isNot(contains('HttpOnly')),
+        reason: 'HttpOnly 是属性片段，不是 cookie',
+      );
+      expect(
+        names,
+        isNot(contains('Secure')),
+        reason: 'Secure 是属性片段，不是 cookie',
+      );
+      expect(merged, contains('p_skey=NEW_PSKEY'));
+      expect(merged, contains('p_uin=o2443599899'));
+      expect(merged, contains('qrsig=OLD'), reason: '旧 jar 里的项必须保留');
+    },
+  );
+
   test('QQ OAuth cookie builder keeps QQ Music login tokens from QQLogin', () {
     final cookie = QqApi.buildMusicLoginCookieForTest(
       existingCookie: 'p_skey=ps-key; skey=s-key',
