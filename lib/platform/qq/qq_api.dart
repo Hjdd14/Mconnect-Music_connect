@@ -603,6 +603,26 @@ class QqApi {
       if (cookies2 != null) {
         _cookie = '$_cookie; ${cookies2.join('; ')}';
       }
+      // `oauth2.0/show` is the step that normally REDIRECTS to redirect_uri with
+      // `?code=...`. This call does not follow redirects, so if the code arrives
+      // in a Location header it must be read here — dropping it would make the
+      // following `authorize` POST the only remaining route, and the device log
+      // shows that route being bounced back to the login page.
+      final showLocation = authRes.headers.value('location');
+      debugPrint(
+        'QQ OAuth: show status=${authRes.statusCode} '
+        'location=${showLocation != null} setCookie=${cookies2?.length ?? 0}',
+      );
+      if (showLocation != null && showLocation.isNotEmpty) {
+        debugPrint('QQ OAuth: show location=$showLocation');
+      }
+      if (showLocation != null) {
+        final showCode = RegExp(r'code=([^&]+)').firstMatch(showLocation);
+        if (showCode != null) {
+          debugPrint('QQ OAuth: got auth code directly from oauth2.0/show');
+          return await _exchangeAuthCodeForCookies(showCode.group(1)!, gTk);
+        }
+      }
 
       // POST to authorize endpoint to get the auth code
       debugPrint('QQ OAuth: calling oauth2.0/authorize');
@@ -625,6 +645,25 @@ class QqApi {
       // Extract auth code from Location header
       final authLocation = authCodeRes.headers.value('location');
       String? authCode;
+      // Record what authorize actually answered. The device log shows it bouncing
+      // back to `oauth2.0/show` (the login page) instead of returning
+      // `Location: ...?code=...`, which means the request was not accepted as an
+      // authenticated authorization — so the status and the response body matter
+      // as much as the Location.
+      debugPrint(
+        'QQ OAuth: authorize status=${authCodeRes.statusCode} '
+        'location=${authLocation != null}',
+      );
+      if (authLocation != null && authLocation.isNotEmpty) {
+        debugPrint('QQ OAuth: authorize location=$authLocation');
+      }
+      if (authCodeRes.data != null) {
+        final body = authCodeRes.data.toString();
+        debugPrint(
+          'QQ OAuth: authorize body(head)='
+          '${body.length > 300 ? body.substring(0, 300) : body}',
+        );
+      }
       if (authLocation != null) {
         final codeMatch = RegExp(r'code=([^&]+)').firstMatch(authLocation);
         authCode = codeMatch?.group(1);
@@ -643,7 +682,21 @@ class QqApi {
         return null;
       }
       debugPrint('QQ OAuth: got auth code, exchanging...');
+      return await _exchangeAuthCodeForCookies(authCode, gTk);
+    } catch (e) {
+      debugPrint('QQ OAuth: exception: $e');
+      return null;
+    }
+  }
 
+  /// Steps 5–6 of the login flow: exchange an OAuth `code` for QQ Music cookies.
+  ///
+  /// Split out so the code can arrive from either place it legitimately appears:
+  /// the `Location` of `oauth2.0/show` (the normal path), or the `Location` of
+  /// `oauth2.0/authorize`. Both callers pass the `g_tk` derived from the `p_skey`
+  /// obtained when following `check_sig` hop by hop.
+  Future<String?> _exchangeAuthCodeForCookies(String authCode, int gTk) async {
+    try {
       // Step 5: Exchange code for QQ Music login
       final loginRes = await musicu({
         'comm': {'g_tk': gTk, 'platform': 'yqq', 'ct': 24, 'cv': 0},
@@ -669,7 +722,6 @@ class QqApi {
           );
         } else {
           final cookies3 = <String>[];
-          if (pSkey != null) cookies3.add('p_skey=$pSkey');
           final pskey = _extractCookie('p_skey');
           if (pskey != null) cookies3.add('p_skey=$pskey');
           final skey = _extractCookie('skey');
@@ -684,7 +736,7 @@ class QqApi {
       debugPrint('QQ OAuth: QQLogin failed, code=$code');
       return null;
     } catch (e) {
-      debugPrint('QQ OAuth: exception: $e');
+      debugPrint('QQ OAuth: exchange exception: $e');
       return null;
     }
   }
