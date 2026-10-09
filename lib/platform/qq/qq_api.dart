@@ -503,23 +503,57 @@ class QqApi {
   /// Follow check_sig redirect to graph.qq.com, then OAuth authorize, then exchange code
   Future<String?> completeOAuthLogin(String redirectUrl) async {
     try {
-      // Step 3: Follow check_sig URL → sets cookies on graph.qq.com
-      debugPrint('QQ OAuth: following check_sig redirect');
-      final res1 = await _dio.get(
-        redirectUrl,
-        options: Options(
-          responseType: ResponseType.plain,
-          headers: {
-            'Referer': 'https://xui.ptlogin2.qq.com/',
-            'cookie': _cookie ?? '',
-          },
-        ),
-      );
-      // Capture cookies from graph.qq.com
-      final cookies1 = res1.headers['set-cookie'];
-      if (cookies1 != null) {
-        final existing = _cookie ?? '';
-        _cookie = '$existing; ${cookies1.join('; ')}';
+      // Step 3: Follow check_sig URL → sets cookies on graph.qq.com.
+      //
+      // **Hop by hop, following redirects manually.** `dio` defaults to
+      // `followRedirects: true`, which collapses this chain into the FINAL
+      // response — and `res.headers['set-cookie']` then only carries the last
+      // hop's cookies. `p_skey` is issued on one of the intermediate hops, so it
+      // was being dropped, and the device log showed the consequence:
+      //
+      //   QQ OAuth: check_sig done, cookies: 452 chars
+      //   QQ OAuth: p_skey=null, g_tk=5381        <- g_tk fell back to the DJB2 seed
+      //   QQ OAuth: failed to extract auth code, location=https://graph.qq.com/oauth2.0/show?...
+      //
+      // Without p_skey the `g_tk` sent to `oauth2.0/authorize` is wrong, so the
+      // platform answers by bouncing the user back to `oauth2.0/show` instead of
+      // returning `Location: ...?code=...`, and no auth code can ever be read.
+      // Following manually lets every hop's Set-Cookie be accumulated.
+      var currentUrl = redirectUrl;
+      const maxHops = 10;
+      for (var hop = 0; hop < maxHops; hop++) {
+        final res = await _dio.get(
+          currentUrl,
+          options: Options(
+            responseType: ResponseType.plain,
+            followRedirects: false,
+            validateStatus: (status) => status != null && status < 400,
+            headers: {
+              'Referer': 'https://xui.ptlogin2.qq.com/',
+              'cookie': _cookie ?? '',
+            },
+          ),
+        );
+
+        final hopCookies = res.headers['set-cookie'];
+        if (hopCookies != null && hopCookies.isNotEmpty) {
+          final existing = _cookie ?? '';
+          _cookie = existing.isEmpty
+              ? hopCookies.join('; ')
+              : '$existing; ${hopCookies.join('; ')}';
+        }
+
+        final location = res.headers.value('location');
+        debugPrint(
+          'QQ OAuth: check_sig hop=$hop status=${res.statusCode} '
+          'setCookie=${hopCookies?.length ?? 0} '
+          'p_skey=${_extractCookie('p_skey') != null} '
+          'location=${location != null}',
+        );
+
+        if (location == null || location.isEmpty) break;
+        // Resolve relative redirects against the URL we just called.
+        currentUrl = Uri.parse(currentUrl).resolve(location).toString();
       }
       debugPrint(
         'QQ OAuth: check_sig done, cookies: ${_cookie != null ? _cookie!.length : 0} chars',
@@ -539,7 +573,14 @@ class QqApi {
       final uri = Uri.parse(redirectUrl);
       final surl =
           uri.queryParameters['surl'] ?? uri.queryParameters['uin'] ?? '';
-      debugPrint('QQ OAuth: calling oauth2.0/show, surl=$surl');
+      // Record what we actually parsed out of check_sig. `surl` falls back to the
+      // raw `uin` (a bare number) when the callback carries no `surl`, and whether
+      // oauth2.0/show accepts that is unverified — so log the value rather than
+      // assume. Non-secret: it is a public account number, not a token.
+      debugPrint(
+        'QQ OAuth: calling oauth2.0/show, surl=$surl '
+        '(fromRedirect=${uri.queryParameters.containsKey('surl')})',
+      );
       final authRes = await _dio.get(
         QqEndpoints.graphShow,
         queryParameters: {

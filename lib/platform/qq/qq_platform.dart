@@ -75,9 +75,12 @@ class QqPlatform extends MusicPlatform {
       try {
         final res = await _api.checkQr();
         final raw = res['raw']?.toString() ?? '';
-        debugPrint(
-          'QQ QR poll [$i]: ${raw.length > 120 ? raw.substring(0, 120) : raw}',
-        );
+        // Log the URL-bearing callback IN FULL. The previous 120-character cap cut
+        // the string mid-`ptsigx`, so the one field that decides whether the OAuth
+        // hand-off can happen was exactly the part never printed — which is part of
+        // why QR login took a device session to diagnose. Non-success polls are
+        // short anyway; only the success callback is long, and it is logged once.
+        debugPrint('QQ QR poll [$i]: $raw');
 
         // Extract ptui_CB code from JS callback.
         //

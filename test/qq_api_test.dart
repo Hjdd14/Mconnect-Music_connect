@@ -58,6 +58,46 @@ void main() {
     },
   );
 
+  test(
+    'QQ OAuth follows redirects by hand and keeps p_skey from an early hop',
+    () async {
+      // 真机证据（2026-10-09）：
+      //   QQ OAuth: check_sig done, cookies: 452 chars
+      //   QQ OAuth: p_skey=null, g_tk=5381        ← 退化成 DJB2 初值
+      //   QQ OAuth: failed to extract auth code, location=…oauth2.0/show?…
+      // 成因：`_dio.get(redirectUrl)` 用 dio 默认的 followRedirects: true，整条链
+      // 被折叠成"最终响应"，而 p_skey 是**中间某一跳**发的 Set-Cookie ⇒ 丢掉。
+      // 本用例让第一跳返回 p_skey + Location、第二跳 200，断言：
+      //   ① 两跳都被调用（说明手动跟随生效，而不是被 dio 折叠成一次）
+      //   ② p_skey 真的进了 cookie
+      // 修前必红（旧实现只请求一次、且 p_skey 为空）。
+      final called = <String>[];
+      final api = QqApi(
+        dio: _hopCookieDio(calledUrls: called),
+      );
+
+      await api.completeOAuthLogin(
+        'https://ssl.ptlogin2.graph.qq.com/check_sig?pttype=1&uin=123',
+      );
+
+      expect(
+        called.length,
+        greaterThanOrEqualTo(2),
+        reason: '必须逐跳跟随（旧实现只发一次请求，把中间跳的 Set-Cookie 丢掉了）',
+      );
+      expect(
+        api.cookie,
+        contains('p_skey=ABC123'),
+        reason: '中间跳发的 p_skey 必须被累积进 cookie —— g_tk 由它推导',
+      );
+      expect(
+        called.last,
+        contains('graph.qq.com'),
+        reason: '第二跳应该落在 Location 指向的地址上',
+      );
+    },
+  );
+
   test('QQ OAuth cookie builder keeps QQ Music login tokens from QQLogin', () {
     final cookie = QqApi.buildMusicLoginCookieForTest(
       existingCookie: 'p_skey=ps-key; skey=s-key',
@@ -162,8 +202,41 @@ void main() {
   );
 }
 
-Dio _plainTextDio(String body) {
+/// A Dio whose first call answers with a 302 carrying `p_skey`, and whose second
+/// call answers 200. Used to prove that `completeOAuthLogin` follows the redirect
+/// by hand and accumulates EVERY hop's cookies — the bug was that `dio`'s default
+/// `followRedirects: true` collapsed the chain, so `p_skey` (issued mid-chain) was
+/// lost and `g_tk` fell back to the DJB2 seed 5381.
+Dio _hopCookieDio({required List<String> calledUrls}) {
   final dio = Dio();
+  dio.interceptors.add(
+    InterceptorsWrapper(
+      onRequest: (options, handler) {
+        calledUrls.add(options.uri.toString());
+        if (calledUrls.length == 1) {
+          handler.resolve(
+            Response(
+              requestOptions: options,
+              statusCode: 302,
+              data: '',
+              headers: Headers.fromMap({
+                'set-cookie': ['p_skey=ABC123; path=/; domain=.qq.com'],
+                'location': ['https://graph.qq.com/oauth2.0/show?which=Login'],
+              }),
+            ),
+          );
+        } else {
+          handler.resolve(
+            Response(requestOptions: options, statusCode: 200, data: ''),
+          );
+        }
+      },
+    ),
+  );
+  return dio;
+}
+
+Dio _plainTextDio(String body) {  final dio = Dio();
   dio.interceptors.add(
     InterceptorsWrapper(
       onRequest: (options, handler) {
