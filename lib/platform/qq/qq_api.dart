@@ -12,6 +12,15 @@ class QqApi {
   String? _cookie;
   String? _playbackGuid;
 
+  /// QQ's `g_tk` ("bkn"): the DJB2 hash of `p_skey`, masked to 31 bits.
+  ///
+  /// Five playlist endpoints used to hardcode `5381` — which is merely the DJB2
+  /// *seed*, i.e. the value you get when you hash nothing. The correctly computed
+  /// value was already being produced at login (see the OAuth step that stores
+  /// it) and used for the OAuth-authorize call, but the playlist reads/writes
+  /// never picked it up. It is a field now so every call site shares one value.
+  int _gTk = 5381;
+
   /// Builds the QQ adapter.
   ///
   /// The default [Dio] comes from [createPlatformDio], so QQ requests get the
@@ -519,6 +528,9 @@ class QqApi {
       // Extract p_skey for g_tk hash
       final pSkey = _extractCookie('p_skey');
       final gTk = pSkey != null ? _hash5381(pSkey) : 5381;
+      // Remember it for every request that needs a `g_tk` (playlist reads and
+      // writes), so those call sites stop sending the bare DJB2 seed.
+      _gTk = gTk;
       debugPrint(
         'QQ OAuth: p_skey=${pSkey != null ? "found" : "null"}, g_tk=$gTk',
       );
@@ -689,7 +701,7 @@ class QqApi {
         'hostuin': uin,
         'sin': 0,
         'size': 200,
-        'g_tk': 5381,
+        'g_tk': _gTk,
         'loginUin': 0,
         'format': 'json',
         'inCharset': 'utf8',
@@ -744,7 +756,7 @@ class QqApi {
         'onlysong': 0,
         'disstid': disstid,
         'format': 'json',
-        'g_tk': 5381,
+        'g_tk': _gTk,
         'loginUin': 0,
         'hostUin': 0,
         'inCharset': 'utf8',
@@ -796,7 +808,7 @@ class QqApi {
     final res = await _dio.get(
       QqEndpoints.addSongToDir,
       queryParameters: {
-        'g_tk': 5381,
+        'g_tk': _gTk,
         'midlist': songMid,
         'typelist': '13',
         'dirid': dirid,
@@ -834,7 +846,7 @@ class QqApi {
         'notice': 0,
         'platform': 'yqq',
         'needNewCode': 0,
-        'g_tk': 5381,
+        'g_tk': _gTk,
         'uin': uin,
         'name': name,
         'show': 1,
@@ -873,7 +885,7 @@ class QqApi {
         'outCharset': 'utf8',
         'platform': 'yqq',
         'format': 'json',
-        'g_tk': 5381,
+        'g_tk': _gTk,
         'uin': uin,
         'dissid': playlistId,
         'notice': 0,

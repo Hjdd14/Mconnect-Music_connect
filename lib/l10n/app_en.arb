@@ -280,5 +280,6 @@
   "libraryExportPlaylistNamed": "Export \"{name}\"",
   "libraryExportFailed": "Export failed",
   "libraryScanImportNamed": "Scan to import \"{name}\"",
-  "libraryQrTooLong": "This playlist is too long to fit in a QR code — use \"share link\" instead"
+  "libraryQrTooLong": "This playlist is too long to fit in a QR code — use \"share link\" instead",
+  "libraryRemoveUnsupported": "This platform can't remove songs from a playlist yet"
 }

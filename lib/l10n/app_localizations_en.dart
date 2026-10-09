@@ -746,4 +746,8 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get libraryQrTooLong =>
       'This playlist is too long to fit in a QR code — use \"share link\" instead';
+
+  @override
+  String get libraryRemoveUnsupported =>
+      'This platform can\'t remove songs from a playlist yet';
 }

@@ -73,7 +73,60 @@ void main() {
 
     expect(find.byType(CircularProgressIndicator), findsNothing);
     expect(tester.widget<ListTile>(find.widgetWithText(ListTile, '歌单 1')).enabled, isTrue);
+    expect(find.text('添加失败或请求超时，请重试'), findsOneWidget);
   });
+
+  testWidgets(
+    'add targets the PLAYLIST platform, not the song platform',
+    (tester) async {
+      // 真实缺陷（本会话查到的）：picker 用 `widget.song.platform` 取适配器。
+      // 于是一首**网易云**的歌加进 **QQ 歌单**时，请求被发去网易云、还带着一个
+      // QQ 的歌单 id —— 必然失败。聚合器的意义正是跨平台加歌，所以这里必须是
+      // 「目标歌单所属平台」。
+      final qq = _FakePlaylistPlatform(
+        platformType: PlatformType.qq,
+        playlists: const [
+          Playlist(id: 'qq-diss', name: 'QQ 歌单', platform: PlatformType.qq),
+        ],
+      );
+      final netease = _FakePlaylistPlatform(
+        platformType: PlatformType.netease,
+        playlists: const [],
+      );
+      PlatformRegistry.register(qq);
+      PlatformRegistry.register(netease);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: PlaylistPickerSheet(
+              song: _song, // 网易云的歌
+              operationTimeout: const Duration(milliseconds: 200),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      await tester.tap(find.text('QQ 歌单'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(
+        qq.addCalls,
+        hasLength(1),
+        reason: 'QQ 歌单必须由 QQ 适配器处理（修前这里会是 0，请求跑去网易云）',
+      );
+      expect(qq.addCalls.single.playlistId, 'qq-diss');
+      expect(qq.addCalls.single.songId, 's1');
+      expect(
+        netease.addCalls,
+        isEmpty,
+        reason: '不得把 QQ 的歌单 id 发给网易云',
+      );
+    },
+  );
 }
 
 const _song = Song(
@@ -88,17 +141,26 @@ class _FakePlaylistPlatform extends MusicPlatform {
   final Completer<List<Playlist>>? loadCompleter;
   final Completer<bool>? addCompleter;
 
+  /// Which platform this fake stands in for. The registry is keyed by
+  /// `platformType`, so `addSongToPlaylist` being called on the *right* fake is
+  /// exactly the property under test.
+  final PlatformType _type;
+
+  /// Every add call this fake received, so a test can assert who was asked.
+  final List<({String playlistId, String songId})> addCalls = [];
+
   _FakePlaylistPlatform({
     this.playlists = const [],
     this.loadCompleter,
     this.addCompleter,
-  });
+    PlatformType platformType = PlatformType.netease,
+  }) : _type = platformType;
 
   @override
-  PlatformType get platformType => PlatformType.netease;
+  PlatformType get platformType => _type;
 
   @override
-  String get platformName => 'fake';
+  String get platformName => 'fake-${_type.name}';
 
   @override
   bool get isLoggedIn => true;
@@ -112,6 +174,7 @@ class _FakePlaylistPlatform extends MusicPlatform {
 
   @override
   Future<bool> addSongToPlaylist(String playlistId, Song song) async {
+    addCalls.add((playlistId: playlistId, songId: song.id));
     final completer = addCompleter;
     if (completer != null) return completer.future;
     return true;

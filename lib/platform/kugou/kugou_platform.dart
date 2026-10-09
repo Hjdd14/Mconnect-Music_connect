@@ -988,8 +988,25 @@ class KugouPlatform extends MusicPlatform {
           editId: editId != null && editId != id ? editId : null,
         );
       }
+      // The UI could only say "failed" with no reason. Record Kugou's own status /
+      // error fields (codes only — no tokens) so the cause is readable from the
+      // diagnostics log rather than lost in a debugPrint.
+      DiagnosticsService.instance.record(
+        'kugou',
+        'create_playlist_rejected',
+        data: {
+          'status': res['status'],
+          'error_code': res['error_code'] ?? res['errcode'],
+          'message': res['error_msg'] ?? res['errmsg'] ?? res['msg'],
+        },
+      );
       return null;
     } catch (e) {
+      DiagnosticsService.instance.recordError(
+        'kugou.createPlaylist',
+        e,
+        StackTrace.current,
+      );
       debugPrint('Kugou createPlaylist error: $e');
       return null;
     }

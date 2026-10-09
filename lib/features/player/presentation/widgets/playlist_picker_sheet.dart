@@ -46,17 +46,30 @@ class _PlaylistPickerSheetState extends ConsumerState<PlaylistPickerSheet> {
     if (widget.song.platform == PlatformType.local) {
       return myPlaylists;
     }
-    try {
-      final platform = PlatformRegistry.get(widget.song.platform);
-      if (!platform.isLoggedIn) return myPlaylists;
-      final platformPlaylists = await platform.getUserPlaylists().timeout(
-        widget.operationTimeout,
-      );
-      return [...myPlaylists, ...platformPlaylists];
-    } catch (_) {
-      if (myPlaylists.isNotEmpty) return myPlaylists;
-      rethrow;
+    // Offer the playlists of EVERY signed-in platform, not just the song's.
+    // Adding a NetEase song to a QQ playlist is the point of an aggregator, and
+    // the old code asked only `widget.song.platform` — so a QQ playlist could
+    // never even appear in this sheet, let alone receive the song.
+    final collected = <Playlist>[...myPlaylists];
+    var anyPlatformAnswered = false;
+    for (final platform in PlatformRegistry.all) {
+      if (platform.platformType == PlatformType.local) continue;
+      if (!platform.isLoggedIn) continue;
+      try {
+        final list = await platform.getUserPlaylists().timeout(
+          widget.operationTimeout,
+        );
+        collected.addAll(list);
+        anyPlatformAnswered = true;
+      } catch (_) {
+        // One platform failing must not hide the others; the sheet reports a
+        // load failure only when nothing at all came back.
+      }
     }
+    if (!anyPlatformAnswered && collected.isEmpty) {
+      throw TimeoutException('no platform returned playlists');
+    }
+    return collected;
   }
 
   Future<void> _addToPlaylist(Playlist playlist) async {
@@ -74,7 +87,12 @@ class _PlaylistPickerSheetState extends ConsumerState<PlaylistPickerSheet> {
             .addSong(playlist.id, widget.song)
             .timeout(widget.operationTimeout);
       } else {
-        final platform = PlatformRegistry.get(widget.song.platform);
+        // The TARGET playlist's platform, not the song's. A song from one platform
+        // can be added to a playlist on another (that is the whole point of an
+        // aggregator), and the two platforms have separate write endpoints. Asking
+        // `widget.song.platform` meant "add this NetEase song to my QQ playlist"
+        // was sent to NetEase with a QQ playlist id, which of course failed.
+        final platform = PlatformRegistry.get(playlist.platform);
         ok = await platform
             .addSongToPlaylist(playlist.editableId, widget.song)
             .timeout(widget.operationTimeout);

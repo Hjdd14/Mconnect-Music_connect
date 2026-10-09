@@ -1399,6 +1399,12 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'这个歌单太长，链接放不进二维码，请改用「分享链接」'**
   String get libraryQrTooLong;
+
+  /// No description provided for @libraryRemoveUnsupported.
+  ///
+  /// In zh, this message translates to:
+  /// **'该平台无法从歌单移除歌曲（暂不支持）'**
+  String get libraryRemoveUnsupported;
 }
 
 class _AppLocalizationsDelegate

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../../core/network/api_exception.dart';
 import '../../core/network/platform_http.dart';
+import '../../core/diagnostics/diagnostics_service.dart';
 import '../../lyrics/models/lyrics_bundle.dart';
 import '../../models/song.dart';
 import '../../models/artist.dart';
@@ -574,18 +575,84 @@ class NeteasePlatform extends MusicPlatform {
   @override
   Future<bool> addSongToPlaylist(String playlistId, Song song) async {
     try {
-      final res = await _api.post(
-        NeteaseEndpoints.playlistTrackManipulate,
-        params: {
-          'op': 'add',
-          'pid': playlistId,
-          'trackIds': '[${song.id}]',
-          'imme': 'true',
-        },
+      final res = await _api.manipulatePlaylistTracks(
+        playlistId: playlistId,
+        trackIds: [song.id],
+        op: 'add',
       );
       return res['code'] == 200;
     } catch (e) {
       debugPrint('Netease addSongToPlaylist error: $e');
+      return false;
+    }
+  }
+
+  @override
+  Future<bool> removeSongFromPlaylist(String playlistId, Song song) async {
+    try {
+      // Same endpoint as add, `op: 'del'` — the endpoint's own name and comment
+      // ("歌单内增删歌曲") say delete is the intended counterpart.
+      final res = await _api.manipulatePlaylistTracks(
+        playlistId: playlistId,
+        trackIds: [song.id],
+        op: 'del',
+      );
+      if (res['code'] != 200) {
+        DiagnosticsService.instance.record(
+          'netease',
+          'remove_song_rejected',
+          data: {'playlist_id': playlistId, 'song_id': song.id, 'code': res['code']},
+        );
+      }
+      return res['code'] == 200;
+    } catch (e) {
+      debugPrint('Netease removeSongFromPlaylist error: $e');
+      return false;
+    }
+  }
+
+  @override
+  Future<bool> deletePlaylist(String playlistId) async {
+    try {
+      final res = await _api.deletePlaylist(playlistId);
+      if (res['code'] != 200) {
+        DiagnosticsService.instance.record(
+          'netease',
+          'delete_playlist_rejected',
+          data: {'playlist_id': playlistId, 'code': res['code'], 'message': res['message']},
+        );
+      }
+      return res['code'] == 200;
+    } catch (e) {
+      DiagnosticsService.instance.recordError(
+        'netease.deletePlaylist',
+        e,
+        StackTrace.current,
+      );
+      debugPrint('Netease deletePlaylist error: $e');
+      return false;
+    }
+  }
+
+  @override
+  Future<bool> renamePlaylist(String playlistId, String newName) async {
+    try {
+      final res = await _api.renamePlaylist(playlistId, newName);
+      if (res['code'] != 200) {
+        DiagnosticsService.instance.record(
+          'netease',
+          'rename_playlist_rejected',
+          data: {'playlist_id': playlistId, 'code': res['code'], 'message': res['message']},
+        );
+      }
+      return res['code'] == 200;
+    } catch (e) {
+      DiagnosticsService.instance.recordError(
+        'netease.renamePlaylist',
+        e,
+        StackTrace.current,
+      );
+      debugPrint('Netease renamePlaylist error: $e');
       return false;
     }
   }

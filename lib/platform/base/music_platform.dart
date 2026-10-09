@@ -90,7 +90,24 @@ abstract class MusicPlatform {
   Future<List<Song>> getLikedSongs();
   Future<bool> likeSong(String songId, {bool like = true});
   Future<bool> addSongToPlaylist(String playlistId, Song song) async => false;
+
+  /// Removes one song from a playlist the user owns.
+  ///
+  /// Defaults to `false` — "this platform does not support it" — so a platform
+  /// that has no such endpoint never *looks* like it succeeded. Callers must
+  /// treat `false` as "unsupported or rejected" and say so in the UI rather than
+  /// pretending the song was removed.
+  Future<bool> removeSongFromPlaylist(String playlistId, Song song) async =>
+      false;
+
   Future<Playlist?> createPlaylist(String name) async => null;
+
+  /// Renames a playlist the user owns. `false` when unsupported or rejected.
+  Future<bool> renamePlaylist(String playlistId, String newName) async => false;
+
+  /// Deletes a playlist the user owns. `false` when unsupported or rejected.
+  Future<bool> deletePlaylist(String playlistId) async => false;
+
   Future<bool> collectPlaylist(String playlistId, {bool collect = true}) async => false;
 
   // Recommendations

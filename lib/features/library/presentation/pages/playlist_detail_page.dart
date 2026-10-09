@@ -13,6 +13,7 @@ import '../../../../models/platform_type.dart';
 import '../../../../models/playlist.dart';
 import '../../../../models/song.dart';
 import '../../../../platform/base/platform_registry.dart';
+import '../../../../l10n/l10n.dart';
 import '../../../download/presentation/providers/download_provider.dart';
 import '../../../download/presentation/widgets/download_button.dart';
 import '../../../player/presentation/providers/player_provider.dart';
@@ -211,7 +212,11 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage> {
         if (target.platform == PlatformType.local) {
           ok = await notifier.addSong(target.id, song);
         } else {
-          ok = await PlatformRegistry.get(song.platform)
+          // The TARGET playlist's platform, not the song's. A song from one
+          // platform may be added to a playlist on another, and each platform has
+          // its own write endpoint; using `song.platform` sent the request to the
+          // wrong platform with a playlist id it does not recognise.
+          ok = await PlatformRegistry.get(target.platform)
               .addSongToPlaylist(target.editableId, song);
         }
         if (ok) added++;
@@ -238,10 +243,26 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage> {
     if (songs.isEmpty || _busy) return;
     setState(() => _busy = true);
 
+    // Route by the PLAYLIST's platform. This used to always go through the local
+    // repository, so removing a song from a platform playlist never reached the
+    // platform at all — the request was written to a local playlist id that does
+    // not exist there, and the UI reported a failure (or worse, looked like it
+    // worked and came back on the next load).
+    final bool isLocal = widget.platform == PlatformType.local;
     final notifier = ref.read(myPlaylistsProvider.notifier);
+    final platform = isLocal ? null : PlatformRegistry.get(widget.platform);
+
     var removed = 0;
     for (final song in songs) {
-      if (await notifier.removeSong(widget.playlistId, song)) removed++;
+      final bool ok;
+      if (isLocal) {
+        ok = await notifier.removeSong(widget.playlistId, song);
+      } else {
+        ok = await platform!
+            .removeSongFromPlaylist(widget.playlistId, song)
+            .timeout(const Duration(seconds: 8), onTimeout: () => false);
+      }
+      if (ok) removed++;
     }
 
     if (!mounted) return;
@@ -251,6 +272,11 @@ class _PlaylistDetailPageState extends ConsumerState<PlaylistDetailPage> {
     if (!mounted) return;
     if (removed == songs.length) {
       showInfoSnackBar(context, '已从歌单移除 $removed 首');
+    } else if (removed == 0 && !isLocal) {
+      // Distinguish "the platform refused / does not support this" from a partial
+      // failure: on a platform playlist a total failure most often means the
+      // platform has no such operation, and claiming otherwise would be a lie.
+      showErrorSnackBar(context, context.l10n.libraryRemoveUnsupported);
     } else {
       showErrorSnackBar(context, '已移除 $removed/${songs.length} 首，其余失败');
     }

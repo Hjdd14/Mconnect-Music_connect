@@ -318,6 +318,50 @@ class NeteaseApi {
     });
   }
 
+  /// Adds or removes tracks on a playlist. `op` is `'add'` or `'del'`.
+  Future<Map<String, dynamic>> manipulatePlaylistTracks({
+    required String playlistId,
+    required List<String> trackIds,
+    required String op,
+  }) async {
+    return post(
+      NeteaseEndpoints.playlistTrackManipulate,
+      params: {
+        'op': op,
+        'pid': playlistId,
+        'trackIds': '[${trackIds.join(',')}]',
+        'imme': 'true',
+        'csrf': _csrf ?? '',
+      },
+    );
+  }
+
+  /// Deletes a playlist the user created.
+  Future<Map<String, dynamic>> deletePlaylist(String playlistId) async {
+    return post(
+      NeteaseEndpoints.playlistDelete,
+      params: {
+        'ids': '[$playlistId]',
+        'csrf': _csrf ?? '',
+      },
+    );
+  }
+
+  /// Renames a playlist the user created.
+  Future<Map<String, dynamic>> renamePlaylist(
+    String playlistId,
+    String newName,
+  ) async {
+    return post(
+      NeteaseEndpoints.playlistUpdate,
+      params: {
+        'id': playlistId,
+        'name': newName,
+        'csrf': _csrf ?? '',
+      },
+    );
+  }
+
   Future<Map<String, dynamic>> subscribePlaylist(String playlistId, {bool subscribe = true}) async {
     return post(
       subscribe

@@ -78,6 +78,19 @@ class NeteaseEndpoints {
   /// 歌单内增删歌曲。
   static const String playlistTrackManipulate = '/api/playlist/manipulate/tracks';
 
+  /// 删除**自建**歌单。
+  ///
+  /// ⚠️【未实测】本仓库的探测记录（`docs/netease-wave-b-probe.md`）没有覆盖这个
+  /// 端点。它与 create/subscribe/manipulate 同属明文 `/api/` 家族、同一套参数
+  /// 风格（`csrf` + id），所以形状是可推断的；但**调用点必须在拿到真实响应后
+  /// 才敢说它可用** —— 失败时按"平台不支持"处理，不假装成功。
+  static const String playlistDelete = '/api/playlist/delete';
+
+  /// 更新歌单信息（改名 / 描述）。
+  ///
+  /// ⚠️【未实测】同上，见 [playlistDelete] 的说明。
+  static const String playlistUpdate = '/api/playlist/update';
+
   /// 手机验证码相关。
   static const String smsCaptchaSent = '/api/sms/captcha/sent';
   static const String loginCellphone = '/api/login/cellphone';

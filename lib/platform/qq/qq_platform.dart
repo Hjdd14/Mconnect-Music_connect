@@ -14,6 +14,7 @@ import '../../models/toplist.dart';
 import '../base/music_platform.dart';
 import '../../core/network/api_exception.dart';
 import '../../core/network/platform_http.dart';
+import '../../core/diagnostics/diagnostics_service.dart';
 import '../../core/storage/session_storage.dart';
 import 'qq_api.dart';
 import 'qq_endpoints.dart';
@@ -613,8 +614,27 @@ class QqPlatform extends MusicPlatform {
   @override
   Future<bool> addSongToPlaylist(String playlistId, Song song) async {
     try {
-      await _api.addSongToPlaylist(playlistId, song.id);
-      return true;
+      final res = await _api.addSongToPlaylist(playlistId, song.id);
+      // This used to `return true` unconditionally, so a rejected write showed up
+      // in the UI as a success. QQ answers `code == 0` / `result == 100` on
+      // success (the same predicate `createPlaylist` below uses); anything else is
+      // recorded so the reason is readable from the diagnostics log instead of
+      // being swallowed by a debugPrint.
+      final ok = res['code'] == 0 || res['result'] == 100;
+      if (!ok) {
+        DiagnosticsService.instance.record(
+          'qq',
+          'add_song_to_playlist_rejected',
+          data: {
+            'playlist_id': playlistId,
+            'song_id': song.id,
+            'code': res['code'],
+            'subcode': res['subcode'],
+            'message': res['msg'] ?? res['message'],
+          },
+        );
+      }
+      return ok;
     } catch (e) {
       debugPrint('QQ addSongToPlaylist error: $e');
       return false;
@@ -635,8 +655,22 @@ class QqPlatform extends MusicPlatform {
         if (refreshed != null) return refreshed;
         return null;
       }
+      // The UI could only ever say "failed" with no reason. QQ answers with a
+      // code/message; record it (codes only — no cookies, no tokens) so the next
+      // attempt can be diagnosed from the diagnostics log.
+      DiagnosticsService.instance.record(
+        'qq',
+        'create_playlist_rejected',
+        data: {
+          'code': res['code'],
+          'subcode': res['subcode'],
+          'result': res['result'],
+          'message': res['msg'] ?? res['message'] ?? res['errmsg'],
+        },
+      );
       return null;
     } catch (e) {
+      DiagnosticsService.instance.recordError('qq.createPlaylist', e, StackTrace.current);
       debugPrint('QQ createPlaylist error: $e');
       return null;
     }
