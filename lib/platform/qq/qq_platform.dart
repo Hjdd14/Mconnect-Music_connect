@@ -79,17 +79,22 @@ class QqPlatform extends MusicPlatform {
           'QQ QR poll [$i]: ${raw.length > 120 ? raw.substring(0, 120) : raw}',
         );
 
-        // Extract ptui_CB code from JS callback
-        // Format: ptuiCB('code',0,'url',0,'msg',0)
-        final codeMatch = RegExp(r"ptui[Cc]B\('(\d+)'").firstMatch(raw);
-        final code = codeMatch?.group(1);
+        // Extract ptui_CB code from JS callback.
+        //
+        // Real shape (device log, 2026-10-09):
+        //   ptuiCB('0','0','https://ssl.ptlogin2.graph.qq.com/check_sig?...',
+        //          '0','登录成功', '')
+        // Every argument is single-quoted. The URL pattern used to require the
+        // second argument UNQUOTED (`'\d+',\d+,`) — which no real response
+        // satisfies — so `redirectUrl` was always null, `completeOAuthLogin` was
+        // never called, no session cookies were ever obtained, and the UI reported
+        // "登录失败，请重试" even after a successful scan. The parse now lives in
+        // [parseQrCallbackForTest] so a test can pin it against that exact string.
+        final code = parseQrCodeForTest(raw);
 
         if (code == '0' || raw.contains('Login completed')) {
           // Success — extract redirect URL and complete OAuth flow
-          final urlMatch = RegExp(
-            r"ptui[Cc]B\('\d+',\d+,'([^']+)'",
-          ).firstMatch(raw);
-          final redirectUrl = urlMatch?.group(1);
+          final redirectUrl = parseQrRedirectUrlForTest(raw);
 
           // Capture cookies from polling response
           final cookies = res['cookies'] as String?;
@@ -103,6 +108,15 @@ class QqPlatform extends MusicPlatform {
             if (cookie != null && cookie.isNotEmpty) {
               _api.setCookie(cookie);
             }
+          } else {
+            // Login succeeded but the callback could not be parsed: that used to
+            // fail completely silently, which is why this took a device log to
+            // find. Record it so the next occurrence names itself.
+            DiagnosticsService.instance.record(
+              'qq',
+              'qr_url_unmatched',
+              data: {'code': code},
+            );
           }
 
           try {
@@ -200,6 +214,28 @@ class QqPlatform extends MusicPlatform {
   }) {
     return _parseUserFromProfile(data, fallbackUin: fallbackUin);
   }
+
+  /// Extracts the `ptuiCB` status code from a QQ QR-poll response body.
+  @visibleForTesting
+  static String? parseQrCodeForTest(String raw) =>
+      RegExp(r"ptui[Cc]B\('(\d+)'").firstMatch(raw)?.group(1);
+
+  /// Extracts the `check_sig` redirect URL from a QQ QR-poll response body.
+  ///
+  /// ⚠️ The third argument is the URL, and **every** argument in a real response
+  /// is single-quoted — including the numeric ones:
+  ///
+  /// ```
+  /// ptuiCB('0','0','https://ssl.ptlogin2.graph.qq.com/check_sig?...','0','登录成功', '')
+  /// ```
+  ///
+  /// The previous pattern required the second argument unquoted (`'\d+',\d+,`),
+  /// so it never matched a real response: the URL stayed null, the OAuth
+  /// completion step was skipped entirely, and QR login could never succeed.
+  @visibleForTesting
+  static String? parseQrRedirectUrlForTest(String raw) => RegExp(
+    r"ptui[Cc]B\('[^']*','[^']*','([^']+)'",
+  ).firstMatch(raw)?.group(1);
 
   @visibleForTesting
   static String? extractUinFromCookieForTest(String cookie) {

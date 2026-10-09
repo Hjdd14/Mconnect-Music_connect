@@ -60,34 +60,7 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
     final state = ref.read(platformPlaylistsProvider);
     if (state.isCreatingFor(platform)) return;
 
-    final controller = TextEditingController();
-    final name = await showDialog<String>(
-      context: context,
-      builder: (context) {
-        final l = context.l10n;
-        return AlertDialog(
-          title: Text(l.libraryNewPlaylist),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: InputDecoration(labelText: l.libraryPlaylistName),
-            textInputAction: TextInputAction.done,
-            onSubmitted: (value) => Navigator.pop(context, value.trim()),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(l.actionCancel),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, controller.text.trim()),
-              child: Text(l.libraryCreate),
-            ),
-          ],
-        );
-      },
-    );
-    controller.dispose();
+    final name = await _askPlaylistName();
     if (name == null || name.isEmpty) return;
     final playlist = await ref
         .read(platformPlaylistsProvider.notifier)
@@ -118,36 +91,32 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
     );
   }
 
-  Future<String?> _askPlaylistName() async {
-    final controller = TextEditingController();
-    final name = await showDialog<String>(
+  /// Asks for a playlist name.
+  ///
+  /// The controller lives in [_PlaylistNameDialog]'s State, not here. The old
+  /// shape created it in the caller, awaited `showDialog`, then disposed it
+  /// immediately — but the dialog's route is still animating out at that moment,
+  /// so the still-mounted `TextField` used a disposed controller. On device that
+  /// produced, in order: "A TextEditingController was used after being disposed",
+  /// then `'_dependents.isEmpty': is not true`, then "Tried to build dirty widget
+  /// in the wrong build scope" — the red screen the user saw. Owning the
+  /// controller in the widget ties its lifetime to the widget that uses it.
+  Future<String?> _askPlaylistName({
+    String? initialValue,
+    bool isRename = false,
+  }) {
+    return showDialog<String>(
       context: context,
-      builder: (context) {
-        final l = context.l10n;
-        return AlertDialog(
-          title: Text(l.libraryNewPlaylist),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: InputDecoration(labelText: l.libraryPlaylistName),
-            textInputAction: TextInputAction.done,
-            onSubmitted: (value) => Navigator.pop(context, value.trim()),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(l.actionCancel),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, controller.text.trim()),
-              child: Text(l.libraryCreate),
-            ),
-          ],
-        );
-      },
+      builder: (context) => _PlaylistNameDialog(
+        title: isRename
+            ? context.l10n.libraryRenamePlaylist
+            : context.l10n.libraryNewPlaylist,
+        initialValue: initialValue,
+        confirmLabel: isRename
+            ? context.l10n.commonConfirm
+            : context.l10n.libraryCreate,
+      ),
     );
-    controller.dispose();
-    return name;
   }
 
   String _playlistRoute(Playlist playlist) {
@@ -211,34 +180,10 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
   // 而不是给一个点了没反应的按钮。
 
   Future<void> _renamePlatformPlaylist(Playlist playlist) async {
-    final controller = TextEditingController(text: playlist.name);
-    final name = await showDialog<String>(
-      context: context,
-      builder: (context) {
-        final l = context.l10n;
-        return AlertDialog(
-          title: Text(l.libraryRenamePlaylist),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: InputDecoration(labelText: l.libraryPlaylistName),
-            textInputAction: TextInputAction.done,
-            onSubmitted: (value) => Navigator.pop(context, value.trim()),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(l.actionCancel),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, controller.text.trim()),
-              child: Text(l.commonConfirm),
-            ),
-          ],
-        );
-      },
+    final name = await _askPlaylistName(
+      initialValue: playlist.name,
+      isRename: true,
     );
-    controller.dispose();
     if (name == null || name.isEmpty || name == playlist.name) return;
     if (!mounted) return;
 
@@ -790,6 +735,75 @@ class _MyPlaylistsTab extends StatelessWidget {
             ),
           ),
         ),
+      ],
+    );
+  }
+}
+
+/// A single-field name dialog that owns its [TextEditingController].
+///
+/// This exists because the obvious shape — create the controller in the caller,
+/// `await showDialog`, then `dispose()` — is wrong: when `showDialog`'s future
+/// completes, the dialog's route is still animating out and its `TextField` is
+/// still mounted, so it reads a controller that has already been disposed. On
+/// device that surfaced as a red screen with
+/// `'_dependents.isEmpty': is not true` followed by "Tried to build dirty widget
+/// in the wrong build scope".
+///
+/// Binding the controller to a `State` makes its lifetime exactly the widget's:
+/// `initState` creates it, `dispose` releases it, and no caller has to reason
+/// about route animation timing. `settings_page.dart`'s `_BackgroundEditorDialogState`
+/// is the same pattern already used elsewhere in this repository.
+class _PlaylistNameDialog extends StatefulWidget {
+  const _PlaylistNameDialog({
+    required this.title,
+    required this.confirmLabel,
+    this.initialValue,
+  });
+
+  final String title;
+  final String confirmLabel;
+  final String? initialValue;
+
+  @override
+  State<_PlaylistNameDialog> createState() => _PlaylistNameDialogState();
+}
+
+class _PlaylistNameDialogState extends State<_PlaylistNameDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialValue ?? '');
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() => Navigator.pop(context, _controller.text.trim());
+
+  @override
+  Widget build(BuildContext context) {
+    final l = context.l10n;
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        decoration: InputDecoration(labelText: l.libraryPlaylistName),
+        textInputAction: TextInputAction.done,
+        onSubmitted: (_) => _submit(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(l.actionCancel),
+        ),
+        FilledButton(onPressed: _submit, child: Text(widget.confirmLabel)),
       ],
     );
   }

@@ -235,6 +235,50 @@ void main() {
       reason: '点重试必须真的再拉一次该平台的歌单，而不是只把错误清掉',
     );
   });
+
+  testWidgets(
+    'the name dialog can be cancelled and reopened without a disposed controller',
+    (tester) async {
+      // 真机事故（2026-10-09）：对话框关闭后调用方立刻 dispose 了
+      // TextEditingController，而对话框路由此时仍在退场动画里、TextField 还挂着，
+      // 于是读到已销毁的控制器，进而连锁触发
+      //   '_dependents.isEmpty': is not true
+      //   Tried to build dirty widget in the wrong build scope
+      // 并显示红屏。控制器改由对话框自己的 State 持有后，这个时序不再可能。
+      //
+      // 本用例刻意"开→取消→再开→确认"，正是旧写法会炸的时序。
+      Future<void> settle() async {
+        for (var i = 0; i < 40; i++) {
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+      }
+
+      await pumpPage(tester);
+
+      await tester.tap(find.byIcon(Icons.add));
+      await settle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+
+      await tester.tap(find.text('取消'));
+      await settle();
+      expect(find.byType(AlertDialog), findsNothing);
+
+      // 第二次打开：旧写法在这一刻会用到已销毁的控制器。
+      await tester.tap(find.byIcon(Icons.add));
+      await settle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), '新歌单');
+      await tester.tap(find.text('新建'));
+      await settle();
+
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: '控制器必须活到对话框真正卸载，而不是 await 一返回就被销毁',
+      );
+    },
+  );
 }
 
 /// A logged-in platform whose playlist call always fails.

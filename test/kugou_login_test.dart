@@ -341,7 +341,7 @@ void main() {
   );
 
   test(
-    'Kugou create playlist uses cloudlist router and current client identity',
+    'Kugou create playlist omits x-router (which 404s) and sends client identity',
     () async {
       final dio = Dio();
       RequestOptions? capturedOptions;
@@ -375,9 +375,16 @@ void main() {
         capturedOptions!.uri.toString(),
         contains('/cloudlist.service/v5/add_list'),
       );
+      // 这里以前断言 x-router == 'cloudlist.service.kugou.com'。那条断言把"建歌单
+      // 失败"钉成了"预期行为"。2026-10-09 对线上网关实测：
+      //   同一 URL，不带 x-router            -> HTTP 200
+      //   同一 URL，带 cloudlist.service…    -> HTTP 404  ← 用户看到的"新建歌单失败"
+      // 而 `collectPlaylist`（同一个 endpoint）本来就不带这个头。所以现在断言它
+      // **不存在**：这是修复本身，不是放宽断言。
       expect(
-        capturedOptions!.headers['x-router'],
-        'cloudlist.service.kugou.com',
+        capturedOptions!.headers.containsKey('x-router'),
+        isFalse,
+        reason: '带 x-router 会让此端点 404（实测），因此不得再发送它',
       );
       expect(capturedOptions!.queryParameters['appid'], 3116);
       expect(capturedOptions!.queryParameters['clientver'], 11440);

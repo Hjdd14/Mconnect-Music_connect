@@ -6,6 +6,48 @@ import 'package:mconnect/platform/qq/qq_api.dart';
 import 'package:mconnect/platform/qq/qq_platform.dart';
 
 void main() {
+  // 真实设备日志（2026-10-09）里的原文，逐字复制。用真串而不是我构造的串，
+  // 因为这条 bug 的本质就是"按想象的格式写正则"。
+  const qrSuccessCallback =
+      "ptuiCB('0','0','https://ssl.ptlogin2.graph.qq.com/check_sig?pttype=1"
+      "&uin=2443599899&service=ptqrlogin&nodirect=0&ptsigx=abc123',"
+      "'0','登录成功', '')";
+
+  test('parses the redirect URL out of a real QQ QR success callback', () {
+    final url = QqPlatform.parseQrRedirectUrlForTest(qrSuccessCallback);
+
+    expect(
+      url,
+      isNotNull,
+      reason:
+          '每个参数都带引号；旧正则要求第二个参数不带引号，必然失配 ⇒ '
+          'redirectUrl 为 null ⇒ completeOAuthLogin 从不执行 ⇒ 扫码成功却登录失败',
+    );
+    expect(url, startsWith('https://ssl.ptlogin2.graph.qq.com/check_sig?'));
+    expect(url, contains('uin=2443599899'));
+  });
+
+  test('parses the status code from a real QQ QR callback', () {
+    expect(QqPlatform.parseQrCodeForTest(qrSuccessCallback), '0');
+    expect(
+      QqPlatform.parseQrCodeForTest("ptuiCB('66','0','','0','二维码未失效。', '')"),
+      '66',
+    );
+    expect(
+      QqPlatform.parseQrCodeForTest("ptuiCB('67','0','','0','二维码认证中。', '')"),
+      '67',
+    );
+  });
+
+  test('a non-success callback yields no URL', () {
+    expect(
+      QqPlatform.parseQrRedirectUrlForTest(
+        "ptuiCB('66','0','','0','二维码未失效。', '')",
+      ),
+      isNull,
+    );
+  });
+
   test('parses QQ profile homepage response into real user nickname', () {
     final user = QqPlatform.parseUserFromProfileForTest({
       'creator': {'encrypt_uin': 'abc'},

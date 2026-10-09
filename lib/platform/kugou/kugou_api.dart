@@ -1042,7 +1042,15 @@ class KugouApi {
       KugouEndpoints.playlistAdd,
       data: data,
       queryParameters: params,
-      options: Options(headers: {'x-router': 'cloudlist.service.kugou.com'}),
+      // NO `x-router` here. Measured 2026-10-09 against the live gateway:
+      //   POST gateway.kugou.com/cloudlist.service/v5/add_list  (no x-router)  -> 200
+      //   same URL with x-router: cloudlist.service.kugou.com                   -> 404
+      // (x-router: cloudlist.service -> 403; gateway.kugou.com -> 200.) The 404 is
+      // what surfaced to the user as "新建歌单失败" with the not-found wording.
+      //
+      // Independent evidence that this is not a coincidence: `collectPlaylist`
+      // below posts to the SAME endpoint without the header, and the sibling
+      // `getUserPlaylists` also omits it — createPlaylist was the odd one out.
     );
     return _decodeResponse(res.data);
   }
