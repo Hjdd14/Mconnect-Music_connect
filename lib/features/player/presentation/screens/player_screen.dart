@@ -31,6 +31,9 @@ class PlayerScreen extends ConsumerStatefulWidget {
 
 class _PlayerScreenState extends ConsumerState<PlayerScreen> {
   bool _showLyrics = false;
+
+  /// `/queue` 的 push 是否在途（见 onSelected 里 play_queue 分支的说明）。
+  bool _queuePushInFlight = false;
   bool _isSeeking = false;
   double _dismissDragDistance = 0;
   Timer? _positionTimer;
@@ -265,7 +268,25 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                     break;
                   case 'play_queue':
                     // Wave 1-A：只加这一处入口，`/queue` 页面由 W1-D 新建。
-                    context.push('/queue');
+                    //
+                    // ⚠️ 防重入是**功能性**的，不是体验优化。go_router 14.8.1 的
+                    // pageKey 由匹配路径生成（`ValueKey(newMatchedPath)`），同一
+                    // 路径 push 两次（前一个 /queue 还在退场时菜单又被点开）会
+                    // 产生两个相同 LocalKey 的 page，Flutter Navigator 抛
+                    // `_debugCheckDuplicatedPageKeys`
+                    // （navigator.dart:4096 '!keyReservation.contains(key)'），
+                    // push 静默失败、导航 overlay 进入坏状态 —— 真机表现为
+                    // 「点过队列后整页按钮全部失效」，音乐还在播（2026-10-10，
+                    // 设备日志两次抓到同一断言）。push 的 future 在页面退出时
+                    // 完成，用它互斥最简单且无状态泄漏。
+                    if (!_queuePushInFlight) {
+                      _queuePushInFlight = true;
+                      unawaited(
+                        context.push('/queue').whenComplete(() {
+                          _queuePushInFlight = false;
+                        }),
+                      );
+                    }
                     break;
                 }
               },

@@ -301,6 +301,7 @@ CustomTransitionPage<void> _appPage(
       ...state.uri.queryParameters,
     },
     restorationId: state.pageKey.value,
+
     transitionDuration: AppMotion.routeForward,
     reverseTransitionDuration: AppMotion.routeReverse,
     transitionsBuilder: (context, animation, secondaryAnimation, child) {

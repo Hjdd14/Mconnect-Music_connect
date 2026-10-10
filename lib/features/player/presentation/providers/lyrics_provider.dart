@@ -240,7 +240,22 @@ Future<LyricsDocument?> resolveLyricsForSong({
         source: lyricsSourceForPlatform(song.platform),
       );
       if (document.lines.isNotEmpty) {
-        return document;
+        // Rows written before the yrc-translation fix hold the word-by-word
+        // track VERBATIM (its translation was dropped at write time), so a cache
+        // hit of that shape renders "no translation in any mode" forever — the
+        // device showed exactly that, and the row would survive its 14-day TTL.
+        // Such a row is stale by definition: refetch once, and the write path
+        // (which now folds the timeline-correct translation in) repairs it.
+        final legacyBareYrc =
+            format == LyricsFormat.yrc &&
+            !document.lines.any((line) => line.hasTranslation);
+        if (!legacyBareYrc) {
+          return document;
+        }
+        debugPrint(
+          'LyricsProvider: cached yrc row predates the translation fix, '
+          'refetching',
+        );
       }
       debugPrint('LyricsProvider: cached lyrics parsed empty, refetching');
     }
