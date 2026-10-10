@@ -212,6 +212,20 @@ void main() {
     },
   );
 
+  test('g_tk uses the canonical seed-5381 hash (pinned by a captured sample)', () {
+    // 真机证据（2026-10-10）：cookie 全部正确后，authorize 首次给出明确错误码
+    //   which=error&error=100046
+    // QQ互联官方返回码表：100046 = g_tk 校验失败。
+    // 参考抓包给出可验证样本：skey `@Xb8aQtVvd` -> g_tk 1934165869。
+    // 旧实现函数名写着 5381、种子却是 0（算出 1033578536），永远通不过校验。
+    // （ptqrtoken 是另一种：种子 0，轮询一直正常，不在本用例范围。）
+    expect(
+      QqApi.gtkForTest('@Xb8aQtVvd'),
+      1934165869,
+      reason: '必须与抓包样本一致 —— 只有种子 5381 的变体能得到这个值',
+    );
+  });
+
   test('QQ OAuth cookie builder keeps QQ Music login tokens from QQLogin', () {
     final cookie = QqApi.buildMusicLoginCookieForTest(
       existingCookie: 'p_skey=ps-key; skey=s-key',

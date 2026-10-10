@@ -909,11 +909,21 @@ class QqApi {
 
   String? _extractCookie(String name) => _extractCookieValue(_cookie, name);
 
-  int _hash5381(String str) {
-    int hash = 0;
+  /// Exposes the g_tk hash for tests. See [_hash5381] for why the seed matters.
+  @visibleForTesting
+  static int gtkForTest(String str) => _hash5381(str);
+
+  static int _hash5381(String str) {
+    // The canonical QQ g_tk (ACSRF token) hash. The reference capture of this
+    // flow pins it exactly: skey `@Xb8aQtVvd` -> g_tk 1934165869, and ONLY the
+    // seed-5381 variant reproduces that value (seed 0 gives 1033578536). This
+    // function was NAMED 5381 while seeding 0 - which is why `authorize` kept
+    // answering `which=error&error=100046`, the official code for "g_tk 校验失败"
+    // (QQ互联 wiki, 公共返回码说明).
+    int hash = 5381;
     for (var i = 0; i < str.length; i++) {
       hash = ((hash << 5) + hash) + str.codeUnitAt(i);
-      hash = hash & 0xFFFFFFFF;
+      hash = hash & 0x7FFFFFFF;
     }
     return hash & 0x7FFFFFFF;
   }
