@@ -804,19 +804,32 @@ class QqApi {
   }) {
     // name=value only, in order; later duplicates replace earlier ones.
     final jar = <String, String>{};
-    void absorb(String line) {
+    final deletions = <String>[];    void absorb(String line, {required bool fromExisting}) {
       final firstPair = line.split(';').first.trim();
       final eq = firstPair.indexOf('=');
       if (eq <= 0) return; // no "=", or empty name — not a cookie
       final name = firstPair.substring(0, eq).trim();
       final value = firstPair.substring(eq + 1).trim();
       if (name.isEmpty) return;
+      if (value.isEmpty) {
+        // An EMPTY value is QQ's deletion order — the reference capture of this
+        // flow shows lines like `ptcz=;Expires=Thu, 01 Jan 1970 00:00:00 GMT`.
+        // A browser keys cookies by (name, DOMAIN), so a deletion scoped to
+        // ptlogin2.qq.com does not touch the copy issued for another domain.
+        // This jar is flat, so honoring the deletion would wipe the REAL value
+        // the earlier line just set — which is exactly how p_skey vanished on
+        // device: the names list contained it, yet the value read as null and
+        // g_tk fell back to 5381. Skip deletion lines instead.
+        deletions.add(name);
+        if (fromExisting) jar.remove(name); // drop empties we already carry
+        return;
+      }
       jar[name] = value;
     }
 
     // Existing jar: parse the pairs we already hold.
     for (final pair in existing.split(';')) {
-      absorb(pair);
+      absorb(pair, fromExisting: true);
     }
     for (final line in setCookieLines) {
       // ⚠️ One dio "set-cookie" entry can carry SEVERAL cookies folded with
@@ -830,7 +843,7 @@ class QqApi {
       // (that lookahead also protects `Expires=Wed, 21 Oct ...`, whose comma is
       // followed by a day number, not by a name).
       for (final entry in line.split(RegExp(r',(?=\s*[A-Za-z_$][A-Za-z0-9_$]*\s*=)'))) {
-        absorb(entry);
+        absorb(entry, fromExisting: false);
       }
     }
     return jar.entries.map((e) => '${e.key}=${e.value}').join('; ');

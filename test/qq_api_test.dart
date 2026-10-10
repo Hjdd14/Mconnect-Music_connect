@@ -183,6 +183,35 @@ void main() {
     },
   );
 
+  test(
+    'an EMPTY Set-Cookie value is a deletion order and must NOT wipe the real one',
+    () {
+      // 真机证据（2026-10-10）：jar 名单里有 p_skey，值却是 null、g_tk=5381。
+      // 参考抓包（QQ 扫码 OAuth2 反向工程）显示 QQ 会发"删除型" Set-Cookie：
+      //   ptcz=;Expires=Thu, 01 Jan 1970 00:00:00 GMT;Path=/;Domain=ptlogin2.qq.com;
+      // 浏览器按 (名字, 域) 存 cookie，域限定的删除令不影响其他域的同名真值；
+      // 本 jar 是扁平的，若照单全收就会把前面刚写入的真值覆盖成空 —— p_skey
+      // 就是这样消失的。所以：空值不得进入 jar。
+      final merged = QqApi.mergeSetCookiesForTest(
+        existing: '',
+        setCookieLines: const [
+          'p_skey=REAL_PSKEY; Path=/; Domain=.qq.com; HttpOnly; Secure',
+          'p_skey=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/; '
+              'Domain=ptlogin2.qq.com',
+          'p_uin=o2443599899; Path=/; Domain=.qq.com',
+        ],
+      );
+
+      expect(
+        merged,
+        contains('p_skey=REAL_PSKEY'),
+        reason: '删除令（空值）出现在真值之后，不得把真值清掉',
+      );
+      expect(merged, isNot(contains('p_skey=;')));
+      expect(merged, contains('p_uin=o2443599899'));
+    },
+  );
+
   test('QQ OAuth cookie builder keeps QQ Music login tokens from QQLogin', () {
     final cookie = QqApi.buildMusicLoginCookieForTest(
       existingCookie: 'p_skey=ps-key; skey=s-key',
