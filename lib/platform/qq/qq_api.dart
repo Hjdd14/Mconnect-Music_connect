@@ -594,15 +594,19 @@ class QqApi {
 
       // Step 4: OAuth authorize
       final uri = Uri.parse(redirectUrl);
-      final surl =
-          uri.queryParameters['surl'] ?? uri.queryParameters['uin'] ?? '';
-      // Record what we actually parsed out of check_sig. `surl` falls back to the
-      // raw `uin` (a bare number) when the callback carries no `surl`, and whether
-      // oauth2.0/show accepts that is unverified — so log the value rather than
-      // assume. Non-secret: it is a public account number, not a token.
+      // `surl` must be a CALLBACK URL, never the bare uin. Device evidence
+      // (2026-10-10, user-confirmed): the log showed `surl=2443599899` — the
+      // account NUMBER — because the check_sig URL carries no `surl` and the old
+      // fallback grabbed `uin`. `oauth2.0/show` uses surl to build the post-login
+      // jump target; feeding it a number cannot produce a valid redirect, which is
+      // a plausible independent reason authorize bounces back to the login page.
+      // When absent, omit it and let `redirect_uri` (which already names
+      // y.qq.com) define the target.
+      final hasRealSurl = uri.queryParameters.containsKey('surl');
+      final surl = hasRealSurl ? (uri.queryParameters['surl'] ?? '') : '';
       debugPrint(
-        'QQ OAuth: calling oauth2.0/show, surl=$surl '
-        '(fromRedirect=${uri.queryParameters.containsKey('surl')})',
+        'QQ OAuth: calling oauth2.0/show, surl=${surl.isEmpty ? '<omitted>' : surl} '
+        '(fromRedirect=$hasRealSurl)',
       );
       // The names we are ABOUT to send to graph.qq.com. Comparing this list with
       // the "QQ帐号安全登录" outcome is what separates "cookie lost" (a name
@@ -815,7 +819,19 @@ class QqApi {
       absorb(pair);
     }
     for (final line in setCookieLines) {
-      absorb(line);
+      // ⚠️ One dio "set-cookie" entry can carry SEVERAL cookies folded with
+      // commas. Device evidence (2026-10-10): the hop log printed each name
+      // TWICE — `cookieNames=[pt2gguin, pt2gguin, p_uin, p_uin, p_skey, p_skey,
+      // ...]` — and after the merge `p_skey=false`: the real line was
+      //   `pt2gguin=oX; Path=/, p_skey=yyy; Path=/; Domain=.qq.com`
+      // so splitting on ';' made the FIRST segment `pt2gguin=oX, p_skey=yyy`,
+      // which was recorded as pt2gguin with the value "oX, p_skey=yyy" — p_skey
+      // was swallowed whole. Split on commas that are FOLLOWED by `name=`
+      // (that lookahead also protects `Expires=Wed, 21 Oct ...`, whose comma is
+      // followed by a day number, not by a name).
+      for (final entry in line.split(RegExp(r',(?=\s*[A-Za-z_$][A-Za-z0-9_$]*\s*=)'))) {
+        absorb(entry);
+      }
     }
     return jar.entries.map((e) => '${e.key}=${e.value}').join('; ');
   }

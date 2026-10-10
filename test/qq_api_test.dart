@@ -146,6 +146,43 @@ void main() {
     },
   );
 
+  test(
+    'a Set-Cookie line with FOLDED commas yields every cookie, including p_skey',
+    () {
+      // 真机证据（2026-10-10）：hop 日志打出
+      //   cookieNames=[pt2gguin, pt2gguin, p_uin, p_uin, p_skey, p_skey, ...]
+      // 每个名字出现两次 ⇒ dio 的一个 set-cookie 条目里折叠了多个 cookie；
+      // 而修复前 merge 之后 `p_skey=false` ⇒ p_skey 被吞。真实形态是
+      //   `pt2gguin=oX; Path=/, p_skey=yyy; Path=/; Domain=.qq.com`
+      // 逗号才是第二层分隔符。
+      final merged = QqApi.mergeSetCookiesForTest(
+        existing: '',
+        setCookieLines: const [
+          'pt2gguin=oX; Path=/, p_skey=YYY; Path=/; Domain=.qq.com',
+          'pt4_token=T; Path=/, p_uin=o2443599899; Path=/; Domain=.qq.com',
+        ],
+      );
+
+      expect(merged, contains('pt2gguin=oX'));
+      expect(
+        merged,
+        contains('p_skey=YYY'),
+        reason: 'p_skey 在折叠逗号之后，必须被拆出来 —— 修前它被吞进前一项的值里',
+      );
+      expect(merged, contains('p_uin=o2443599899'));
+      // `Expires=Wed, 21 Oct ...` 的逗号后面是星期/日期，不是 name=，
+      // 不得被误拆：
+      final withDate = QqApi.mergeSetCookiesForTest(
+        existing: '',
+        setCookieLines: const [
+          'a=B; Expires=Wed, 21 Oct 2026 07:28:00 GMT; Path=/',
+        ],
+      );
+      expect(withDate, contains('a=B'));
+      expect(withDate.contains('21 Oct'), isFalse, reason: 'Expires 的值不是 cookie');
+    },
+  );
+
   test('QQ OAuth cookie builder keeps QQ Music login tokens from QQLogin', () {
     final cookie = QqApi.buildMusicLoginCookieForTest(
       existingCookie: 'p_skey=ps-key; skey=s-key',
