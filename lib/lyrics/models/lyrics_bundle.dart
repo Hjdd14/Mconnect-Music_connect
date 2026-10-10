@@ -28,12 +28,23 @@ class LyricsBundle {
   /// Romanisation (`romalrc` / `yromalrc`), line-timed LRC.
   final String? romaji;
 
+  /// The word-by-word track's own translation (`ytlrc`), line-timed LRC whose
+  /// timestamps match the START of each yrc line.
+  ///
+  /// ⚠️ NOT the same track as [translation]: `tlyric` carries the plain `lrc`
+  /// timeline, which does NOT line up with the yrc start-offsets. Pairing a yrc
+  /// main track against `tlyric` therefore matched nothing and every translation
+  /// silently vanished — the device bug where some songs showed bilingual text
+  /// and others (exactly the ones that HAVE a yrc track) showed none.
+  final String? yrcTranslation;
+
   const LyricsBundle({
     this.lrc,
     this.translation,
     this.yrc,
     this.qrc,
     this.romaji,
+    this.yrcTranslation,
   });
 
   bool get isEmpty =>
@@ -41,7 +52,8 @@ class LyricsBundle {
       _isBlank(translation) &&
       _isBlank(yrc) &&
       _isBlank(qrc) &&
-      _isBlank(romaji);
+      _isBlank(romaji) &&
+      _isBlank(yrcTranslation);
 
   static bool _isBlank(String? value) => value == null || value.trim().isEmpty;
 }
@@ -103,7 +115,23 @@ LyricsDocument buildLyricsDocument(
   );
   if (document.lines.isEmpty) return document;
 
-  final translation = bundle.translation;
+  // The translation track must share the main track's TIMELINE. `tlyric` follows
+  // the plain `lrc` one; a yrc main track lives on the yrc start-offsets, so its
+  // translation comes from `ytlrc` — pairing yrc against `tlyric` matched almost
+  // no timestamps and silently dropped every translation (device bug 2026-10-10:
+  // songs WITH a word-by-word track showed no translation at all, while songs
+  // without one showed it fine).
+  //
+  // No `?? bundle.translation` fallback here on purpose: the two timelines
+  // genuinely differ (the probed song's ytlrc line sits at 20.370s where tlyric
+  // says 20.316s — each matches its own main track, not the other). Falling back
+  // would re-introduce the silent mismatch this fix removes.
+  final String? translation;
+  if (track.format == LyricsFormat.yrc) {
+    translation = bundle.yrcTranslation;
+  } else {
+    translation = bundle.translation;
+  }
   if (translation == null || translation.trim().isEmpty) return document;
   return _withTranslations(
     document,

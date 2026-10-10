@@ -129,8 +129,18 @@ void main() {
       expect(buildLyricsDocument(const LyricsBundle()).lines, isEmpty);
     });
 
-    test('merges the translation onto the word-by-word lines by timestamp', () {
-      const bundle = LyricsBundle(lrc: lrc, yrc: yrc, translation: translation);
+    test('merges the ytlrc translation onto the word-by-word lines', () {
+      // 真机 bug（2026-10-10）：yrc 主轨之前拿 `tlyric`（lrc 时间轴）配对，
+      // 两者时间戳口径不同，几乎全配不上 ⇒ 有逐字歌词的歌全部丢译文。
+      // yrc 主轨的翻译必须来自 `ytlrc`（它的时间戳 == yrc 行起始毫秒，
+      // 实测：yrc `[14490,5880]` ↔ ytlrc `[00:14.490]`）。
+      // 样本刻意让 tlyric 与 yrc 的时间戳不同（模拟真实数据），只有 ytlrc 能配上。
+      const bundle = LyricsBundle(
+        lrc: lrc,
+        yrc: yrc,
+        translation: '[00:01.90]错轴译文甲\n[00:02.90]错轴译文乙',
+        yrcTranslation: '[00:01.00]你好\n[00:02.00]世界',
+      );
 
       final document = buildLyricsDocument(
         bundle,
@@ -140,8 +150,26 @@ void main() {
       expect(document.format, LyricsFormat.yrc);
       expect(document.source, LyricsSource.netease);
       expect(document.lines.map((line) => line.text), ['Hello', 'World']);
-      expect(document.lines.map((line) => line.translation), ['你好', '世界']);
+      expect(
+        document.lines.map((line) => line.translation),
+        ['你好', '世界'],
+        reason: 'yrc 主轨必须用 ytlrc 配对，而不是 lrc 时间轴的 tlyric',
+      );
       expect(document.lines.first.words, isNotNull);
+    });
+
+    test('keeps using tlyric when the main track is plain lrc', () {
+      // 无 yrc 的歌走 lrc 主轨，翻译仍来自 tlyric —— 图二那首（有译文）的路径。
+      const bundle = LyricsBundle(
+        lrc: lrc,
+        translation: translation,
+        yrcTranslation: '[00:09.00]不该被用上',
+      );
+
+      final document = buildLyricsDocument(bundle, source: LyricsSource.netease);
+
+      expect(document.format, LyricsFormat.lrc);
+      expect(document.lines.map((line) => line.translation), ['你好', '世界']);
     });
 
     test('an empty translation body never becomes a visible blank line', () {

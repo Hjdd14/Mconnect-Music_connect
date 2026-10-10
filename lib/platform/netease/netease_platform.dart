@@ -487,6 +487,11 @@ class NeteasePlatform extends MusicPlatform {
         lrc: _lyricTrack(res, 'lrc'),
         translation: _lyricTrack(res, 'tlyric'),
         yrc: _lyricTrack(res, 'yrc'),
+        // `ytlrc` is the yrc track's OWN translation (its timeline matches the
+        // yrc start-offsets, not the lrc one). Without it, a song that has a
+        // word-by-word track lost its translation entirely — pairing yrc against
+        // `tlyric` matched no timestamps (device bug 2026-10-10).
+        yrcTranslation: _lyricTrack(res, 'ytlrc'),
         romaji: _lyricTrack(res, 'romalrc') ?? _lyricTrack(res, 'yromalrc'),
       );
       if (bundle.isEmpty) {

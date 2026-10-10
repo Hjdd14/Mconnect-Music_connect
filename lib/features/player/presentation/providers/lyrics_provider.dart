@@ -278,15 +278,18 @@ Future<LyricsDocument?> resolveLyricsForSong({
   final track = mainLyricsTrack(raw!.bundle);
   if (writeCache != null && track != null) {
     // The cache holds one string per song, so the translation is folded into it
-    // to survive a cache hit. A word-by-word row is cached verbatim: its
-    // translation track is not LRC and cannot be appended to it.
-    final translation = raw.bundle.translation;
+    // to survive a cache hit. The track folded in must share the main track's
+    // timeline: lrc pairs with `tlyric`, and a word-by-word row pairs with
+    // `ytlrc` — the device bug had the yrc row cached VERBATIM (its translation
+    // dropped here), so every cache hit of a yrc song rendered without any
+    // translation even after the pairing was fixed.
+    final translation = track.format == LyricsFormat.lrc
+        ? raw.bundle.translation
+        : raw.bundle.yrcTranslation;
     final cachedContent =
-        track.format == LyricsFormat.lrc &&
-            translation != null &&
-            translation.trim().isNotEmpty
-        ? '${track.content}\n$translation'
-        : track.content;
+        translation != null && translation.trim().isNotEmpty
+            ? '${track.content}\n$translation'
+            : track.content;
     unawaited(
       _writeCacheBestEffort(writeCache, cachedContent, track.format),
     );

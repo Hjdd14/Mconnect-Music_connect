@@ -49,40 +49,47 @@ class QueuePage extends ConsumerWidget {
               message: '播放歌曲，或在歌曲菜单里选「加入播放队列」',
               icon: Icons.queue_music,
             )
-          : Column(
-              children: [
-                _QueueSummary(
-                  count: queue.length,
-                  totalDuration: _totalDuration(queue),
-                ),
-                Expanded(
-                  child: ReorderableListView.builder(
-                    padding: const EdgeInsets.only(bottom: 24),
-                    // 显式拖拽把手（和播放列表详情页一致）：整行默认的长按拖拽
-                    // 会和「点击跳播」抢同一个手势，用户也看不出哪一行能拖。
-                    buildDefaultDragHandles: false,
-                    itemCount: queue.length,
-                    // `onReorderItem`（不是已弃用的 `onReorder`）已经替调用方
-                    // 修正过 `newIndex`，所以这里直接交给 `moveInQueue`，
-                    // **不能再做经典的 -1 修正**。
-                    onReorderItem: (oldIndex, newIndex) =>
-                        notifier.moveInQueue(oldIndex, newIndex),
-                    itemBuilder: (context, index) {
-                      final song = queue[index];
-                      return _QueueRow(
-                        // 同一首歌可以入队两次，所以 key 必须带上下标。
-                        key: ValueKey('queue-${song.dedupeKey}-$index'),
-                        index: index,
-                        song: song,
-                        isCurrent: index == state.currentIndex,
-                        onTap: () => unawaited(notifier.playAtIndex(index)),
-                        onRemove: () =>
-                            unawaited(notifier.removeFromQueue(song.dedupeKey)),
-                      );
-                    },
-                  ),
-                ),
-              ],
+          // 一个滚动视图，而不是 `Column + Expanded(ReorderableListView)`。
+          //
+          // 真机事故（2026-10-10，release 包）：从 `/player`（ShellRoute 外）推入
+          // 本页时整个页面只剩不透明背板 —— 无异常、无日志、shell 的迷你播放器
+          // 仍在。widget 测试（同结构、IdleAudioController）全绿，所以问题只在
+          // 真机合成路径上。与正常显示的 `playlist_detail_page` 最大的结构差是
+          // 这里把 `ReorderableListView` 塞进了 `Column + Expanded`：它自身已是
+          // 滚动视图，套在 Expanded 里会让"概要行 + 列表"的布局随视口约束在
+          // 转场第一帧重新求解一次 —— 在 Impeller 下这是唯一一个进入时需要
+          // 二次布局的队列页结构。改用 `header:`（概要行属于列表自身）并直接
+          // 占满 body，与 playlist_detail_page 完全同构：一次布局、一条滚动轴。
+          : ReorderableListView.builder(
+              padding: const EdgeInsets.only(top: 4, bottom: 24),
+              // 显式拖拽把手（和播放列表详情页一致）：整行默认的长按拖拽
+              // 会和「点击跳播」抢同一个手势，用户也看不出哪一行能拖。
+              buildDefaultDragHandles: false,
+              itemCount: queue.length,
+              header: _QueueSummary(
+                count: queue.length,
+                totalDuration: _totalDuration(queue),
+              ),
+              // `onReorderItem`（不是已弃用的 `onReorder`）已经替调用方
+              // 修正过 `newIndex`，所以这里直接交给 `moveInQueue`，
+              // **不能再做经典的 -1 修正**。
+              onReorderItem: (oldIndex, newIndex) =>
+                  notifier.moveInQueue(oldIndex, newIndex),
+              proxyDecorator: (child, index, animation) =>
+                  Material(elevation: 4, color: Colors.transparent, child: child),
+              itemBuilder: (context, index) {
+                final song = queue[index];
+                return _QueueRow(
+                  // 同一首歌可以入队两次，所以 key 必须带上下标。
+                  key: ValueKey('queue-${song.dedupeKey}-$index'),
+                  index: index,
+                  song: song,
+                  isCurrent: index == state.currentIndex,
+                  onTap: () => unawaited(notifier.playAtIndex(index)),
+                  onRemove: () =>
+                      unawaited(notifier.removeFromQueue(song.dedupeKey)),
+                );
+              },
             ),
     );
   }
