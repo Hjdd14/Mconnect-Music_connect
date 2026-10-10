@@ -32,7 +32,14 @@ import '../../features/smart_playlists/presentation/pages/smart_playlist_editor_
 import '../../features/smart_playlists/presentation/pages/smart_playlists_page.dart';
 import '../../models/platform_type.dart';
 
+/// 根 Navigator 的 key：`/queue` 用 `parentNavigatorKey` 挂到它上面（见该路由
+/// 的注释）。go_router 的顶层 Navigator 默认没有显式 key，挂根必须显式声明。
+final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>(
+  debugLabel: 'root-navigator',
+);
+
 final appRouter = GoRouter(
+  navigatorKey: _rootNavigatorKey,
   initialLocation: '/',
   routes: [
     GoRoute(
@@ -52,6 +59,54 @@ final appRouter = GoRouter(
         transitionDuration: const Duration(milliseconds: 350),
       ),
     ),
+    // 播放队列页（W1-D）。
+    //
+    // ⚠️ 历史与教训：W1-D 曾把本页放在 ShellRoute 内，真机（release/debug 均
+    // 复现）点了入口后整页 touch-dead、音乐仍在播。设备日志抓到两次同一断言：
+    //   navigator.dart:4096 '!keyReservation.contains(key)': is not true
+    // （完整栈：NavigatorState._updatePages ← didUpdateWidget，即 pages 列表
+    // 本身携带重复 key），随后 pop 时又炸 go_router builder.dart:424 的
+    // `_pageToRouteMatchBase[page]!` null check。
+    //
+    // 成因：从 ShellRoute **外**的顶层路由（/player）push ShellRoute 内的路由
+    // 时，go_router 14.8.1 会构造 ImperativeRouteMatch，其匹配链把 ShellRoute
+    // 整体重建一遍；根 Navigator 与嵌套 Navigator 的 pages 在同一帧内分别用
+    // `ValueKey(route.hashCode)`（ShellRouteMatch）与 `ValueKey(newMatchedPath)`
+    // （RouteMatch）派生 key，两个 Navigator 的 page 集合在重建瞬间对不上，
+    // /queue 的 key 在其中一个 Navigator 的 pages 里出现两次。防重入闸门挡不住
+    // 它——断言在**一次** push 内部就发生了。
+    //
+    // 所以本页挂到**根 Navigator**（parentNavigatorKey 指向根），与 /player
+    // 同构：入口只在 /player 里，返回即回到播放页，不需要 shell 的迷你播放器
+    //（用户此刻就在全屏播放页上）。`test/app_router_routes_test.dart` 旧的
+    //「必须在 ShellRoute 内」断言随之更新为「必须在根 Navigator」。
+    GoRoute(
+      path: '/queue',
+      parentNavigatorKey: _rootNavigatorKey,
+      pageBuilder: (context, state) => CustomTransitionPage<void>(
+        key: state.pageKey,
+        name: state.name ?? state.path,
+        restorationId: state.pageKey.value,
+        transitionDuration: AppMotion.routeForward,
+        reverseTransitionDuration: AppMotion.routeReverse,
+        transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+            buildAppPageTransition(
+          animation: animation,
+          secondaryAnimation: secondaryAnimation,
+          reduceMotion: MediaQuery.disableAnimationsOf(context),
+          child: AppBackgroundShell(
+            drawImage: false,
+            drawScrim: false,
+            baseOpacity: secondaryBackingOpacity,
+            child: SizedBox.expand(
+              key: const Key('app-route-background-surface'),
+              child: SecondaryGlassSurface(child: child),
+            ),
+          ),
+        ),
+        child: const QueuePage(),
+      ),
+    ),
     ShellRoute(
       pageBuilder: (context, state, child) => _appShellPage(
         state,
@@ -62,17 +117,6 @@ final appRouter = GoRouter(
           path: '/',
           pageBuilder: (context, state) =>
               _appLeafPage(state, const HomeScreen()),
-        ),
-        // 播放队列页（W1-D）。**必须在 ShellRoute 内**：迷你播放器与底部胶囊由
-        // shell 渲染，队列页是"边听边整理"的页面，出了 shell 就会丢掉播放器，
-        // 返回栈也会落到错误的 navigator 上。`test/app_router_routes_test.dart`
-        // 用 `ShellRouteMatch` + 与 `/likes` 同构 + `/player` 反例把这一点钉住。
-        //
-        // 入口由 W1-A 在 `player_screen.dart` 里加（`context.push('/queue')`）。
-        GoRoute(
-          path: '/queue',
-          pageBuilder: (context, state) =>
-              _appLeafPage(state, const QueuePage()),
         ),
         GoRoute(
           path: '/recommendations',

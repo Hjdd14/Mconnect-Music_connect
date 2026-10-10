@@ -40,29 +40,27 @@ void main() {
     }
   });
 
-  test('/queue 挂在 ShellRoute 内（与 /likes 同构，而不是 /player 那种顶层页）', () {
+  test('/queue 挂在根 Navigator（与 /player 同构，绝不在 ShellRoute 内）', () {
+    // 真机事故（2026-10-10）：本页最初在 ShellRoute 内，从 /player（ShellRoute 外）
+    // push 它时，go_router 14.8.1 为 ImperativeRouteMatch 重建整条 ShellRoute 匹配
+    // 链，根 Navigator 与嵌套 Navigator 的 pages 在同一帧各用一套 key 派生
+    // （ShellRouteMatch=route.hashCode / RouteMatch=路径），/queue 的 key 在其中
+    // 一个 Navigator 的 pages 里出现两次 → Navigator 断言
+    // '!keyReservation.contains(key)' 炸掉 → push 静默失败、整页 touch-dead
+    // （设备日志两次抓到，音乐不受影响）。挂到根 Navigator（parentNavigatorKey）
+    // 后整条 ShellRoute 重建路径被绕开。
     final queue = appRouter.configuration.findMatch(Uri.parse('/queue'));
+
+    final routeMatch = queue.matches.single as RouteMatch;
+    expect(
+      routeMatch.route.parentNavigatorKey,
+      appRouter.routerDelegate.navigatorKey,
+      reason: '/queue 必须显式挂根 Navigator，不再进 ShellRoute（见上方事故说明）',
+    );
+
+    // 反例：证明上面那条有区分力 —— /likes 仍是 shell 子路由（形状不同）。
     final likes = appRouter.configuration.findMatch(Uri.parse('/likes'));
-
-    // 形状与一个已知合格的 shell 子路由一致 —— 比"matches 非空"强得多。
-    expect(queue.matches, hasLength(likes.matches.length));
-    expect(
-      queue.matches.single,
-      isA<ShellRouteMatch>(),
-      reason: '队列页必须在 shell 里：否则迷你播放器与底栏会消失，返回栈也会错',
-    );
-    expect(
-      (queue.matches.single as ShellRouteMatch).matches.map(
-        (routeMatch) => routeMatch.matchedLocation,
-      ),
-      contains('/queue'),
-      reason: 'shell 里的叶子路由必须真的是 /queue',
-    );
-
-    // 反例：证明上面那条 `isA<ShellRouteMatch>` 有区分力 —— `/player` 是
-    // ShellRoute 之外的顶层路由，形状不同。
-    final player = appRouter.configuration.findMatch(Uri.parse('/player'));
-    expect(player.matches.single, isNot(isA<ShellRouteMatch>()));
+    expect(likes.matches.single, isA<ShellRouteMatch>());
   });
 
   test('an unregistered location matches nothing', () {
