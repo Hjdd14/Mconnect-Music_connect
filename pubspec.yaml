@@ -22,7 +22,7 @@ dependencies:
   flutter_localizations:
     sdk: flutter
 
-  cupertino_icons: ^1.0.8
+  cupertino_icons: ^2.0.0
 
   # State Management
   flutter_riverpod: ^2.6.0
@@ -35,31 +35,31 @@ dependencies:
   crypto: ^3.0.0
 
   # Audio Playback
-  just_audio: ^0.9.42
+  just_audio: ^0.10.6
   audio_service: ^0.18.17
-  audio_session: ^0.1.25
+  audio_session: ^0.2.4
   just_audio_windows: ^0.2.3
   media_kit: ^1.2.6
   media_kit_libs_windows_audio: ^1.0.9
 
   # Local Storage
   drift: ^2.22.0
-  sqlite3_flutter_libs: ^0.5.0
+  sqlite3_flutter_libs: ^0.6.0+eol
   path_provider: ^2.1.0
   path: ^1.9.0
   hive_flutter: ^1.1.0
-  flutter_secure_storage: ^9.2.0
+  flutter_secure_storage: ^11.2.0
 
   # UI
-  cached_network_image: ^3.4.1
-  shimmer: ^3.0.0
+  cached_network_image: ^4.0.4
+  shimmer: ^4.0.0
   flutter_svg: ^2.0.10+1
   # 液态玻璃（iOS 26）底栏与控件。1.0.0 起有破坏性重命名，
   # 底栏必须用 GlassTabBar.bottom（GlassBottomBar 已删除）。
   liquid_glass_widgets: ^1.7.2
 
   # QR Code
-  mobile_scanner: ^5.2.0
+  mobile_scanner: ^7.4.2
   qr_flutter: ^4.1.0
 
   # Crypto
@@ -76,13 +76,13 @@ dependencies:
   charset: ^2.0.1
   collection: ^1.19.0
   json_annotation: ^4.9.0
-  permission_handler: ^11.0.0
+  permission_handler: ^13.0.2
   uuid: ^4.0.0
-  file_picker: 11.0.2
+  file_picker: 13.1.0
   flutter_native_splash: ^2.4.0
-  connectivity_plus: ^7.3.1
-  share_plus: ^12.0.2
-  app_links: ^7.2.1
+  connectivity_plus: ^7.3.2
+  share_plus: ^13.3.1
+  app_links: ^7.2.2
   # Desktop home-screen widget (RemoteViews). Its `platforms` map declares only
   # android and ios: on Windows it does NOT fail to compile, but any call throws
   # MissingPluginException - so every use goes through the facade in
