@@ -1,7 +1,7 @@
 name: mconnect
 description: "Multi-platform music aggregator"
 publish_to: 'none'
-version: 1.5.0+16
+version: 1.6.0+25
 
 environment:
   # 3.13.0 与 Flutter 3.47.5 自带的 Dart 3.13.4 对齐。
@@ -124,6 +124,12 @@ flutter_native_splash:
 
 flutter:
   uses-material-design: true
+
+  assets:
+    # Current Mozilla/CA bundle. Flutter's Windows BoringSSL ships an older
+    # root set than the OS; newer DigiCert/GlobalSign chains fail with
+    # "unable to get local issuer certificate" until these roots are added.
+    - assets/certs/cacert.pem
 
   # Required by `flutter gen-l10n`: without it the tool refuses to emit
   # AppLocalizations ("Attempted to generate localizations code without having

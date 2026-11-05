@@ -390,6 +390,10 @@ void main() {
     });
 
     test('truncates an oversized log file and says so', () async {
+      // Start from an empty log: every earlier test in this file appends to the
+      // same file, so a leftover tail can decide which marker survives the
+      // 200-byte cut. The test is about the cut, not about the file's history.
+      await service.logFile.writeAsString('');
       await service.logFile.writeAsString(
         '${'x' * 400}OLDEST-MARKER\n${'y' * 400}NEWEST-MARKER\n',
         mode: FileMode.append,

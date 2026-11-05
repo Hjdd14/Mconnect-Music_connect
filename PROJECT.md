@@ -9,7 +9,7 @@
 | 项目 | 值 |
 |------|-----|
 | 名称 | Mconnect |
-| 版本 | 1.5.0+16 |
+| 版本 | 1.6.0+25 |
 | Application ID | com.mconnect.mconnect |
 | 技术栈 | Flutter 3.47.5 / Dart 3.13.4 |
 | 平台 | Android（主）+ Windows 桌面端口（`windows/`，含自研原生悬浮歌词窗口与 Inno Setup 安装器） |
@@ -585,9 +585,12 @@ dart run scripts/test_kugou_info.dart
 
 | 路径 | 页面 | 转场 |
 |------|------|------|
-| `/` | HomeScreen (4 tab) | 默认 |
-| `/player` | PlayerScreen | 上滑 |
-| `/queue` | QueuePage（播放队列：重排/删除/清空/跳播） | 默认 |
+| `/` | DiscoveryDesktopPage（桌面）/ HomeScreen (4 tab，移动端) | 默认 |
+| `/search` | SearchDesktopPage（桌面）/ 移动端重定向发现 | 淡入 |
+| `/library` | LibraryDesktopPage（桌面）/ 移动端重定向发现 | 淡入 |
+| `/downloads` | DownloadsDesktopPage（桌面）/ 移动端重定向发现 | 淡入 |
+| `/player` | PlayerDesktopPage（桌面）/ PlayerScreen | 上滑 |
+| `/queue` | QueueDesktopPage（桌面）/ QueuePage（播放队列：重排/删除/清空/跳播） | 默认 |
 | `/recommendations` | RecommendationsPage | 默认 |
 | `/rankings` | RankingsPage（内容即 `ToplistsPage`，仅深链/历史兼容） | 默认 |
 | `/likes` | LikesPage | 默认 |
@@ -700,4 +703,4 @@ dart run scripts/test_kugou_info.dart
 
 详见 [CHANGELOG.md](CHANGELOG.md)
 
-当前版本: v1.5.0 (2026-10-08)
+当前版本: v1.6.0 (2026-11-05)

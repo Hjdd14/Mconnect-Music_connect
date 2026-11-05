@@ -73,6 +73,21 @@ void main() {
       expect(ranked.single.song.artists.single.id, '6539');
     });
 
+    test('chart rows keep their artwork (union_cover and imgurl)', () async {
+      final platform = KugouPlatform(api: _ContentApi());
+
+      final ranked = await platform.getRankedSongs('8888', num: 3);
+
+      // 搜索/榜单通用字段：trans_param.union_cover，{size} 模板要展开。
+      expect(ranked.first.song.coverUrl, contains('imge.kugou.com'));
+      expect(ranked.first.song.coverUrl, isNot(contains('{size}')));
+      // 只有 imgurl 的行以前解析出 null，榜单行于是没有封面。
+      expect(ranked.last.song.coverUrl, contains('img3.jpg'));
+      expect(ranked.last.song.coverUrl, isNot(contains('{size}')));
+      // 专辑也带上封面：从榜单点进专辑页不会变成无图。
+      expect(ranked.first.song.album?.coverUrl, ranked.first.song.coverUrl);
+    });
+
     test('rejects a non-numeric chart id instead of guessing', () async {
       final platform = KugouPlatform(api: _ContentApi());
 
@@ -239,6 +254,7 @@ class _ContentApi extends KugouApi {
           {'author_id': 6539, 'author_name': '郁可唯'},
         ],
         'album_id': '4012536',
+        'album_name': '茶汤专辑',
         'duration': 306,
         'sort': 1,
         'rank_count': 1,
@@ -264,6 +280,9 @@ class _ContentApi extends KugouApi {
         'sort': 5,
         'rank_count': 9,
         'isfirst': 0,
+        // No `trans_param.union_cover` here: a real rank row can carry the
+        // artwork only in `imgurl`, which this parser used to ignore.
+        'imgurl': 'http://imge.kugou.com/stdmusic/{size}/img3.jpg',
       },
     ];
     final unsorted = <Map<String, dynamic>>[

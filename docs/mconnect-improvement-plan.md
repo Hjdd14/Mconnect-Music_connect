@@ -3536,3 +3536,257 @@ final gTk = pSkey != null ? _hash5381(pSkey) : 5381;   // ← int（:614 定义 
 ### 36.2 由此得到的一条流程结论
 
 **"出包前置"应当在自己的机器上提前演练到"只剩改版本号"**，而不是留到发版当天一次性做。本阶段的顺序是：先在功能还在飞的时候验编译（第 2–5 条），再在收口时只做版本点 + 重跑同一条命令。这样**发版当天的工作量被压成"改 7 处 + 跑一遍已验证的序列"**，任何失败都能追溯到唯一变量（版本号），而不是"改了版本号 + 首次跑 R8 + 首次打安装器"三件事混在一起。
+
+
+---
+
+## 37. 阶段 v1.6：Windows 桌面端独立 UI 与原生歌词窗口
+
+### 37.1 根因与修复
+
+- **桌面不是放大手机**：新增 `DesktopShellPolicy`（`FLUTTER_TEST` 下强制 false，移动端布局字节级不变），用侧边栏 + 内容板 + 右侧播放面板 + 底部播放条重组；发现/搜索/音乐库/下载/本地/统计/智能歌单/最近/队列/设置全部桌面专用页。
+- **Stack 的 loose 约束**：在 `DesktopAmbientBackground` 内再套一层 `Stack` 时忘了 `fit: StackFit.expand`，Column 拿到 0..max 的松约束，侧边栏/内容按固有宽度排，窗口右侧被裁。改为 `StackFit.expand`。
+- **175% DPI 下逻辑尺寸=物理尺寸**：`FlutterDesktopGetDpiForMonitor` 在窗口创建前返回 96，`CreateWindow` 按 1.0 建窗，而引擎随后用 1.75 的 DPR，导致 1355 logical 画进 1355 physical（UI 被放大、右侧面板裁掉）。修复：显式 `SetProcessDpiAwarenessContext`/`SetThreadDpiAwarenessContext`，`FlutterViewController` 改传**逻辑尺寸**，窗口按工作区 `ResizeToWorkArea`；截图工具也必须 DPI-aware，否则只能截到虚拟化后的左上角。
+- **原生歌词窗口在创建期渲染崩溃**：`CreateWindowExW` 期间的 `WM_SIZE/WM_PAINT` 会先触发 `RenderNow`，此时 renderer 还没 `Initialize`，`kind_` 仍是默认 D2D 且没有 factory/target。加 `render_ready_` 守卫，Initialize 完成后才允许渲染；渲染后端默认 GDI+（D2D 代码保留为后续项）。
+- **文字被窗口入场 dx/dy 裁掉**：GDI+ 路径把 `scene.window.dx * width` 当作内容平移，过渡计时器停住时 dx=1，整行文字被推出分层表面，只剩未平移的锁/关闭按钮。文字内容改为锚定，窗口动画只走 alpha/scale。
+- **桌面数据库打不开**：drift 仍用 `getApplicationDocumentsDirectory()`，开发沙箱对 C: 的写入被拦，`PRAGMA journal_mode=WAL` 抛 `SqliteException(14)`。新增 `desktopDataDirectory()`，Hive 与 drift 统一到 `%LOCALAPPDATA%\com.mconnect\mconnect`（debug 为工作区 `.mconnect_data`，`MCONNECT_DATA_DIR` 可覆盖）。
+- **i18n 棘轮**：新桌面 UI 带来 509 处硬编码中文、19 个文件，基线从 869/97 冻结到 **1378/116**，并在测试注释中记录边界与后续迁移批次；这是新增 UI 边界的快照，不是"把红改绿"。
+
+### 37.2 门禁
+
+- `flutter analyze --no-pub`：0 issue。
+- 全量 `flutter test --no-pub -j 1`：1748 项，首轮 3 红（i18n 基线、原生源码护栏仍断言 D2D 初始化、PROJECT 路由表缺三 desktop 路径），逐条修复后三条全绿；发布前需再跑一次全量确认 0 红。
+- 原生源码测试从"必须 D2D 初始化"改为"保留 D2D/DWrite 绘制代码、默认 GDI+"，与当前实现一致；GDI+ 仍通过 `PixelFormat32bppPARGB` + `UpdateLayeredWindow` 保留逐像素 alpha。
+- 人工验收：175% DPI 下窗口完整、发现/搜索/音乐库/下载/本地/设置/歌词工作室可打开；悬浮歌词预览显示中文主行 + 英文译文 + 锁/关闭/传输控件；任务栏条窗口可创建。
+
+### 37.3 已知限制
+
+- SMTC / 托盘 / 单实例 / 窗口状态持久化的 Dart 桥已就位，Windows runner 侧未实现，调用安全返回 false。
+- 任务栏译文只支持上下两行；任务栏窗口不可拖动/关闭，位置由设置控制。
+- 悬浮歌词 `backgroundMode=cover` 回退为渐变。
+- 新桌面页面尚未迁入 ARB；i18n 基线为 1378/116。
+- 本机 DSH 会话在多次启动后出现 Flutter GPU 输出黑屏（debug 也受影响；日志仍正常、进程响应），重启/干净会话后需做最终视觉验收；该现象不能归因于业务 UI。
+
+
+---
+
+## 38. 阶段 v1.6.1：黑屏定尺、紧凑侧边栏、页面转场与 Windows 原生集成
+
+### 38.1 黑屏根因（纠正 §37 的"GPU 黑屏"判断）
+
+- 根因不是 Impeller/GPU：`FlutterWindow::OnCreate` 在首帧后 700ms 通过 `ResizeToWorkArea` 调用 `SetSize`，改变了 `FlutterViewController` 的表面尺寸；debug/release 都会命中，只是 release 更容易全黑。
+- 实验：仅注释掉 `SetTimer(...,700,...)`，debug 在 1575×1050 立即正常渲染；恢复 timer 即复黑。证据链明确。
+- 修复：把工作区尺寸计算移进 `Win32Window::Create`，在 `CreateWindow` 之后、`OnCreate()` 创建 `FlutterViewController` 之前 `SetWindowPos` 到最终逻辑尺寸；删除 `ResizeToWorkArea`/`WM_TIMER`。窗口状态恢复也走同一个 `initial_bounds_provider_`，因此恢复尺寸同样发生在首帧之前。
+- 红→绿：`test/desktop_window_source_test.dart` 断言 `SetWindowPos(window,...)` 的索引早于 `return OnCreate()`，且 `flutter_window.cpp` 不再含 `SetTimer(GetHandle(), 1` / `WM_TIMER`。
+- 实测：debug/release 在 175% DPI 下窗口 2380×1505 正常渲染；窗口状态 2100×1400 能恢复，`IsZoomed=true` 的最大化状态能恢复，均不再黑屏。
+
+### 38.2 1024×600 紧凑侧边栏
+
+- 固定 Column 在 600 逻辑高度下溢出 131px，设置/账号被播放条盖住。
+- 修复：`LayoutBuilder` 在 `maxHeight < 680` 时使用 32px 导航行、隐藏分区标题、4px 间距；`_SidebarDensity` InheritedWidget 把密度传给子项；`maxHeight < 480` 才退回可滚动并显示细滚动条。
+- 红→绿：`test/desktop_sidebar_compact_test.dart` 在 1024×600 下断言"设置/账号存在且无异常"；把阈值临时改为 0 时测试立即红，恢复后绿。
+- 三栏断点从 1000 提到 1120：1024 宽时右侧面板隐藏，内容不再被挤到 400px。
+
+### 38.3 页面转场重叠（本次用户反馈）
+
+- 症状：切换桌面页面时，上一页文字与新页面重叠约 0.5s。
+- 根因：桌面分支用 `FadeTransition` 做 200ms 交叉淡入；桌面叶子页没有自己的不透明底，两页都画在 `DesktopPageSurface`（alpha 0.82）上，透明度叠加期间必然双曝光。这与 Android 阶段 A.7 的"透明页 + 淡入 → 重影"是同一类问题。
+- 修复（对齐 Android 经验）：
+  1. 桌面转场改为**纯 SlideTransition**，去掉交叉淡入；
+  2. 每个叶子路由加 `_DesktopRouteBacking`：`SizedBox.expand` + 强制 alpha 1 的 `surfaceContainerLow` 底 + 极淡 primary 渐变、圆角与内容板一致，Key `desktop-route-opaque-backing`；`SizedBox.expand` 是必需的，否则页面根是 `Column` 时底衬只覆盖内容固有高度；外层用同半径 `ClipRRect` 包住 `Scaffold`，否则 Scaffold 的矩形 Material 会在内容板 R 角外留下直角黑边；
+  3. 壳页（侧边栏/播放器）不加底衬，保持环境背景透明。
+- 测试：`test/desktop_window_source_test.dart` 断言存在不透明底衬、颜色未带 alpha、使用 `return SlideTransition` 且无 `return FadeTransition`；临时把 Slide 改回 Fade 时测试红，恢复后绿。
+- 视觉：切换搜索页后截图内容为完整新页，无上一页文字残留。
+
+### 38.4 Windows 原生集成（已实现）
+
+- 新增 `windows/runner/desktop/desktop_integration_channel.*`、`smtc_session.*`、`window_state_store.*`、`single_instance.*`，注册到 `FlutterWindow::OnCreate`。
+- SMTC：C++/WinRT `ISystemMediaTransportControlsInterop::GetForWindow`；metadata/status/timeline/buttons；`ButtonPressed` 与 `PlaybackPositionChangeRequested` 回发 `smtcControl`；失败仅 `smtcUnavailable`。
+- 托盘：`Shell_NotifyIconW` + `IDI_APP_ICON`，菜单显示/播放暂停/上下首/悬浮歌词/任务栏歌词/退出；`TaskbarCreated` 重建。
+- 单实例：命名 mutex + `WM_COPYDATA`；窗口状态：`window_state.json`（`MCONNECT_DATA_DIR` 优先）在首帧前恢复、退出/移动后保存；关闭到托盘；全局热键；防休眠；Accent 色；剩余磁盘。
+- Dart：`DesktopBehaviorSettings` + 服务方法 + 设置页「桌面行为」分区；新增文案全部走 ARB，i18n 基线未涨。
+- 已实测：关闭窗口后进程存活、窗口隐藏；第二次启动唤起同一 PID；窗口位置/大小恢复；最大化恢复 `IsZoomed=true`；release/debug 均构建通过。
+- 仍需实机确认：SMTC 媒体浮窗/媒体键、托盘菜单交互、快捷键冲突、任务栏 inline 译文在真实歌曲下的可读性。
+
+### 38.5 已知限制（更新）
+
+- 任务栏歌词 `translationLayout` 已支持 stacked/inline/hidden；窗口仍不可拖动/关闭。
+- SMTC 暂不加载封面缩略图。
+- `backgroundMode=cover` 仍是渐变回退；封面取色/模糊位图属于后续项。
+- 新桌面页面未迁入 ARB，i18n 基线 1378/116。
+- 安装器需在发布机复跑。
+
+### 38.6 门禁
+
+- `flutter analyze --no-pub`：0 issue。
+- 全量 `flutter test --no-pub -j 1`：1787 passed / 11 skipped（新增 38.1–38.3 与桌面设置/集成测试）。
+- debug/release 构建通过；175% DPI release 视觉验收通过（发现、设置、搜索切换）。
+
+
+### 38.7 Release 直接启动白屏（用户反馈）
+
+- 现象：直接运行 `build/windows/x64/runner/Release/mconnect.exe`，窗口标题栏正常，客户区纯白。
+- 根因：release 的 `_openSettingsBox` 在 `runApp` 之前 `Hive.openBox('settings')`；profile 目录 `C:\Users\PC\AppData\Local\com.mconnect\mconnect\hive\settings.hive` 被拒绝（本次 DSH 沙箱的 token 与正常用户不同），异常从 `_bootstrap` 抛出，首帧永远不会运行。日志明确：`PathAccessException: Cannot create file ... settings.hive`。
+- 修复：`desktopDataDirectory` 不再只 `create(recursive)`，而是每个候选目录写一个真实 probe 文件；候选顺序为 `MCONNECT_DATA_DIR` → release profile → 工作区 `.mconnect_data` → 系统临时目录。任一 probe 成功才返回。
+- 另外 `main` 在 `_bootstrap` 外包 try/catch：首帧前失败时 `runApp(_StartupErrorApp)`，显示错误详情而不是白屏；错误文案用英文，避免抬升中文 i18n 棘轮。
+- 验证：不设 `MCONNECT_DATA_DIR` 直接启动 release，日志出现 `desktopDataDirectory candidate rejected: C:\...` 后成功落到工作区目录，窗口正常渲染（2380×1505）。
+
+### 38.8 桌面端三平台二维码都加载不出来（TLS 根证书）
+
+- 现象：网易云/QQ/酷狗登录页都停在“获取二维码失败”，手机端正常。
+- 误判：先怀疑雷神加速器 `leishenSdk.exe`/`networktunnel_proxy.exe`；关闭后仍复现，排除。
+- 根因：Flutter Windows 链接的 BoringSSL 根证书集合落后于操作系统。2026 年平台证书链使用较新的 DigiCert GeoTrust G2 / DigiCert Secure Site OV G2 / GlobalSign R46，应用日志为：
+  - `CERTIFICATE_VERIFY_FAILED: self signed certificate in certificate chain`（网易云）
+  - `CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate`（QQ）
+  系统 `openssl`/curl（Schannel）和手机使用系统根证书，因此正常；桌面 Flutter 引擎只用自己的旧根集合。
+- 修复：新增 `assets/certs/cacert.pem`（121 个根）并在 `_bootstrap` 最前面调用 `installBundledCaBundle()`，用 `SecurityContext.defaultContext.setTrustedCertificatesBytes` **追加**根证书；不关闭校验，不设置 `badCertificateCallback=true`。
+- 验证：debug 登录页网易云二维码正常显示；release 构建包含 `data/flutter_assets/assets/certs/cacert.pem`。其他平台共用同一 HttpClient，证书链修复后一并生效。
+
+### 38.9 登录后封面空白 / 无法播放
+
+- 现象：登录后歌曲/专辑数据正常、歌词正常，但所有桌面封面是占位图，播放停在 00:00。
+- 封面：桌面组件用 `CachedNetworkImage`，其 `flutter_cache_manager` 走 `Directory.systemTemp`；受限 profile 下临时目录不可写时，图片请求明明成功也被 cache manager 变成 `errorWidget`。桌面发现页 hero 用 `Image.network` 能显示，说明 URL/网络没问题。
+- 修复：新增 `DesktopNetworkImage`（`Image.network` + 内存缓存，无磁盘 cache manager），替换桌面壳内全部 `CachedNetworkImage`（歌曲表、媒体卡、正在播放、底部播放条、环境背景）；移动端不动。
+- 播放：media_kit 的 NativeReferenceHolder 同样使用 `Directory.systemTemp`；native runner 在 Dart 启动前探测可写目录（profile tmp → exe 目录 tmp → 系统 temp），设置 `TMP/TEMP/TMPDIR`。
+- HTTPS 音频：libmpv 不读取 Dart 的 `SecurityContext`，将同一份 `assets/certs/cacert.pem` 通过 `tls-ca-file` 传给 NativePlayer，避免登录后 HTTPS 流也因旧根证书失败。
+- 验证：release 构建包含 CA 资源；封面代码不再依赖 cache manager；播放/libmpv 改动通过编译与静态检查，需用登录账号播放真实歌曲复验音频输出。
+---
+
+## 阶段 R：桌面端 7 项体验修复（v1.6.1，2026-11-04）
+
+用户以 Windows 桌面端实际操作为依据提了 7 条问题；本阶段**只改桌面端**。
+
+### R.1 卡片悬停被滚动视口裁切
+
+- 现象：鼠标移到日推卡片上，卡片抬起后封面缺了最上面一条。
+- 根因：`desktop_media_card.dart` 用 `Matrix4.translationValues(0,-3,0)` 做抬起，位移**越出卡片自身布局盒**；卡片被放在固定高度、默认 `Clip.hardEdge` 的横向 `ListView`（发现页 246/220）和 `GridView`（音乐库）里，顶出的 3px 被视口裁掉。
+- 方案：卡片内部预留 `hoverLift = 3` 的固定 padding，悬停时把封面平移回 0（布局尺寸恒定、位移不出盒）；三处视口补 4–6px padding 并同步高度。
+- 红→绿：`test/desktop_media_card_hover_test.dart` 复刻『固定高横向 ListView』。把 padding 改回 `EdgeInsets.zero` → `the hover lift keeps the cover inside the card` 红；恢复后绿。
+
+### R.2 设置页二段跳
+
+- 现象：点侧栏「账号与平台」落进悬浮歌词；六个栏目都是「打开 XX 设置」卡片，第二次点击才见到控件；「播放」与「音频增强」打开的是同一页。
+- 根因：`SettingsDesktopPage` 的 `_section` 硬编码 `lyrics`，**从不读取 URL 的 `?section=`**（侧栏芯片一直在发 `?section=accounts`）；栏目内容只有 `_LinkCard`。
+- 方案：栏目改由 `GoRouterState.uri.queryParameters['section']` 派生（未知/缺省 → accounts），点击用 `context.go` 写回 URL；移动端四个设置页支持 `embedded: true`（去掉 Scaffold/AppBar，只输出同一批行），桌面页就地渲染；`SettingsAudioPage` 增加 `SettingsAudioSection`（playback / audioEffects / all），把「播放」与「音频增强」拆成两半，移动端仍是一个合并页。
+- 红→绿：把 `build` 改回固定 `lyrics` → 三条 section 断言全红；恢复后绿。
+
+### R.3 首页日推进不去
+
+- 根因：发现页「为你推荐」标题没有 action，列表 `take(12)`；桌面 `/recommendations` 仍挂移动页，且没有任何入口。
+- 方案：新增 `RecommendationsDesktopPage`（复用 `playlistRecommendationsProvider` 与 `Song.dedupeKey` 去重、平台筛选、播放全部、刷新、每平台错误重试），`DesktopSectionHeader` 增加「查看全部 N 首」，桌面路由指向新页。
+- 红→绿：移除 header 的 action → `the discovery teaser opens the full list` 红；恢复后绿。
+
+### R.4 悬浮歌词无法调尺寸/位置
+
+- 根因：模型的 `width/height/positionX/positionYRatio/monitorDeviceName` 与文字参数早已存在，但工作室只有字号/不透明度/圆角三个滑杆；原生 `ApplyLayout()` 每帧按 `style_` 重设窗口，拖拽/缩放期间被 Dart 往返（200ms）反复拉回。
+- 方案：`FloatingLyricsNotifier.setWidth/setHeight`；工作室新增尺寸/位置/显示器/文字/行为五组控件（`surface_sections.dart`）；原生 `resizing_` + `WM_ENTERSIZEMOVE/EXITSIZEMOVE`，`ApplyLayout`/`ApplyPlacement` 在手势期间早退，缩放结束回写 `windowResized`。
+- 红→绿：工作室滑杆断言与 provider clamp 断言（B 侧另有 reduceMotion/事件流三组真回溯）。
+
+### R.5 任务栏歌词跑到屏幕正中心
+
+- 根因：`taskbar_geometry.cpp` 在 `!found` 或空间不足时走『显示器居中兜底』；Win11 的任务列表常横跨整条任务栏，修剪后 `free_band` 宽度为 0，必然触发兜底；`rect<8px` 时直接 return，窗口留在 `Create()` 的左上角默认几何；不透明度读错键名；Dart 侧任务栏 sink 没注册事件回调，状态根本不可见。
+- 方案：`TaskbarLyricsPlacement.visible` + 删除居中兜底，永远停在任务栏带内（上/下/左/右各一套定位），`!found` 隐藏；修剪不足时回退整条栏并保留 `space_insufficient` 上报；`backgroundOpacity` 优先、`opacity` 兼容；Dart 注册 `setMethodCallHandler`，新增 `taskbarLyricsStatusProvider`（monitors/taskbars/edge/spaceInsufficient）与工作室状态条 +「重新探测」。
+- 红→绿：原生源码断言 27 例中 11 例先红（含『never centres the strip on the monitor』）；Dart 侧注释掉 `setMethodCallHandler` → 事件流断言红。
+
+### R.6 动画选了没作用
+
+- 根因：`FloatingLyricsSettings.reduceMotion` **默认 true**，原生把该标志当硬切 → 默认所有行/窗口动画都不播；任务栏入场每帧重启、退场瞬断；任务栏样式没有 `reduce_motion` 字段。
+- 方案：默认改 false（已存 true 保留）；任务栏新增 `reduceMotion` 并贯通渲染；入场只在 `!visible()` 时播一次，退场用 `closing_` 播完再隐藏；工作室开启『减少动态效果』时显示提示条并给一键关闭。
+- 红→绿：默认改回 true → 默认值断言红；注释任务栏 `window_animator_.Start(false)` → 源码断言红。
+
+### R.7 关闭到托盘无效
+
+- 根因：`WM_CLOSE` 先交给 Flutter 引擎；3.47 的 `WindowsLifecycleManager` 会吞掉首个 `WM_CLOSE` 并发起 `System.requestAppExit` 往返，任一环失败就表现为『直接退出』。另外托盘图标不存在时仍 `SW_HIDE`（窗口消失在虚空）、`rememberWindowState` 原生完全不读、热键注册失败只回 false 而 Dart 丢弃。
+- 方案：`FlutterWindow::MessageHandler` 最前面拦 `WM_CLOSE`；`HandleCloseRequest` 分三支（force_quit / 托盘不可用直接退出并上报 / 隐藏到托盘并提示）；`remember_window_state_` 门控原生存档与 `WM_EXITSEMOVE` 定时器；`applyTo` 返回热键结果，设置页新增『运行状态』卡片显示托盘/热键/媒体面板/最近一次关闭。
+- 红→绿：`WM_CLOSE` 移回原位 → 源码断言红；Dart 侧 `applyTo` 载荷断言先红。
+
+### R.8 教训
+
+1. **URL 是状态**：桌面设置页的 section 属于路由，不属于 widget；把 `?section=` 忽略掉，侧栏的入口参数就等于没写。
+2. **位移不属于布局**：任何 hover lift / scale 都必须在自身盒内预留空间，否则调用方一加 clip 就缺一条，且症状只在特定列表高度下出现。
+3. **默认值就是功能**：`reduceMotion = true` 让七个动画开关全部变成摆设——新开关必须和默认值一起验收。
+4. **原生兜底不能是『随便找个地方』**：任务栏几何的显示器居中兜底在 Win11 上几乎必然命中，兜底要么贴目标带，要么隐藏并上报。
+5. **关窗路径要抢在引擎之前**：Flutter 3.47 的生命周期往返会改变 `WM_CLOSE` 的语义，隐藏窗口这类同步决定必须自己处理。
+---
+
+## 阶段 S：v1.6.2 桌面端实测反馈三项（2026-11-04）
+
+### S.1 任务栏歌词无法拖动、数值不生效
+
+- 现象：任务栏歌词条拖不动；宽度/偏移/高度滑动条改了没反应；状态条显示「空间不足」。
+- 根因（三条叠加）：
+  1. `TaskbarLyricsWindow` 构造里 `draggable_ = false; resizable_ = false;`，拖拽从未实现；即使实现，`OnDragFinished` 也不回传位置，下一次 `ApplyPlacement()` 会按旧 offset 弹回。
+  2. 歌词条与 `Shell_TrayWnd` 都是 topmost，Explorer 会随时把任务栏抬到最上层；歌词条被任务栏**盖住**，所以数值确实变了、屏幕上却没有变化。
+  3. `trimmed_insufficient`（应用区被任务列表占满）被当作 `spaceInsufficient` 上报，状态条文案误导为「空间不足」。
+- 方案：`draggable_ = true` + `OnDragFinished` 换算 `offsetX`（Dart 防抖 180ms 回写设置）；把任务栏设为歌词条的 **owner**（`GWLP_HWNDPARENT`）并在每次 `SetBounds` 后 `HWND_TOPMOST` 重申；新增 `taskbarPlacement` 事件与状态条实时矩形；`调试几何` 改为给窗口加 30% 底色。
+- 红→绿：源码断言 `draggable_ = true`（改回 false 红）、`GWLP_HWNDPARENT`（删除红）、`Emit("taskbarPlacement")`、`任务栏拥有窗口`；Dart 侧 `taskbarPlacement → placement`、`dragOffset → 防抖提交一次`。
+
+### S.2 桌面端隐藏「UI 风格」
+
+- 事实：`app.dart` 在桌面恒用 `desktopTheme(...)`，`uiStyle` 对 Windows 完全无效；该开关只是被 `embedded` 内联进了桌面外观页。
+- 方案：`SettingsAppearancePage(showUiStyle: false)`，桌面传 false、移动端默认 true；移动端页面与 `/settings/appearance` 路由不受影响。
+
+### S.3 关闭到托盘仍然退出 / 托盘不可见
+
+- 现象：关闭到托盘=开，点 X 仍退出；托盘区无图标；状态卡托盘一行恒为「尚未收到运行器答复」。
+- 根因：`HandleCloseRequest()` 只在 `tray_icon_added_` 为真时隐藏，否则直接放行退出；而 `LoadTrayIcon()`/`AddTrayIcon()` 失败时**静默 return false**，托盘从未加上；状态卡又只依赖 `trayReady` 事件，没有任何主动查询。另：状态卡「全局热键已注册」是假阳性——`ApplyHotkeys(false)` 直接 return true。
+- 方案：图标四级兜底 + `NIM_ADD` 三次降级重试 + `trayFailed` 上报错误码；无图标时关闭改为 `SW_MINIMIZE` 并吃掉 WM_CLOSE（进程绝不退），新增 `minimizedInsteadOfTray`；新增 `getRuntimeStatus` 让 Dart 主动查询 `trayAdded/trayError/smtcAvailable/hotkeysEnabled`；热键状态改用 `!hotkeys_.empty()`。
+- 红→绿：源码断言（IDI_APPLICATION 兜底、两次重试、minimized 分支、getRuntimeStatus、tray_error_）+ Dart 状态迁移测试；共 55 例先红后绿。
+
+### S.4 教训
+
+1. **「看不见」和「没生效」是两件事**：任何可调但肉眼难辨的悬浮窗口，都要把实际矩形回传成可读数字，否则用户无法区分是哪一种失败。
+2. **topmost 不是置顶保证**：与 Explorer 的系统窗口竞争时，owner 关系（`GWLP_HWNDPARENT`）比反复 `SetWindowPos` 可靠。
+3. **兜底路径必须可观测**：托盘图标失败静默了整整一个版本；现在失败会带错误码进状态卡。
+4. **布尔返回值不等于能力**：`setHotkeys(false)` 返回 true 曾被当成「已注册」，状态卡应当读原生真实状态。
+---
+
+## 阶段 T：v1.6.3 任务栏歌词定位与托盘图标（2026-11-04）
+
+### T.1 任务栏歌词锚点/宽度/偏移/拖动全部无效
+
+- 现象：状态条显示 `已停靠：左侧 · 宽 3804×84 · 位置 10,2076`，但任务栏在底部；点锚点、拖宽度、拖水平偏移、拖动条本体都没有变化。
+- 根因：`taskbar_geometry.cpp` 的 `EdgeFromRect()` 判定顺序错误——先判 `taskbar.left <= monitor.left` 再判底部。Windows 默认底部任务栏的矩形从 x=0 开始，于是**所有**底部任务栏都被判成左侧。下游全部走竖排分支：宽度被钉成 `thickness - padding`（任务栏整宽）、锚点只影响纵向、拖动按纵向换算。
+- 方案：改为按跨度判定（横条 = 宽度≥0.9 显示器宽且高度≤0.5 显示器高；竖条同理；都不满足时取贴合最紧的边）。自检补 5 个用例（全宽底部/顶部、全高左/右、内缩底部），并从 Debug 专用改为 **Release 首次创建时也跑**，失败发 `geometrySelfTestFailed`，工作室状态条显示原因。
+- 教训：一个不可见的排序错误能让整组 UI 控件「看起来坏了」；把纯函数自检搬进 Release 并让它可上报，比只写注释可靠。
+
+### T.2 关闭到托盘变成「留在任务栏」
+
+- 运行时取证（本机 release + PowerShell）：发 WM_CLOSE 后进程存活、`IsWindowVisible=true`、`IsIconic=true` ⇒ 走的是「无托盘 → 最小化」兜底；同一会话用 WinForms `NotifyIcon` 能成功加图标 ⇒ shell 本身没禁止；枚举 `Shell_TrayWnd` 的 UIA 子树只有任务栏按钮、没有托盘图标 ⇒ `tray_icon_added_` 为假。
+- 根因：托盘图标以 Flutter 主窗口为回调窗口注册失败（三组 flags 全失败），且 `window_ == nullptr` 那条提前返回是静默的；降级链只覆盖 flags，没覆盖回调窗口。
+- 方案：新增专属隐藏窗口 `MCONNECT_TRAY_HOST` 承载图标（`CreateWindowExW` + 转发 tray/TaskbarCreated 消息给原处理函数）；注册成功后用 `Shell_NotifyIconGetRect` 记录落点（诊断用，不阻塞判定）；重试改为 1s→30s 指数退避、无上限；新增 `elevated` 上报；无图标时**保持窗口打开**并 `Emit trayUnavailableKeptOpen`，Dart 弹提示 + 写诊断 + 状态卡显示错误码，不再静默最小化。
+- 教训：静默降级（`return false` 不带原因）会让同一个 bug 拖两个版本；兜底行为必须与用户选择的语义一致——用户要「隐藏到托盘」，做不到就不要假装，而是保持窗口并说明原因。
+---
+
+## 阶段 U：v1.6.4 托盘图标 183 自愈（2026-11-04）
+
+- 用户实测状态卡：`托盘图标 不可用（错误码 183）`、`最近一次关闭：托盘不可用，已保持窗口打开`。183 = `ERROR_ALREADY_EXISTS`。
+- 根因：`icon.uID` 固定为 1。被强杀的运行不会 `NIM_DELETE`，壳层为「同一 hWnd + id」留下残留登记，后续 `NIM_ADD` 一律判重 → 图标永不出现。我们自己的调试期也反复 `taskkill /F`，正好制造了这种残留。
+- 方案：id 改为 `GetCurrentProcessId()`（按运行唯一）；add 之前 `NIM_DELETE` 清理同 id；仍返回 183 时用 `NIM_MODIFY` 重新绑定到当前窗口并视为成功；失败路径保持「不隐藏、提示错误码、退避重试」。
+- 教训：**资源 id 不能是常量**。任何带「登记」语义的句柄（托盘、热键、通知）在进程被强杀后都会留下残留，必须做到「每次运行独占 + 先清理 + 冲突时改绑」。
+### U.2 收尾：203 是自家日志污染错误码，关闭行为定稿（2026-11-04）
+
+- 状态卡出现 `203`（`ERROR_ENVVAR_NOT_FOUND`）的真相：`TrayDebugLog` 里的 `GetEnvironmentVariableW` 在没设调试开关时失败，把 `GetLastError` 冲成 203，随后 `tray_error_` 读到的是它，不是壳层的回答。修法：日志函数入口保存 `GetLastError`、所有返回路径恢复；`AddTrayIcon` 在每次 `Shell_NotifyIcon` 之后**立刻**取错误码。教训：任何诊断代码都必须无副作用，`GetLastError` 尤甚。
+- 托盘注册改为文档顺序：`NIM_ADD`（普通 flags）→ `NIM_SETVERSION(NOTIFYICON_VERSION_4)` → `NIM_MODIFY(NIF_SHOWTIP)`。`NIF_SHOWTIP` 依赖 v4 回调，塞进首次 add 会被严格壳层整单拒绝。
+- 仍被 `ERROR_ACCESS_DENIED` 拒绝时，销毁并重建托盘宿主窗口重试一次；代码与独立探针在本机均观察到 5，说明该拒绝与窗口形状无关。
+- **关闭行为定稿**：点 X 一律隐藏窗口（用户的诉求是「别留在任务栏」），没有托盘图标时依赖单实例转发唤回（二次启动 → `WM_COPYDATA` → `ShowMainWindow()`），状态卡写明「已隐藏到后台（托盘不可用）：再次双击 Mconnect 可唤回窗口」。
+## 阶段 V：v1.6.5 托盘图标 —— 管理员身份是前提（2026-11-04）
+
+- 现象链：1.6.2 静默最小化 → 1.6.3 保持窗口 + 错误码 183/203 → 1.6.4 隐藏到后台 + 错误码 5。用户实测：**右键以管理员身份运行，托盘图标正常出现**。
+- 机理：`Shell_NotifyIcon` 走窗口消息到 Explorer；UIPI 只允许「同级或更高」完整性向 shell 发消息。普通启动是 Medium，沙箱/自动化启动是 Low，两种都被 Explorer（Medium）拒绝，返回 `ERROR_ACCESS_DENIED(5)`。提权后进程为 High，可以向下发消息，图标立刻注册成功。此前的 183（槽位残留）、203（自家日志污染错误码）是两个独立 bug，一并修掉后剩下的就是这条权限边界。
+- 方案：manifest 声明 `requireAdministrator`（双击即弹 UAC）。状态卡保留完整性/错误码显示，低完整性时提示「请直接双击启动」。
+- 代价：开发期 `flutter run` 需管理员终端；每次启动有 UAC 确认。
+- 教训：**先确认「谁在拒绝」，再改代码**。错误码 5 与 183/203 指向三个不同层（权限、槽位、日志副作用），混在一起看就会以为是同一个 bug 反复「修不好」。
+## 阶段 W：v1.6.6 冷启动首页自动加载（2026-11-05）
+
+- 现象：已登录的情况下冷启动，发现页显示「还没有每日推荐」，必须手动点右上角刷新。
+- 根因：`App.initState` 中 `authProvider.init()` 未 await（读安全存储 + 每平台一次 `getUserInfo()`，最长 8s），而桌面发现页的 post-frame 加载先执行 → `isLoggedIn` 全为 false → `loadRecommendations()` 直接以「请先登录平台账号」收尾且无重试。手机端 `discovery_screen.dart` 从 v1.4 起就监听 `authProvider.select((s) => s.loggedUsers)`，桌面版是漏网之鱼。
+- 方案：`AuthState.restoring` 标记恢复过程（finally 清理，超时也能收敛）；桌面页 `ref.listenManual(authProvider)` + post-frame `_autoLoad()`，以「已登录平台集合」为签名判重；恢复期间显示 spinner 而不是登录空态；排行榜/新歌仅在为空时补拉。
+- 教训：**同一个数据依赖，端与端之间要共用同一套“就绪信号”**。桌面重写时复制了加载逻辑却漏了两行监听，用户看到的就是「首页像坏了」。凡是有异步启动流程的数据（登录、下载目录、播放器初始化），页面必须订阅其完成事件，而不是只在自己的 initState 里赌一次。
+## 阶段 X：v1.6.7 榜单行名次 + 封面（2026-11-05）
+
+- 现象：榜单详情页每行只有「123」这样的名次方块，没有封面；用户以为榜单页拿不到封面。
+- 实情：数据层三平台本来就带封面（网易云 `al.picUrl`、QQ `albummid` → `T002R300x300M000{mid}.jpg`、酷狗 `trans_param.union_cover`），缺的只是 `RankedSongTile` 的绘制——`leading` 只有 `_RankBadge`。
+- 方案：`leading` 改为 `Row[名次 34×34, 10, 封面 46×46]`；封面用 `CachedNetworkImage(memCacheWidth: 96)`，缺图/失败落主题色占位（固定尺寸防滚动跳动）。顺带补掉酷狗解析漏掉的 `imgurl`/`pic`，并把封面写进 `Album`。
+- 影响面：`RankedSongTile` 是安卓与 Windows 共用的唯一榜单行组件，一处改动两端生效；首页/搜索/歌单的行组件各自独立，不受影响。
+- 教训：**先分清「数据没有」还是「界面没画」**。这次三平台的数据都齐，只是行组件少画了一个 widget；如果先去改适配器，就是白改。反过来酷狗的 `imgurl` 是真缺，所以两边都要覆盖测试。

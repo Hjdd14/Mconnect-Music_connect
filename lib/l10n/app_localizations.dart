@@ -1495,6 +1495,126 @@ abstract class AppLocalizations {
   /// In zh, this message translates to:
   /// **'该歌单没有可复制的歌曲'**
   String get libraryPlaylistCopyEmpty;
+
+  /// No description provided for @desktopBehavior.
+  ///
+  /// In zh, this message translates to:
+  /// **'桌面行为'**
+  String get desktopBehavior;
+
+  /// No description provided for @desktopBehaviorSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'托盘、全局快捷键、防休眠与窗口位置'**
+  String get desktopBehaviorSubtitle;
+
+  /// No description provided for @desktopWindowSection.
+  ///
+  /// In zh, this message translates to:
+  /// **'窗口与托盘'**
+  String get desktopWindowSection;
+
+  /// No description provided for @desktopHotkeysSection.
+  ///
+  /// In zh, this message translates to:
+  /// **'快捷键与电源'**
+  String get desktopHotkeysSection;
+
+  /// No description provided for @desktopCloseToTray.
+  ///
+  /// In zh, this message translates to:
+  /// **'关闭到托盘'**
+  String get desktopCloseToTray;
+
+  /// No description provided for @desktopCloseToTraySubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'点关闭按钮时隐藏到托盘，而不是退出应用'**
+  String get desktopCloseToTraySubtitle;
+
+  /// No description provided for @desktopFirstRunHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'首次托盘提示'**
+  String get desktopFirstRunHint;
+
+  /// No description provided for @desktopFirstRunHintSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'第一次隐藏到托盘时提示如何从托盘重新打开'**
+  String get desktopFirstRunHintSubtitle;
+
+  /// No description provided for @desktopRememberWindow.
+  ///
+  /// In zh, this message translates to:
+  /// **'记住窗口位置与大小'**
+  String get desktopRememberWindow;
+
+  /// No description provided for @desktopRememberWindowSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'下次启动时恢复到上次的窗口位置与尺寸'**
+  String get desktopRememberWindowSubtitle;
+
+  /// No description provided for @desktopResetWindow.
+  ///
+  /// In zh, this message translates to:
+  /// **'重置窗口状态'**
+  String get desktopResetWindow;
+
+  /// No description provided for @desktopResetWindowDone.
+  ///
+  /// In zh, this message translates to:
+  /// **'窗口状态已重置'**
+  String get desktopResetWindowDone;
+
+  /// No description provided for @desktopResetWindowFailed.
+  ///
+  /// In zh, this message translates to:
+  /// **'当前环境还不支持重置窗口状态（原生端未就绪）'**
+  String get desktopResetWindowFailed;
+
+  /// No description provided for @desktopHotkeysEnabled.
+  ///
+  /// In zh, this message translates to:
+  /// **'启用全局快捷键'**
+  String get desktopHotkeysEnabled;
+
+  /// No description provided for @desktopHotkeysEnabledSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'应用不在前台时也能开关歌词与播放'**
+  String get desktopHotkeysEnabledSubtitle;
+
+  /// No description provided for @desktopHotkeyToggleLyrics.
+  ///
+  /// In zh, this message translates to:
+  /// **'歌词开关快捷键'**
+  String get desktopHotkeyToggleLyrics;
+
+  /// No description provided for @desktopHotkeyPlayPause.
+  ///
+  /// In zh, this message translates to:
+  /// **'播放/暂停快捷键'**
+  String get desktopHotkeyPlayPause;
+
+  /// No description provided for @desktopHotkeyHint.
+  ///
+  /// In zh, this message translates to:
+  /// **'例如 Ctrl+Alt+L'**
+  String get desktopHotkeyHint;
+
+  /// No description provided for @desktopPreventSleep.
+  ///
+  /// In zh, this message translates to:
+  /// **'播放时防止休眠'**
+  String get desktopPreventSleep;
+
+  /// No description provided for @desktopPreventSleepSubtitle.
+  ///
+  /// In zh, this message translates to:
+  /// **'播放期间阻止系统进入睡眠，暂停后恢复'**
+  String get desktopPreventSleepSubtitle;
 }
 
 class _AppLocalizationsDelegate

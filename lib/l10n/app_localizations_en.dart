@@ -806,4 +806,71 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get libraryPlaylistCopyEmpty => 'This playlist has no songs to copy';
+
+  @override
+  String get desktopBehavior => 'Desktop behaviour';
+
+  @override
+  String get desktopBehaviorSubtitle =>
+      'Tray, global hotkeys, sleep prevention and window memory';
+
+  @override
+  String get desktopWindowSection => 'Window & tray';
+
+  @override
+  String get desktopHotkeysSection => 'Hotkeys & power';
+
+  @override
+  String get desktopCloseToTray => 'Close to tray';
+
+  @override
+  String get desktopCloseToTraySubtitle =>
+      'The close button hides the window to the system tray instead of quitting';
+
+  @override
+  String get desktopFirstRunHint => 'First-run tray hint';
+
+  @override
+  String get desktopFirstRunHintSubtitle =>
+      'Explain how to reopen the app from the tray the first time it hides';
+
+  @override
+  String get desktopRememberWindow => 'Remember window position and size';
+
+  @override
+  String get desktopRememberWindowSubtitle =>
+      'Restore the window where you left it on the next launch';
+
+  @override
+  String get desktopResetWindow => 'Reset window state';
+
+  @override
+  String get desktopResetWindowDone => 'Window state reset';
+
+  @override
+  String get desktopResetWindowFailed =>
+      'This environment cannot reset the window state yet (the native side is not ready)';
+
+  @override
+  String get desktopHotkeysEnabled => 'Enable global hotkeys';
+
+  @override
+  String get desktopHotkeysEnabledSubtitle =>
+      'Toggle lyrics and playback while the app is in the background';
+
+  @override
+  String get desktopHotkeyToggleLyrics => 'Toggle-lyrics hotkey';
+
+  @override
+  String get desktopHotkeyPlayPause => 'Play/pause hotkey';
+
+  @override
+  String get desktopHotkeyHint => 'e.g. Ctrl+Alt+L';
+
+  @override
+  String get desktopPreventSleep => 'Prevent sleep while playing';
+
+  @override
+  String get desktopPreventSleepSubtitle =>
+      'Keep the machine awake during playback, and release it when paused';
 }

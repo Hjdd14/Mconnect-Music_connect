@@ -68,11 +68,23 @@ PlayerAudioController defaultPlayerAudioControllerFactory() {
   return JustAudioController();
 }
 
+/// The notification / SMTC / tray controller for this platform.
+///
+/// * Android — `audio_service`, a real `MediaSession` (unchanged).
+/// * Windows — [playback_notification.WindowsPlaybackNotificationController],
+///   which maps the same updates onto the runner's `desktop_integration`
+///   channel (SMTC + tray). It never throws, so a runner without that handler
+///   still plays music.
+/// * everything else — a no-op.
 playback_notification.PlaybackNotificationController
 defaultPlaybackNotificationController() {
-  return PlatformUtils.isAndroid
-      ? playback_notification.AudioServicePlayerController.instance
-      : const playback_notification.NoopPlaybackNotificationController();
+  if (PlatformUtils.isAndroid) {
+    return playback_notification.AudioServicePlayerController.instance;
+  }
+  if (PlatformUtils.isWindows) {
+    return playback_notification.WindowsPlaybackNotificationController();
+  }
+  return const playback_notification.NoopPlaybackNotificationController();
 }
 
 @visibleForTesting

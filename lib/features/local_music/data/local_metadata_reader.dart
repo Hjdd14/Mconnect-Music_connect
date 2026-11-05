@@ -64,6 +64,13 @@ abstract class LocalMetadataReader {
 
 /// [LocalMetadataReader] backed by `audio_metadata_reader` (pure Dart: ID3v1 /
 /// ID3v2, FLAC+Vorbis, MP4, OGG, RIFF).
+///
+/// **Isolate-safe on purpose**, which is what lets `LocalMusicRepository` run
+/// the whole scan in `Isolate.run`: the package reads files with `dart:io` and
+/// parses bytes, with no platform channel, no plugin registration and no
+/// static state that must be initialised on the UI isolate. Keep it that way -
+/// importing anything plugin-backed here would turn the desktop scan into a
+/// cross-isolate channel call that cannot work.
 class AudioMetadataReader implements LocalMetadataReader {
   AudioMetadataReader({this.coverDirectoryPath, this.coverArtEnabled = true});
 

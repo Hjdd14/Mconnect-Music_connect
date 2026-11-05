@@ -1,9 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+
+import '../desktop/desktop_data_directory.dart';
+import '../desktop/desktop_shell_policy.dart';
 
 part 'app_database.g.dart';
 
@@ -64,7 +68,9 @@ class ListeningHistory extends Table {
   /// change the created schema for fresh installs and require a v3 table
   /// rebuild; the frozen v2 contract is kept intact instead.
   @override
-  List<Set<Column>> get uniqueKeys => [{songId, platform, listenedAt}];
+  List<Set<Column>> get uniqueKeys => [
+    {songId, platform, listenedAt},
+  ];
 }
 
 @DataClassName('UserLike')
@@ -75,7 +81,9 @@ class UserLikes extends Table {
   IntColumn get addedAt => integer()(); // epoch ms
 
   @override
-  List<Set<Column>> get uniqueKeys => [{songId, platform}];
+  List<Set<Column>> get uniqueKeys => [
+    {songId, platform},
+  ];
 }
 
 class LyricsCache extends Table {
@@ -392,9 +400,7 @@ class ScrobbleQueue extends Table {
 
 // --- DAOs ---
 
-@DriftAccessor(
-  tables: [Songs, ListeningHistory, UserLikes, LyricsCache],
-)
+@DriftAccessor(tables: [Songs, ListeningHistory, UserLikes, LyricsCache])
 class SongsDao extends DatabaseAccessor<AppDatabase> with _$SongsDaoMixin {
   SongsDao(super.db);
 
@@ -414,17 +420,21 @@ class SongsDao extends DatabaseAccessor<AppDatabase> with _$SongsDaoMixin {
         .getSingleOrNull();
   }
 
-  Future<List<SongRecord>> getSongsByIds(List<({String id, String platform})> keys) async {
+  Future<List<SongRecord>> getSongsByIds(
+    List<({String id, String platform})> keys,
+  ) async {
     if (keys.isEmpty) return [];
     final results = <SongRecord>[];
     // Process in batches of 50 to avoid SQL variable limit
     for (var i = 0; i < keys.length; i += 50) {
       final batch = keys.skip(i).take(50).toList();
-      final query = select(songs)..where((t) {
-        final conditions = batch.map((k) =>
-          t.id.equals(k.id) & t.platform.equals(k.platform));
-        return conditions.reduce((a, b) => a | b);
-      });
+      final query = select(songs)
+        ..where((t) {
+          final conditions = batch.map(
+            (k) => t.id.equals(k.id) & t.platform.equals(k.platform),
+          );
+          return conditions.reduce((a, b) => a | b);
+        });
       results.addAll(await query.get());
     }
     return results;
@@ -491,17 +501,17 @@ class HistoryDao extends DatabaseAccessor<AppDatabase> with _$HistoryDaoMixin {
       if (newest != null &&
           timestamp >= newest.listenedAt &&
           timestamp - newest.listenedAt <= dedupeWindow.inMilliseconds) {
-        await (update(listeningHistory)
-              ..where((t) => t.id.equals(newest.id)))
-            .write(
-              ListeningHistoryCompanion(
-                durationListened: Value(
-                  durationMs > newest.durationListened
-                      ? durationMs
-                      : newest.durationListened,
-                ),
-              ),
-            );
+        await (update(
+          listeningHistory,
+        )..where((t) => t.id.equals(newest.id))).write(
+          ListeningHistoryCompanion(
+            durationListened: Value(
+              durationMs > newest.durationListened
+                  ? durationMs
+                  : newest.durationListened,
+            ),
+          ),
+        );
         return;
       }
       await into(listeningHistory).insert(
@@ -535,15 +545,15 @@ class HistoryDao extends DatabaseAccessor<AppDatabase> with _$HistoryDaoMixin {
       if (newest != null &&
           timestamp >= newest.listenedAt &&
           timestamp - newest.listenedAt <= backfillWindow.inMilliseconds) {
-        await (update(listeningHistory)
-              ..where((t) => t.id.equals(newest.id)))
-            .write(
-              ListeningHistoryCompanion(
-                durationListened: Value(
-                  newest.durationListened + duration.inMilliseconds,
-                ),
-              ),
-            );
+        await (update(
+          listeningHistory,
+        )..where((t) => t.id.equals(newest.id))).write(
+          ListeningHistoryCompanion(
+            durationListened: Value(
+              newest.durationListened + duration.inMilliseconds,
+            ),
+          ),
+        );
         return;
       }
       await into(listeningHistory).insert(
@@ -574,7 +584,9 @@ class HistoryDao extends DatabaseAccessor<AppDatabase> with _$HistoryDaoMixin {
 
   Future<int> countHistory() async {
     final count = listeningHistory.id.count();
-    final row = await (selectOnly(listeningHistory)..addColumns([count])).getSingle();
+    final row = await (selectOnly(
+      listeningHistory,
+    )..addColumns([count])).getSingle();
     return row.read(count) ?? 0;
   }
 
@@ -605,10 +617,13 @@ class LikesDao extends DatabaseAccessor<AppDatabase> with _$LikesDaoMixin {
   }
 
   Future<bool> isLiked(String songId, String platform) async {
-    final result = await (select(userLikes)
-          ..where((t) => t.songId.equals(songId) & t.platform.equals(platform))
-          ..limit(1))
-        .get();
+    final result =
+        await (select(userLikes)
+              ..where(
+                (t) => t.songId.equals(songId) & t.platform.equals(platform),
+              )
+              ..limit(1))
+            .get();
     return result.isNotEmpty;
   }
 
@@ -651,27 +666,42 @@ class LikesDao extends DatabaseAccessor<AppDatabase> with _$LikesDaoMixin {
 }
 
 @DriftAccessor(tables: [LyricsCache])
-class LyricsCacheDao extends DatabaseAccessor<AppDatabase> with _$LyricsCacheDaoMixin {
+class LyricsCacheDao extends DatabaseAccessor<AppDatabase>
+    with _$LyricsCacheDaoMixin {
   LyricsCacheDao(super.db);
 
   Future<String?> getCachedLyrics(String songId, String platform) async {
-    final result = await (select(lyricsCache)
-          ..where((t) => t.songId.equals(songId) & t.platform.equals(platform))
-          ..limit(1))
-        .get();
+    final result =
+        await (select(lyricsCache)
+              ..where(
+                (t) => t.songId.equals(songId) & t.platform.equals(platform),
+              )
+              ..limit(1))
+            .get();
     return result.isNotEmpty ? result.first.content : null;
   }
 
-  Future<({String content, String format})?> getCachedLyricsWithFormat(String songId, String platform) async {
-    final result = await (select(lyricsCache)
-          ..where((t) => t.songId.equals(songId) & t.platform.equals(platform))
-          ..limit(1))
-        .get();
+  Future<({String content, String format})?> getCachedLyricsWithFormat(
+    String songId,
+    String platform,
+  ) async {
+    final result =
+        await (select(lyricsCache)
+              ..where(
+                (t) => t.songId.equals(songId) & t.platform.equals(platform),
+              )
+              ..limit(1))
+            .get();
     if (result.isEmpty) return null;
     return (content: result.first.content, format: result.first.format);
   }
 
-  Future<void> cacheLyrics(String songId, String platform, String content, String format) async {
+  Future<void> cacheLyrics(
+    String songId,
+    String platform,
+    String content,
+    String format,
+  ) async {
     await into(lyricsCache).insert(
       LyricsCacheCompanion.insert(
         songId: songId,
@@ -753,8 +783,7 @@ class StatsDao extends DatabaseAccessor<AppDatabase> with _$StatsDaoMixin {
       final newest =
           await (select(playEvents)
                 ..where(
-                  (t) =>
-                      t.songId.equals(songId) & t.platform.equals(platform),
+                  (t) => t.songId.equals(songId) & t.platform.equals(platform),
                 )
                 ..orderBy([(t) => OrderingTerm.desc(t.id)])
                 ..limit(1))
@@ -867,10 +896,9 @@ class StatsDao extends DatabaseAccessor<AppDatabase> with _$StatsDaoMixin {
   Future<StatsTotals> totals() async {
     final playCount = playEvents.id.count();
     final listenMs = playEvents.durationListened.sum();
-    final row =
-        await (selectOnly(playEvents)
-              ..addColumns([playCount, listenMs]))
-            .getSingle();
+    final row = await (selectOnly(
+      playEvents,
+    )..addColumns([playCount, listenMs])).getSingle();
     final distinct = await customSelect(
       'SELECT COUNT(*) AS c FROM '
       '(SELECT DISTINCT song_id, platform FROM play_events)',
@@ -921,13 +949,18 @@ class StatsDao extends DatabaseAccessor<AppDatabase> with _$StatsDaoMixin {
   ///
   /// This is the lookup that proves the old top-100 truncation is gone: a song
   /// that is not in the ranked view is still fully retrievable.
-  Future<SongPlayAggregate?> songAggregate(String songId, String platform) async {
+  Future<SongPlayAggregate?> songAggregate(
+    String songId,
+    String platform,
+  ) async {
     final playCount = playEvents.id.count();
     final listenMs = playEvents.durationListened.sum();
     final lastPlayedAt = playEvents.startedAt.max();
     final query = selectOnly(playEvents)
       ..addColumns([playCount, listenMs, lastPlayedAt])
-      ..where(playEvents.songId.equals(songId) & playEvents.platform.equals(platform));
+      ..where(
+        playEvents.songId.equals(songId) & playEvents.platform.equals(platform),
+      );
     final row = await query.getSingleOrNull();
     if (row == null || (row.read(playCount) ?? 0) == 0) return null;
     return (
@@ -1042,7 +1075,8 @@ class StatsDao extends DatabaseAccessor<AppDatabase> with _$StatsDaoMixin {
   ///
   /// Table/column names are spelled out, matching the hard-coded SQL in
   /// [totals] and [activeDayCount].
-  Future<List<({int hour, int playCount, int listenMs})>> hourHistogram() async {
+  Future<List<({int hour, int playCount, int listenMs})>>
+  hourHistogram() async {
     final rows = await customSelect(
       "SELECT CAST(strftime('%H', started_at / 1000, 'unixepoch', 'localtime') "
       'AS INTEGER) AS hour_bucket, '
@@ -1212,7 +1246,8 @@ typedef LocalTrackStamp = ({int mtime, int size});
 /// or tag-reading logic: that belongs to the local-music feature, which owns the
 /// walk and only uses this DAO to skip unchanged files.
 @DriftAccessor(tables: [LocalTracks])
-class LocalTracksDao extends DatabaseAccessor<AppDatabase> with _$LocalTracksDaoMixin {
+class LocalTracksDao extends DatabaseAccessor<AppDatabase>
+    with _$LocalTracksDaoMixin {
   LocalTracksDao(super.db);
 
   Future<void> upsert(LocalTracksCompanion track) async {
@@ -1227,21 +1262,23 @@ class LocalTracksDao extends DatabaseAccessor<AppDatabase> with _$LocalTracksDao
   }
 
   Future<List<LocalTrack>> all({int? limit}) async {
-    final query = select(localTracks)..orderBy([(t) => OrderingTerm.asc(t.path)]);
+    final query = select(localTracks)
+      ..orderBy([(t) => OrderingTerm.asc(t.path)]);
     if (limit != null) query.limit(limit);
     return query.get();
   }
 
   Future<LocalTrack?> byPath(String path) {
-    return (select(localTracks)..where((t) => t.path.equals(path)))
-        .getSingleOrNull();
+    return (select(
+      localTracks,
+    )..where((t) => t.path.equals(path))).getSingleOrNull();
   }
 
   /// `path → (mtime, size)` for the incremental-rescan comparison.
   Future<Map<String, LocalTrackStamp>> stamps() async {
-    final rows = await (select(localTracks)
-          ..orderBy([(t) => OrderingTerm.asc(t.path)]))
-        .get();
+    final rows = await (select(
+      localTracks,
+    )..orderBy([(t) => OrderingTerm.asc(t.path)])).get();
     return {
       for (final row in rows) row.path: (mtime: row.mtime, size: row.size),
     };
@@ -1293,7 +1330,9 @@ class LocalTracksDao extends DatabaseAccessor<AppDatabase> with _$LocalTracksDao
 
   Future<int> count() async {
     final count = localTracks.path.count();
-    final row = await (selectOnly(localTracks)..addColumns([count])).getSingle();
+    final row = await (selectOnly(
+      localTracks,
+    )..addColumns([count])).getSingle();
     return row.read(count) ?? 0;
   }
 
@@ -1331,11 +1370,7 @@ class LyricsOffsetDao extends DatabaseAccessor<AppDatabase>
   /// A zero offset **deletes** the row rather than storing `offsetMs = 0`: the
   /// table is a "the user changed something" record, so keeping zero rows would
   /// grow it with songs that were merely opened.
-  Future<void> set(
-    String songKey,
-    Duration offset, {
-    DateTime? at,
-  }) async {
+  Future<void> set(String songKey, Duration offset, {DateTime? at}) async {
     if (offset == Duration.zero) {
       await clear(songKey);
       return;
@@ -1373,10 +1408,7 @@ class SourceMatchCacheDao extends DatabaseAccessor<AppDatabase>
   ///
   /// Callers decide what an expired row is worth: [get] drops it, while a
   /// "re-resolve this one first" path may still want its [SourceMatchCacheRow.score].
-  Future<SourceMatchCacheRow?> row(
-    String songKey,
-    String targetPlatform,
-  ) {
+  Future<SourceMatchCacheRow?> row(String songKey, String targetPlatform) {
     return (select(sourceMatchCaches)..where(
           (t) =>
               t.songKey.equals(songKey) &
@@ -1489,7 +1521,8 @@ class TrackRatingsDao extends DatabaseAccessor<AppDatabase>
   }
 
   /// The rating for [songKey]; `0` means "not rated".
-  Future<int> ratingOf(String songKey) async => (await row(songKey))?.rating ?? 0;
+  Future<int> ratingOf(String songKey) async =>
+      (await row(songKey))?.rating ?? 0;
 
   /// `songKey` → rating for every **rated** song. Unrated songs are absent, so
   /// callers can use `containsKey` as the filter for 仅已评分.
@@ -1520,11 +1553,8 @@ class TrackRatingsDao extends DatabaseAccessor<AppDatabase>
           )..where((t) => t.songKey.equals(songKey))).go();
           return;
         }
-        await (update(
-          trackRatings,
-        )..where((t) => t.songKey.equals(songKey))).write(
-          const TrackRatingsCompanion(rating: Value(0)),
-        );
+        await (update(trackRatings)..where((t) => t.songKey.equals(songKey)))
+            .write(const TrackRatingsCompanion(rating: Value(0)));
         return;
       }
       if (existing == null) {
@@ -1538,11 +1568,8 @@ class TrackRatingsDao extends DatabaseAccessor<AppDatabase>
       }
       // Only `rating` is written: an upsert/replace here would reset the cached
       // play aggregate every time the user tapped a star.
-      await (update(
-        trackRatings,
-      )..where((t) => t.songKey.equals(songKey))).write(
-        TrackRatingsCompanion(rating: Value(clamped)),
-      );
+      await (update(trackRatings)..where((t) => t.songKey.equals(songKey)))
+          .write(TrackRatingsCompanion(rating: Value(clamped)));
     });
   }
 
@@ -1612,7 +1639,12 @@ class TrackRatingsDao extends DatabaseAccessor<AppDatabase>
     final last = playEvents.startedAt.max();
     final rows =
         await (selectOnly(playEvents)
-              ..addColumns([playEvents.platform, playEvents.songId, count, last])
+              ..addColumns([
+                playEvents.platform,
+                playEvents.songId,
+                count,
+                last,
+              ])
               ..groupBy([playEvents.platform, playEvents.songId]))
             .get();
 
@@ -1687,10 +1719,11 @@ class ScrobbleQueueDao extends DatabaseAccessor<AppDatabase>
     int durationMs = 0,
     DateTime? now,
   }) async {
-    final existing = await (select(scrobbleQueue)..where(
-          (t) => t.service.equals(service) & t.eventId.equals(eventId),
-        ))
-        .getSingleOrNull();
+    final existing =
+        await (select(scrobbleQueue)..where(
+              (t) => t.service.equals(service) & t.eventId.equals(eventId),
+            ))
+            .getSingleOrNull();
     if (existing != null) return false;
     await into(scrobbleQueue).insert(
       ScrobbleQueueCompanion.insert(
@@ -1817,9 +1850,7 @@ class ScrobbleQueueDao extends DatabaseAccessor<AppDatabase>
     int? limit,
   }) {
     final query = select(scrobbleQueue)
-      ..where(
-        (t) => t.service.equals(service) & t.status.equals(status.name),
-      )
+      ..where((t) => t.service.equals(service) & t.status.equals(status.name))
       ..orderBy([(t) => OrderingTerm.asc(t.playedAt)]);
     if (limit != null) query.limit(limit);
     return query.get();
@@ -1870,7 +1901,8 @@ class ScrobbleQueueDao extends DatabaseAccessor<AppDatabase>
 // --- Chart cache (DAO only; the hub UI lives in WS-H) ---
 
 @DriftAccessor(tables: [ToplistsCache])
-class ToplistsCacheDao extends DatabaseAccessor<AppDatabase> with _$ToplistsCacheDaoMixin {
+class ToplistsCacheDao extends DatabaseAccessor<AppDatabase>
+    with _$ToplistsCacheDaoMixin {
   ToplistsCacheDao(super.db);
 
   /// Replaces every cached row of one platform in a single transaction, so a
@@ -1880,14 +1912,12 @@ class ToplistsCacheDao extends DatabaseAccessor<AppDatabase> with _$ToplistsCach
     List<ToplistsCacheCompanion> rows,
   ) async {
     await transaction(() async {
-      await (delete(toplistsCache)..where((t) => t.platform.equals(platform))).go();
+      await (delete(
+        toplistsCache,
+      )..where((t) => t.platform.equals(platform))).go();
       if (rows.isEmpty) return;
       await batch((batch) {
-        batch.insertAll(
-          toplistsCache,
-          rows,
-          mode: InsertMode.insertOrReplace,
-        );
+        batch.insertAll(toplistsCache, rows, mode: InsertMode.insertOrReplace);
       });
     });
   }
@@ -1899,8 +1929,9 @@ class ToplistsCacheDao extends DatabaseAccessor<AppDatabase> with _$ToplistsCach
         .get();
   }
 
-  Future<List<ToplistCacheRow>> all() =>
-      (select(toplistsCache)..orderBy([(t) => OrderingTerm.asc(t.platform)])).get();
+  Future<List<ToplistCacheRow>> all() => (select(
+    toplistsCache,
+  )..orderBy([(t) => OrderingTerm.asc(t.platform)])).get();
 
   Future<DateTime?> lastFetchedAt(String platform) async {
     final newest = toplistsCache.fetchedAt.max();
@@ -1914,7 +1945,9 @@ class ToplistsCacheDao extends DatabaseAccessor<AppDatabase> with _$ToplistsCach
   }
 
   Future<int> clearPlatform(String platform) {
-    return (delete(toplistsCache)..where((t) => t.platform.equals(platform))).go();
+    return (delete(
+      toplistsCache,
+    )..where((t) => t.platform.equals(platform))).go();
   }
 
   Future<int> clearAll() => delete(toplistsCache).go();
@@ -1923,8 +1956,7 @@ class ToplistsCacheDao extends DatabaseAccessor<AppDatabase> with _$ToplistsCach
 // --- Saved smart-playlist results ---
 
 @DriftAccessor(tables: [SmartPlaylistSnapshots])
-class SmartPlaylistSnapshotsDao
-    extends DatabaseAccessor<AppDatabase>
+class SmartPlaylistSnapshotsDao extends DatabaseAccessor<AppDatabase>
     with _$SmartPlaylistSnapshotsDaoMixin {
   SmartPlaylistSnapshotsDao(super.db);
 
@@ -1948,15 +1980,14 @@ class SmartPlaylistSnapshotsDao
   }
 
   Future<SmartPlaylistSnapshot?> snapshot(String ruleId) {
-    return (select(smartPlaylistSnapshots)
-          ..where((t) => t.ruleId.equals(ruleId)))
-        .getSingleOrNull();
+    return (select(
+      smartPlaylistSnapshots,
+    )..where((t) => t.ruleId.equals(ruleId))).getSingleOrNull();
   }
 
-  Future<List<SmartPlaylistSnapshot>> all() =>
-      (select(smartPlaylistSnapshots)
-            ..orderBy([(t) => OrderingTerm.desc(t.generatedAt)]))
-          .get();
+  Future<List<SmartPlaylistSnapshot>> all() => (select(
+    smartPlaylistSnapshots,
+  )..orderBy([(t) => OrderingTerm.desc(t.generatedAt)])).get();
 
   /// Decoded `songKeys` for [ruleId], or an empty list when unsaved/corrupt.
   Future<List<String>> songKeys(String ruleId) async {
@@ -1983,15 +2014,15 @@ class SmartPlaylistSnapshotsDao
         .map((row) => row.ruleId)
         .toList();
     if (stale.isEmpty) return 0;
-    return (delete(smartPlaylistSnapshots)
-          ..where((t) => t.ruleId.isIn(stale)))
-        .go();
+    return (delete(
+      smartPlaylistSnapshots,
+    )..where((t) => t.ruleId.isIn(stale))).go();
   }
 
   Future<int> deleteSnapshot(String ruleId) {
-    return (delete(smartPlaylistSnapshots)
-          ..where((t) => t.ruleId.equals(ruleId)))
-        .go();
+    return (delete(
+      smartPlaylistSnapshots,
+    )..where((t) => t.ruleId.equals(ruleId))).go();
   }
 
   Future<int> clear() => delete(smartPlaylistSnapshots).go();
@@ -2193,12 +2224,17 @@ const List<String> _v4DroppedIndexStatements = [
 
 LazyDatabase _openConnection() {
   return LazyDatabase(() async {
-    final dbFolder = await getApplicationDocumentsDirectory();
+    final dbFolder = DesktopShellPolicy.isEnabled
+        ? await desktopDataDirectory(child: 'db')
+        : await getApplicationDocumentsDirectory();
     final file = File(p.join(dbFolder.path, 'mconnect.sqlite'));
-    return NativeDatabase.createInBackground(file, setup: (rawDb) {
-      rawDb.execute('PRAGMA journal_mode=WAL;');
-      rawDb.execute('PRAGMA busy_timeout=5000;');
-    });
+    return NativeDatabase.createInBackground(
+      file,
+      setup: (rawDb) {
+        rawDb.execute('PRAGMA journal_mode=WAL;');
+        rawDb.execute('PRAGMA busy_timeout=5000;');
+      },
+    );
   });
 }
 

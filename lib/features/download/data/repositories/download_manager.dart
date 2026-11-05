@@ -6,6 +6,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../../../core/desktop/desktop_integration_service.dart';
+import '../../../../core/diagnostics/diagnostics_service.dart';
 import '../../../../platform/base/platform_registry.dart';
 import '../download_directory_service.dart';
 import '../saf_download_writer.dart';
@@ -23,14 +25,55 @@ const int kDownloadFreeSpaceReserveBytes = 32 * 1024 * 1024;
 
 /// The default [FreeSpaceProbe].
 ///
-/// `dart:io` exposes no free-space API and this project has no dependency that
-/// does (adding one would touch `pubspec.yaml`), so the probe shells out to the
-/// POSIX `df` that ships with Android/Linux/macOS and reads its POSIX (`-P`)
-/// output. On Windows it returns `null` — a Windows desktop download is not
-/// pre-flight gated, but a full disk is still reported as
-/// [DownloadFailureKind.disk] when the write itself fails.
-Future<int?> defaultFreeSpaceProbe(String path) async {
-  if (Platform.isWindows) return null;
+/// Windows asks the runner (`desktop_integration.freeSpaceBytes`, implemented
+/// with `GetDiskFreeSpaceExW`) because `dart:io` has no free-space API and there
+/// is no dependency allowed to add one here (that would touch `pubspec.yaml`).
+/// Before this branch existed the Windows probe always answered `null`, so a
+/// desktop download was never pre-flight gated even though the failure was
+/// classified correctly after the fact.
+///
+/// POSIX (Android/Linux/macOS) shells out to the `df` that ships with the OS and
+/// reads its portable (`-P`) output.
+///
+/// `null` means "unknown" everywhere: the caller must skip the gate rather than
+/// treat it as "plenty of room".
+Future<int?> defaultFreeSpaceProbe(String path) {
+  if (Platform.isWindows) return _windowsFreeSpaceProbe(path);
+  return _posixFreeSpaceProbe(path);
+}
+
+/// Test seam for the Windows branch.
+///
+/// The real probe needs the runner, which a unit test does not have, and
+/// `Platform.isWindows` cannot be faked — so the branch itself is what gets
+/// injected, and the production path is asserted through
+/// [windowsFreeSpaceProbeForTest].
+@visibleForTesting
+Future<int?> Function(String path)? debugWindowsFreeSpaceProbe;
+
+@visibleForTesting
+Future<int?> windowsFreeSpaceProbeForTest(String path) =>
+    _windowsFreeSpaceProbe(path);
+
+Future<int?> _windowsFreeSpaceProbe(String path) async {
+  final override = debugWindowsFreeSpaceProbe;
+  if (override != null) return override(path);
+  try {
+    return await DesktopIntegrationService.instance.freeSpaceBytes(path);
+  } on Object catch (error, stack) {
+    // A probe that cannot answer is "unknown", never "full": a download must
+    // not be blocked because the desktop channel was not reachable (a test
+    // process with no binding, an older runner binary).
+    DiagnosticsService.instance.recordError(
+      'download.free_space_probe',
+      error,
+      stack,
+    );
+    return null;
+  }
+}
+
+Future<int?> _posixFreeSpaceProbe(String path) async {
   try {
     final result = await Process.run('df', ['-P', '-k', path]);
     if (result.exitCode != 0) return null;

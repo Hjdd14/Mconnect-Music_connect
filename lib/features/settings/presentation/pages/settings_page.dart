@@ -60,6 +60,44 @@ bool canUseDecodedBackgroundImage({
   return imageWidth > 0 && imageHeight > 0;
 }
 
+/// Options the desktop settings page renders inline instead of pushing a
+/// second screen.
+///
+/// The desktop page used to show one 「打开 XX 设置」 card per section, so every
+/// single change cost a click to open a page that showed the identical rows.
+/// The rows themselves already lived here; [embedded] simply drops the
+/// [Scaffold]/[AppBar] wrapper so the desktop page can put them in its own
+/// list. Mobile keeps the default (`false`) and is byte-identical.
+class SettingsPageBody extends StatelessWidget {
+  const SettingsPageBody({
+    super.key,
+    required this.embedded,
+    required this.title,
+    required this.children,
+  });
+
+  final bool embedded;
+  final String title;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    if (embedded) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: children,
+      );
+    }
+    return Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: ListView(
+        padding: const EdgeInsets.only(bottom: 24),
+        children: children,
+      ),
+    );
+  }
+}
+
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key, this.diagnosticsExport, this.diagnosticsShare});
 
@@ -260,18 +298,21 @@ class _DiagnosticsExportTileState extends State<_DiagnosticsExportTile> {
 }
 
 class SettingsAccountsPage extends ConsumerWidget {
-  const SettingsAccountsPage({super.key});
+  const SettingsAccountsPage({super.key, this.embedded = false});
+
+  /// Render only the rows (no [Scaffold]) so the desktop settings page can show
+  /// them inline. Mobile keeps the default and is unchanged.
+  final bool embedded;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authProvider);
 
-    return Scaffold(
-      appBar: AppBar(title: Text(context.l10n.settingsAccountsTitle)),
-      body: ListView(
-        padding: const EdgeInsets.only(bottom: 24),
-        children: [
-          _PlatformLoginTile(
+    return SettingsPageBody(
+      embedded: embedded,
+      title: context.l10n.settingsAccountsTitle,
+      children: [
+        _PlatformLoginTile(
             platform: PlatformType.netease,
             user: authState.userFor(PlatformType.netease),
             onLogin: () => context.push('/login/netease'),
@@ -292,14 +333,28 @@ class SettingsAccountsPage extends ConsumerWidget {
             onLogout: () =>
                 ref.read(authProvider.notifier).logout(PlatformType.kugou),
           ),
-        ],
-      ),
+      ],
     );
   }
 }
 
 class SettingsAppearancePage extends ConsumerWidget {
-  const SettingsAppearancePage({super.key});
+  const SettingsAppearancePage({
+    super.key,
+    this.embedded = false,
+    this.showUiStyle = true,
+  });
+
+  /// See [SettingsAccountsPage.embedded].
+  final bool embedded;
+
+  /// Whether the UI style block (Material / Miuix) is rendered.
+  ///
+  /// The desktop shell always builds its own theme (app.dart picks
+  /// desktopTheme(...) for Windows and never reads uiStyle), so on the desktop
+  /// this switch cannot change anything. It stays on for mobile, where the two
+  /// styles are real.
+  final bool showUiStyle;
 
   static const _themePresets = [
     Color(0xFFE91E63),
@@ -320,12 +375,11 @@ class SettingsAppearancePage extends ConsumerWidget {
     );
     final uiStyleSettings = ref.watch(uiStyleProvider);
 
-    return Scaffold(
-      appBar: AppBar(title: Text(context.l10n.settingsAppearanceTitle)),
-      body: ListView(
-        padding: const EdgeInsets.only(bottom: 24),
-        children: [
-          _ThemeTile(
+    return SettingsPageBody(
+      embedded: embedded,
+      title: context.l10n.settingsAppearanceTitle,
+      children: [
+        _ThemeTile(
             title: context.l10n.themeFollowSystem,
             icon: Icons.brightness_auto,
             selected: themeSettings.mode == ThemeMode.system,
@@ -363,15 +417,16 @@ class SettingsAppearancePage extends ConsumerWidget {
               showSuccessSnackBar(context, context.l10n.backgroundRemoved);
             },
           ),
-          const Divider(),
-          _SectionHeader(context.l10n.uiStyle),
-          _UiStyleTile(
-            selected: uiStyleSettings.style,
-            onSelected: (style) =>
-                ref.read(uiStyleProvider.notifier).setStyle(style),
-          ),
-        ],
-      ),
+          if (showUiStyle) ...[
+            const Divider(),
+            _SectionHeader(context.l10n.uiStyle),
+            _UiStyleTile(
+              selected: uiStyleSettings.style,
+              onSelected: (style) =>
+                  ref.read(uiStyleProvider.notifier).setStyle(style),
+            ),
+          ],
+      ],
     );
   }
 
@@ -590,8 +645,27 @@ class SettingsFloatingLyricsPage extends ConsumerWidget {
   }
 }
 
+/// Which half of the audio settings to render.
+///
+/// 播放 (fade + sleep) and 音频增强 (source switching + equalizer) used to be
+/// one page behind one link, which is why the desktop 「播放」 section opened a
+/// page titled 音频增强. Splitting the *content* — not the page — lets the
+/// desktop page show each half in its own section while mobile keeps one
+/// combined page, unchanged.
+enum SettingsAudioSection { all, playback, audioEffects }
+
 class SettingsAudioPage extends ConsumerWidget {
-  const SettingsAudioPage({super.key});
+  const SettingsAudioPage({
+    super.key,
+    this.embedded = false,
+    this.section = SettingsAudioSection.all,
+  });
+
+  /// See [SettingsAccountsPage.embedded].
+  final bool embedded;
+
+  /// Which half to render; [SettingsAudioSection.all] keeps the mobile page.
+  final SettingsAudioSection section;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -607,12 +681,14 @@ class SettingsAudioPage extends ConsumerWidget {
     final autoSourceSwitchNotifier = ref.read(
       autoSourceSwitchProvider.notifier,
     );
+    final showPlayback = section != SettingsAudioSection.audioEffects;
+    final showEffects = section != SettingsAudioSection.playback;
 
-    return Scaffold(
-      appBar: AppBar(title: Text(context.l10n.settingsAudioTitle)),
-      body: ListView(
-        padding: const EdgeInsets.only(bottom: 24),
-        children: [
+    return SettingsPageBody(
+      embedded: embedded,
+      title: context.l10n.settingsAudioTitle,
+      children: [
+        if (showEffects)
           SwitchListTile(
             secondary: const Icon(Icons.swap_horiz),
             // 文案暂未入 l10n（lib/l10n 属 W3-D），先硬编码中文。
@@ -626,6 +702,7 @@ class SettingsAudioPage extends ConsumerWidget {
             onChanged: (value) =>
                 autoSourceSwitchNotifier.setEnabled(value),
           ),
+        if (showPlayback)
           SwitchListTile(
             secondary: const Icon(Icons.graphic_eq),
             title: Text(context.l10n.audioFade),
@@ -633,9 +710,11 @@ class SettingsAudioPage extends ConsumerWidget {
             value: audioEffects.fadeEnabled,
             onChanged: audioEffectsNotifier.setFadeEnabled,
           ),
+        if (showPlayback)
           _SliderTile(
             title: context.l10n.audioFadeDuration,
-            subtitle: '${audioEffects.fadeDuration.inMilliseconds} ms',
+            subtitle:
+                '${audioEffects.fadeDuration.inMilliseconds} ms',
             icon: Icons.timelapse,
             value: audioEffects.fadeDuration.inMilliseconds.toDouble(),
             min: 200,
@@ -645,6 +724,7 @@ class SettingsAudioPage extends ConsumerWidget {
               Duration(milliseconds: value.round()),
             ),
           ),
+        if (showEffects)
           SwitchListTile(
             secondary: const Icon(Icons.equalizer),
             title: Text(context.l10n.audioEqualizer),
@@ -652,6 +732,7 @@ class SettingsAudioPage extends ConsumerWidget {
             value: audioEffects.equalizerEnabled,
             onChanged: audioEffectsNotifier.setEqualizerEnabled,
           ),
+        if (showEffects)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
             child: ListTile(
@@ -673,6 +754,7 @@ class SettingsAudioPage extends ConsumerWidget {
               ),
             ),
           ),
+        if (showEffects)
           _SliderTile(
             title: context.l10n.audioBandLow,
             subtitle:
@@ -685,6 +767,7 @@ class SettingsAudioPage extends ConsumerWidget {
             onChanged: (value) =>
                 audioEffectsNotifier.setEqualizerBandGain(0, value),
           ),
+        if (showEffects)
           _SliderTile(
             title: context.l10n.audioBandLowMid,
             subtitle:
@@ -697,6 +780,7 @@ class SettingsAudioPage extends ConsumerWidget {
             onChanged: (value) =>
                 audioEffectsNotifier.setEqualizerBandGain(1, value),
           ),
+        if (showEffects)
           _SliderTile(
             title: context.l10n.audioBandMid,
             subtitle:
@@ -709,6 +793,7 @@ class SettingsAudioPage extends ConsumerWidget {
             onChanged: (value) =>
                 audioEffectsNotifier.setEqualizerBandGain(2, value),
           ),
+        if (showEffects)
           _SliderTile(
             title: context.l10n.audioBandHighMid,
             subtitle:
@@ -721,6 +806,7 @@ class SettingsAudioPage extends ConsumerWidget {
             onChanged: (value) =>
                 audioEffectsNotifier.setEqualizerBandGain(3, value),
           ),
+        if (showEffects)
           _SliderTile(
             title: context.l10n.audioBandHigh,
             subtitle:
@@ -733,20 +819,28 @@ class SettingsAudioPage extends ConsumerWidget {
             onChanged: (value) =>
                 audioEffectsNotifier.setEqualizerBandGain(4, value),
           ),
+        if (showPlayback)
           SwitchListTile(
             secondary: const Icon(Icons.bedtime_outlined),
             title: Text(context.l10n.audioSleepTimer),
             subtitle: Text(
               sleepTimer.enabled
-                  ? context.l10n.audioSleepTimerRemaining(_formatTimerRemaining(sleepTimer.remaining))
-                  : context.l10n.audioSleepTimerCountdown(audioEffects.sleepTimerDuration.inMinutes),
+                  ? context.l10n.audioSleepTimerRemaining(
+                      _formatTimerRemaining(sleepTimer.remaining),
+                    )
+                  : context.l10n.audioSleepTimerCountdown(
+                      audioEffects.sleepTimerDuration.inMinutes,
+                    ),
             ),
             value: sleepTimer.enabled,
             onChanged: sleepTimerNotifier.setEnabled,
           ),
+        if (showPlayback)
           _SliderTile(
             title: context.l10n.audioSleepTimerDuration,
-            subtitle: context.l10n.audioMinutes(audioEffects.sleepTimerDuration.inMinutes),
+            subtitle: context.l10n.audioMinutes(
+              audioEffects.sleepTimerDuration.inMinutes,
+            ),
             icon: Icons.timer_outlined,
             value: audioEffects.sleepTimerDuration.inMinutes.toDouble(),
             min: 5,
@@ -756,43 +850,43 @@ class SettingsAudioPage extends ConsumerWidget {
               Duration(minutes: value.round()),
             ),
           ),
-        ],
-      ),
+      ],
     );
-  }
-
-  String _formatTimerRemaining(Duration duration) {
-    final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
-    if (duration.inHours > 0) {
-      return '${duration.inHours}:$minutes:$seconds';
-    }
-    return '$minutes:$seconds';
   }
 }
 
+String _formatTimerRemaining(Duration duration) {
+  final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
+  final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+  if (duration.inHours > 0) {
+    return '${duration.inHours}:$minutes:$seconds';
+  }
+  return '$minutes:$seconds';
+}
+
 class SettingsDiagnosticsPage extends StatelessWidget {
-  const SettingsDiagnosticsPage({super.key});
+  const SettingsDiagnosticsPage({super.key, this.embedded = false});
+
+  /// See [SettingsAccountsPage.embedded].
+  final bool embedded;
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(context.l10n.settingsDiagnosticsTitle)),
-      body: ListView(
-        padding: const EdgeInsets.only(bottom: 24),
-        children: [
-          const Divider(),
-          _SectionHeader(context.l10n.diagnosticsSection),
-          _DiagnosticsTile(diagnostics: DiagnosticsService.instance),
-          const Divider(),
-          _SectionHeader(context.l10n.aboutSection),
-          ListTile(
-            leading: Icon(Icons.info_outline),
-            title: Text(context.l10n.version),
-            subtitle: Text(AppConstants.appVersion),
-          ),
-        ],
-      ),
+    return SettingsPageBody(
+      embedded: embedded,
+      title: context.l10n.settingsDiagnosticsTitle,
+      children: [
+        const Divider(),
+        _SectionHeader(context.l10n.diagnosticsSection),
+        _DiagnosticsTile(diagnostics: DiagnosticsService.instance),
+        const Divider(),
+        _SectionHeader(context.l10n.aboutSection),
+        ListTile(
+          leading: const Icon(Icons.info_outline),
+          title: Text(context.l10n.version),
+          subtitle: Text(AppConstants.appVersion),
+        ),
+      ],
     );
   }
 }

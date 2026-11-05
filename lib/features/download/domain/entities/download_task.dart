@@ -3,6 +3,7 @@ import '../../../../models/album.dart';
 import '../../../../models/artist.dart';
 import '../../../../models/audio_quality.dart';
 import '../../../../models/platform_type.dart';
+import '../../data/download_filename.dart';
 import 'download_failure.dart';
 
 enum DownloadStatus { waiting, downloading, paused, completed, failed }
@@ -160,13 +161,24 @@ class DownloadTask {
   /// per platform and per app locale, so the same download would land in a
   /// different file (a second, duplicated copy) after the user switched
   /// language.
+  /// Two invariants the shape below exists to guarantee:
+  ///
+  /// * **the identity token is a prefix.** The name is cut at 255 UTF-8 bytes
+  ///   (see [safeFileName]); truncation eats the tail, so a song id/quality
+  ///   suffix would be truncated away for long titles and two songs would
+  ///   silently land on one file again. In front, it always survives.
+  /// * **the same (song, quality) always produces the same name**, for a manual
+  ///   row and an offline-cache row alike, because both derive from the song's
+  ///   own id and the quality, never from the row id or the app locale.
   String get fileName {
-    final sanitized = '${song.artistNames} - ${song.name}'.replaceAll(
-      RegExp(r'[\\/:*?"<>|]'),
-      '_',
+    return safeFileName(
+      '${song.artistNames} - ${song.name}',
+      // `<platform>_<songId>` is the identity [buildId] already uses: a name
+      // and artist alone do not identify a song (a live take and a remaster
+      // share both), and a bare id could collide across platforms.
+      prefix: '[${song.platform.name}_${song.id}][${quality.name}]',
+      extension: quality.isLossless ? 'flac' : 'mp3',
     );
-    return '$sanitized [${quality.name}]'
-        '.${quality.isLossless ? 'flac' : 'mp3'}';
   }
 
   String get qualityLabel => quality.displayNameFor(song.platform);

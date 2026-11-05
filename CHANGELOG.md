@@ -1,5 +1,265 @@
 # Changelog
 
+## 2026-11-05 - v1.6.0 正式发版产物（Windows 安装器 / 便携 zip / APK）
+
+### 版本与产物
+
+| 项 | 值 |
+|---|---|
+| 版本 | `1.6.0+25`（版本名按用户要求回到 1.6.0；build number 保持单调递增 25） |
+| Windows 安装器 | `build\dist\Mconnect-Setup-1.6.0.exe`（18.57 MB） |
+| Windows 便携版 | `build\dist\Mconnect-1.6.0-win64-portable.zip`（23.08 MB） |
+| Android | `Mconnect-1.6.0-arm64-v8a.apk` 34.38 MB / `Mconnect-1.6.0-armeabi-v7a.apk` 31.11 MB / `Mconnect-1.6.0-x86_64.apk` 37.01 MB |
+
+### 版本号
+
+- 版本名 `1.6.7` → **`1.6.0`**（用户要求），build number 从 24 升到 **25**：Android 分包后的 versionCode 是「ABI 权重×1000 + build」，25 仍然大于上一版的 24，所以覆盖安装不会掉档。
+- 六处同步：`pubspec.yaml`、`lib/core/constants/app_constants.dart`、`test/settings_page_test.dart`、`installer/mconnect.iss`、`windows/runner/Runner.rc`（数值 + 字符串）、`PROJECT.md`。
+
+### 打包修正
+
+- 安装器与便携 zip 都**排除** `Release\tmp` 与 `Release\.mconnect_data`：这两个目录是「在 Release 目录里直接运行过 exe」留下的缓存/日志/Hive 与 drift 数据库，打进包里等于给用户塞一份别人的设置库和本地曲库。安装器在 `[Files]` 加了 `Excludes`，zip 从干净副本打包。
+
+## 2026-11-05 - v1.6.7 榜单详情行：名次 + 封面（安卓 & Windows）
+
+### 版本与产物
+
+| 项 | 值 |
+|---|---|
+| 版本 | `1.6.7+24` |
+| Windows | `flutter build windows --release` |
+| Android | `flutter build apk --release --split-per-abi` |
+
+### 改动
+
+榜单详情页（`ToplistDetailPage`）的每一行现在显示 **名次 + 封面 + 歌名**：
+
+- 名次方块 38×38 → 34×34（圆角 6、字号 13），前 3 名保持主题强调色高亮；
+- 新增 46×46 圆角 6 的封面，来源就是各平台榜单歌曲自带的封面（网易云 `al.picUrl`、QQ `albummid`、酷狗 `trans_param.union_cover`）；
+- 缺图/加载失败统一落主题色占位（`music_note`），尺寸固定，长榜单滚动不跳动；
+- `CachedNetworkImage` + `memCacheWidth: 96`，300 首榜单只按行懒加载；
+- 酷狗解析补上 `imgurl` / `pic` 两个封面字段，并把封面同时写进 `Album`（从榜单点进专辑页不再无图）；
+- 点按播放、长按菜单、涨跌箭头、下载按钮行为全部不变。
+
+`RankedSongTile` 是安卓与 Windows 共用的唯一榜单行组件，改一处两端同时生效。
+
+### 验证
+
+- 新增 `test/ranked_song_tile_cover_test.dart`（3 条）：有封面走网络图、无封面落占位且尺寸 46、名次在封面左侧、点按仍能播放；
+- `test/kugou_content_test.dart` 新增用例：`trans_param.union_cover` 与只有 `imgurl` 的行都要解析出封面，专辑带同一封面；
+- `test/toplist_detail_test.dart`：真实 QQ 榜 load fixture 的每行都有封面位；
+- 红→绿：撤掉行内封面与酷狗 `imgurl` 兜底后 4 条断言失败，恢复后 21 条全绿。
+
+## 2026-11-05 - v1.6.6 冷启动首页自动加载（等登录态恢复后再拉）
+
+### 版本与产物
+
+| 项 | 值 |
+|---|---|
+| 版本 | `1.6.6+23` |
+| Windows | `flutter build windows --release`（只出 exe 目录） |
+
+### 修复
+
+**现象**：已经登录平台账号，冷启动进入「发现」页却显示「还没有每日推荐 / 登录平台账号后…」，排行榜与新歌也空着，点右上角刷新才恢复。
+
+**根因（时序竞态，不是登录失败）**：
+
+1. `App.initState` 里 `authProvider.init()` 是发了不等——它要读安全存储里的 cookie，再对每个平台调一次 `getUserInfo()`，最长等 8 秒；
+2. 桌面发现页的 post-frame 加载会先跑，此时每个平台 `isLoggedIn` 仍是 `false`；
+3. `loadRecommendations()` 于是记下「请先登录平台账号」并结束，页面没有任何重试；
+4. 手机端 `discovery_screen.dart` 早就监听登录态变化了，**桌面版漏了这一段**。
+
+**改动**：
+
+- `AuthState` 新增 `restoring`（默认 `false`），`AuthNotifier.init()` 进入时置 `true`、结束时（含 8s 超时）在 `finally` 置 `false`；超时后 `_restoreSessions` 仍在跑，它稍后写入的 `loggedUsers` 会再触发一次加载。
+- 桌面发现页改为「监听登录态 + 自动加载」：`ref.listenManual(authProvider)` + post-frame `_autoLoad()`；按「已登录平台集合」判重，集合变化才重新拉取，避免重复请求。
+- 恢复期间显示 spinner，不再先闪一段「还没有每日推荐」；真正未登录时仍走原来的登录引导文案。
+- 排行榜 / 新歌不依赖登录，只在对应区块为空时补拉；右上角刷新按钮保留，仍是三段全量刷新。
+
+### 验证
+
+- 新增 `test/discovery_desktop_auth_ready_test.dart`（3 条）：恢复中显示 spinner 且零请求、恢复完成后自动加载一次、登录集合不变不重复请求、登录新增平台自动再拉、未登录最终给出登录引导。
+- 红→绿证据：临时撤掉页面改动后三条断言全部失败，恢复后全绿。
+
+## 2026-11-04 - v1.6.5 托盘图标可用：exe 以管理员身份启动
+
+### 版本与产物
+
+| 项 | 值 |
+|---|---|
+| 版本 | `1.6.5+22` |
+| Windows | `flutter build windows --release`（只出 exe 目录） |
+
+### 背景（这一版解决的是「托盘图标根本没有」）
+
+`Shell_NotifyIcon` 是通过窗口消息交给资源管理器（Explorer）的，而 UIPI 会拦住**完整性等级低于 shell** 的进程：普通启动（Medium）尤其是沙箱/受限启动（Low）的进程一律拿到 `ERROR_ACCESS_DENIED(5)`，图标永远不出现。实测：本机 Explorer 是 Medium，用管理员身份运行 Mconnect 后托盘图标立刻正常。
+
+### 改动
+
+- `windows/runner/CMakeLists.txt` 给链接器加 `/MANIFESTUAC:"level='requireAdministrator' uiAccess='false'"`：**双击 exe 即弹 UAC，以管理员身份启动**，这是托盘图标能注册的前提。
+  - 不走 `runner.exe.manifest` 的 `trustInfo`：`link.exe` 默认已生成自己的 trustInfo 片段，两头都写会让合并 manifests 的 `mt.exe` 失败（`LNK1327`）。
+  - 同时去掉 manifest 里 `assemblyIdentity` 的 `processorArchitecture="*"`（`mt.exe` 会报 `c10100b7` 并在链接期失败）。
+- 实测验证：构建出的 exe 内嵌清单含 `requireAdministrator`；启动后进程完整性为 `0x3000`（High，普通 shell 无法结束它）；`Shell_TrayWnd` 的 UIA 子树里出现 1 个 `mconnect` 托盘项——图标真的注册上了。
+- 状态卡的提示同步修正：不再把「管理员身份」写成风险项；只在检测到进程处于低完整性（被沙箱/受限方式降权）时提示改用直接启动。
+- 上一版的两条兜底保留：注册被拒时重建托盘宿主窗口；再失败则改用 `NIF_GUID` 按 GUID 注册（不依赖窗口槽位）。
+
+### 代价与注意
+
+- 每次启动都会有 UAC 确认；勾选「始终以管理员身份运行」不会改变这一点。
+- **开发期**：`flutter run` / IDE 启动也需要管理员终端，否则 Windows 会以 error 740 拒绝创建进程。
+- 单实例转发、托盘菜单、任务栏歌词等逻辑不受影响。
+
+## 2026-11-04 - v1.6.4 托盘图标：按进程独立 id + 清理残留 + 183 自愈
+
+### 版本与产物
+
+| 项 | 值 |
+|---|---|
+| 版本 | `1.6.4+21` |
+| Windows | `flutter build windows --release`（只出 exe 目录） |
+
+### 修复
+
+- 用户实测拿到错误码 **183（ERROR_ALREADY_EXISTS）**：系统认为托盘槽位已被占用，因此 `NIM_ADD` 永远被拒、图标永远不出现，关闭到托盘只能走「保持窗口打开」兜底。
+- 根因：托盘图标使用固定 id `1`；被「结束任务」强杀的运行不会发 `NIM_DELETE`，壳层会为同一个窗口句柄＋id 留下残留登记，下一次运行再 add 就被判重。
+- 改动：
+  1. 图标 id 改为**按进程唯一**（`GetCurrentProcessId()`），每次运行独占槽位；
+  2. 注册前先 `NIM_DELETE` 清掉同 id 的残留（删除不存在的图标是良性失败）；
+  3. 若仍返回 183，用 `NIM_MODIFY` 把既有槽位**重新绑定**到当前窗口，成功即视为注册成功；
+  4. 失败才上报 `trayFailed`，并继续指数退避重试。
+- 注册改为文档规定的顺序：先用普通 flags `NIM_ADD`，成功后再 `NIM_SETVERSION(NOTIFYICON_VERSION_4)`，最后用 `NIM_MODIFY` 加 `NIF_SHOWTIP`（`NIF_SHOWTIP` 依赖 v4，塞进首次 add 会被严格的壳层整单拒绝）。
+- 若壳层仍以 `ERROR_ACCESS_DENIED` 拒绝该窗口，销毁并重建一次托盘宿主窗口再试；仍失败才上报（错误码不再被调试日志污染：`TrayDebugLog` 现在保存/恢复 `GetLastError`，之前状态卡上的 203 就是日志把错误码冲掉了）。
+- **关闭行为定稿**：无论托盘图标是否可用，点 X 都会**隐藏窗口**（不留任务栏按钮）；没有托盘图标时，再次双击 `mconnect.exe` 会通过单实例转发 `ShowMainWindow()` 把同一个窗口唤回，状态卡显示「已隐藏到后台（托盘不可用）：再次双击 Mconnect 可唤回窗口」。
+
+## 2026-11-04 - v1.6.3 桌面端：任务栏歌词定位的真正根因、托盘图标的专属窗口
+
+仍只动 Windows 桌面端。
+
+### 版本与产物
+
+| 项 | 值 |
+|---|---|
+| 版本 | `1.6.3+20` |
+| Windows | `flutter build windows --release`（只出 exe 目录） |
+
+### 修复
+
+1. **任务栏歌词：锚点/宽度/偏移/拖动全部无效**
+   - 根因：边判定写错顺序。`EdgeFromRect()` 先判「贴着显示器左边」再判底部，而 Windows 的默认底部任务栏矩形正好从 x=0 开始 → 被判成**左侧任务栏**。于是宽度被钉成任务栏整宽、锚点只影响纵向、拖动按竖排换算，表现就是「怎么调都没反应」。状态条那句 `已停靠：左侧 · 宽 3804×84` 就是证据。
+   - 改为**按跨度判定**（横条 = 宽占满且很薄，竖条 = 高占满且很薄），并补全 5 个自检用例（全宽底部/顶部、全高左右、内缩底部）。
+   - 几何自检改为 **Release 也跑**，失败时上报 `geometrySelfTestFailed`，歌词工作室状态条会直接显示失败原因——这类「看不见的算法错误」不再只能靠调试器发现。
+2. **关闭到托盘没有隐藏到托盘**
+   - 运行时取证：发 WM_CLOSE 后窗口是 `visible + iconic`（走的是兜底最小化），说明托盘图标从未注册成功；而同一会话里普通窗口用同一组 flags 调 `Shell_NotifyIcon` 是成功的。
+   - 改动：托盘图标改用**专属隐藏窗口**承载（不再借用 Flutter 主窗口）；注册成功后用 `Shell_NotifyIconGetRect` 记录图标落点；失败改为 1s→30s 指数退避**无限重试**（不再 10 次后放弃）；新增 `elevated` 上报（管理员身份可能被资源管理器拒绝托盘图标）。
+   - 行为兜底改为**保持窗口打开并提示**（不再静默最小化）：关窗时若托盘不可用，会提示「托盘图标不可用（错误 N），已保持窗口打开」，并在下次托盘可用后恢复正常隐藏。
+   - `trayFailed` / `trayUnavailableKeptOpen` / `trayIconPlaced` 写入诊断日志，设置页「运行状态」显示错误码与「管理员运行」提示。
+
+## 2026-11-04 - v1.6.2 桌面端修复：任务栏歌词可拖动/数值生效、托盘图标兜底与关闭回退、藏掉无效的 UI 风格
+
+承接上一版 v1.6.1 的用户实测反馈，仍只动 Windows 桌面端。
+
+### 版本与产物
+
+| 项 | 值 |
+|---|---|
+| 版本 | `1.6.2+19` |
+| Windows | `flutter build windows --release`（本轮只出 exe 目录，未打安装器） |
+
+### 修复
+
+1. **任务栏歌词根本无法移动 / 数值没反应**
+   - 拖动此前被硬关掉（`draggable_ = false`）：现在可以按住歌词条沿任务栏拖动，松手后换算成水平偏移写入设置，不会弹回。
+   - 歌词条改为**任务栏的拥有窗口**（`GWLP_HWNDPARENT = Shell_TrayWnd`），并在每次摆放后重申 topmost——此前它和任务栏都是 topmost，Explorer 一抬手就把歌词条盖住，滑块改了尺寸也看不见。
+   - 新增 `taskbarPlacement` 事件：工作室状态条实时显示 `已停靠：底部 · 宽 980×56 · 位置 1200,1392`，拖动滑块能看到数字变化。
+   - 状态文案修正：不再把「应用区被占满」误报成「空间不足」；`调试几何` 开关现在真的会给歌词条加底色。
+2. **关闭到托盘仍然退出 / 托盘看不到图标**
+   - 托盘图标加载改为四级兜底（小图标 → 默认尺寸 → 应用图标 → 系统图标），`NIM_ADD` 失败会降级重试三次并上报错误码。
+   - 关闭路径改为四路：有图标 → 隐藏；**无图标 → 最小化到任务栏，绝不退出**；开关关闭 → 正常退出；托盘菜单「退出」→ 退出。
+   - 新增 `getRuntimeStatus` 主动查询；状态卡显示托盘错误码、Win11「^」溢出区提示，热键状态改由原生真实注册状态回答（修掉「没开也显示已注册」）。
+3. **电脑端「UI 风格」切换无意义**：桌面主题恒走 `desktopTheme`，该开关在桌面隐藏；安卓端保持原样。
+
+## 2026-11-04 - v1.6.1 桌面端 7 项体验修复：设置一步到位、完整日推、歌词尺寸与任务栏停靠、关闭到托盘
+
+这一版只动 **Windows 桌面端**。Android 的界面与交互未改：移动端设置页只是把同一批 section 组件重新组装，文案与顺序逐字不变。
+
+### 版本与产物
+
+| 项 | 值 |
+|---|---|
+| 版本 | `1.6.1+18` |
+| Windows | `flutter build windows --release`，再用 `installer/mconnect.iss` 打安装器 |
+| Android | 本版未出包；如需出包仍按 AGENTS.md §1 分包，**不要** universal |
+
+### 修复
+
+1. **卡片悬停被裁切**：日推/新歌/音乐库卡片的抬起位移改在卡片自身布局盒内（预留 3px + 反向平移），滚动视口不再切掉封面顶部一条；三处视口同步加留白。
+2. **设置页二段跳**：栏目由 URL `?section=` 派生，侧栏「账号与平台」打开即账号页；账号/外观/播放/音频增强/下载与缓存/诊断全部就地可编辑，六个「打开 XX 设置」卡片删除；「播放」与「音频增强」不再指向同一页。
+3. **完整日推**：新增桌面版每日推荐页（跨平台去重、平台筛选、播放全部、刷新），首页「为你推荐」增加「查看全部 N 首」。
+4. **悬浮歌词尺寸/位置**：新增宽 180–720、高 56–220、水平/垂直位置、居中/重置、显示器选择、字重/行高/字距/内边距/描边/阴影等控件；原生在拖拽/缩放期间不再重设窗口，拖完不会被弹回。
+5. **任务栏歌词**：几何层删除「屏幕居中兜底」，永远停在任务栏带内（上/下/左/右），任务栏探测失败时隐藏并说明；新增锚点/偏移/宽高/边距/显示器/跑马灯等控件与「已停靠 / 空间不足 / 未找到任务栏」状态条；修正不透明度键名；补上原生状态事件。
+6. **歌词动画真正生效**：「减少动态效果」默认改为关闭（此前默认开，导致所有动画是硬切），开启时给出「动画选择不会生效」提示；任务栏入场只播一次、退场补动画。
+7. **关闭到托盘**：`WM_CLOSE` 在交给 Flutter 引擎的退出往返之前拦截；托盘图标不在时不再把窗口藏进虚空而是正常退出并说明；「记住窗口」同时门控原生存档；热键注册失败不再静默，设置页新增「运行状态」卡片。
+
+### 工程
+
+- 新增/扩展测试：卡片悬停几何、日推页与入口、设置页 URL 派生、任务栏 provider 状态、原生源码断言（WM_CLOSE 顺序 / 无居中兜底 / 入场退场 / 存档门控）。
+- i18n 基线按桌面 UI 边界重新冻结为 `1484 / 119`。
+
+## 2026-11-03 - v1.6.0 桌面端重做：独立 Windows UI、悬浮歌词与任务栏歌词
+
+这是一次**以电脑端为主**的版本。Android 端的功能修复同步进入，但 **Android UI 未改**——电脑端不是把手机界面放大，而是独立的侧边栏 + 内容板 + 右侧播放面板 + 底部播放条。
+
+### 版本与产物
+
+| 项 | 值 |
+|---|---|
+| 版本 | `1.6.0+17` |
+| Android | **分包三 APK**（`flutter build apk --release --split-per-abi`），**不提供 universal 包** |
+| Windows | `flutter build windows --release` + Inno Setup 安装器 |
+
+### 桌面端 UI
+
+- 新增 `DesktopShellPolicy`（测试环境强制关闭，移动端字节级不变）、`DesktopShell`、`DesktopSidebar`、`DesktopPlayerBar`、`DesktopNowPlayingPanel`、`DesktopPageSurface`、`DesktopTokens/Theme`。
+- 发现、搜索、音乐库、下载、本地音乐、听歌统计、智能歌单、最近播放、播放队列、设置全部有**桌面专用页面**；共享 `DesktopSongTable` 保证列宽/排序/悬停一致。
+- 播放器为沉浸式双栏：大封面 + 元信息 + 传输控制，右侧复用 `LyricsDisplay`（逐字/翻译/点击跳转）。
+- 设置改为两栏；歌词工作室嵌入「歌词窗口」，可在应用内预览行/窗口动画、字号、透明度、缓动。
+
+### 悬浮歌词 / 任务栏歌词
+
+- 原生分层窗口（`WS_EX_LAYERED` + `UpdateLayeredWindow` 逐像素 alpha），无 `LWA_COLORKEY`。
+- 悬浮歌词：可拖动/锁定/关闭/缩放，锁定后点击穿透，多显示器定位，全屏应用自动隐藏。
+- 任务栏歌词：读取真实 `Shell_TrayWnd` / 副屏任务栏几何，可调左右位置、宽度、字号；译文支持 `stacked`（两行）/ `inline`（同一行）/ `hidden`（隐藏）三种布局，英文歌显示原文 + 中文译文。
+- 歌词工作室提供 **18 种行入场动画 + 7 种窗口动画**（淡入、左右滑入、推挤、擦除、缩放、翻转、弹跳、弹性上浮、柔光等），并可分别设置时长与缓动。
+- 原生渲染默认走 **GDI+**（Direct2D 代码保留）；修复了窗口创建期间过早渲染导致的崩溃（`render_ready_` 守卫）。D2D 在当前 Windows/Flutter 组合下仍作为后续优化项。
+
+### 桌面平台修复
+
+- Windows DPI：显式 PerMonitorV2 + 线程 DPI + 逻辑尺寸传递，修复 175% 缩放下 UI 被放大 1.75 倍/右侧面板被裁切的问题；窗口按工作区自适应。
+- 桌面 Hive 与 drift 数据库改到 `%LOCALAPPDATA%\com.mconnect\mconnect`（debug 为工作区 `.mconnect_data`，`MCONNECT_DATA_DIR` 可覆盖），修复 `SqliteException(14) unable to open database file`。
+- 启动目录增加真实文件写入探测与回退（profile → 工作区 → 系统临时目录）；全部失败时显示启动错误页，不再留下白屏。修复 release 直接双击时 profile 目录被拒绝导致的白屏。
+- 桌面端内置当前 CA 根证书包并在启动时追加到 `SecurityContext`，修复 Flutter Windows 旧 BoringSSL 根集合不信任 DigiCert/GlobalSign 新证书链、导致三平台二维码登录全部失败的问题；不关闭证书校验。
+- 桌面封面改用 `Image.network` 的内存缓存路径，绕过受限临时目录下 `flutter_cache_manager` 的失败；native runner 在启动前设置可写 `TMP/TEMP/TMPDIR`，并把同一 CA 包通过 `tls-ca-file` 交给 libmpv，修复登录后封面空白与音频无法播放。
+- 文件打开/打开所在文件夹、下载文件名清洗、系统通知控制器在 Windows 上安全降级。
+- 桌面窗口在首帧后不再改尺寸：定尺移到 `FlutterViewController` 创建之前，修复 175% DPI 下 debug/release 窗口内容全黑。
+- 1024×600 逻辑窗口使用紧凑侧边栏密度，去掉底部导航溢出。
+- 桌面页面转场改为 **纯滑动 + 不透明底衬**，移除 200ms 交叉淡入，修复切换页面时上一页文字与新页面重叠；底衬用 `SizedBox.expand` 铺满并由同半径 `ClipRRect` 裁切，消除内容板 R 角外的直角黑边。
+- 新增 Windows 原生 `desktop_integration`：SMTC 媒体浮窗/媒体键、托盘图标与菜单、关闭到托盘、单实例唤醒、窗口位置/大小/最大化恢复、全局快捷键、播放时防休眠；关闭行为与快捷键可在「设置 → 桌面行为」配置。
+
+### 已知限制（如实标注）
+
+- 任务栏窗口不提供拖动/关闭，位置由设置控制。
+- SMTC 首版不加载封面缩略图；标题/艺术家/专辑/时长/播放状态/进度已接入。
+- 悬浮歌词的 `backgroundMode=cover` 在原生侧回退为渐变（封面取色属于后续项）。
+- 全新桌面页面未纳入 i18n 迁移，i18n 基线按新 UI 边界冻结为 **1378/116**；后续迁移批次继续下调。
+- Android 端 UI 未同步；功能修复已同步，移动端布局保持不变。
+
+### 门禁
+
+- `flutter analyze --no-pub` 0 issue。
+- 全量 `flutter test --no-pub -j 1` 通过（1787 passed / 11 skipped；新增桌面设置、桌面集成、歌词布局、窗口定尺与转场护栏等测试）。
+- Windows debug/release 均构建并实测：175% DPI 桌面壳、设置页、关闭到托盘、单实例、窗口状态/最大化恢复；安装器仍需在发布机复跑。
+
 ## 2026-10-08 - v1.5.0 跨源换源、播放与歌词增强、库与统计、scrobble、Android 小组件、可访问性与工程护栏
 
 一次性的阶段发布（Wave 0–4）。**音源仍固定为内置三平台**（网易云 / QQ / 酷狗），无任何外部音源导入能力。

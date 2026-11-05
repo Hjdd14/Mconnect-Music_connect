@@ -1,7 +1,11 @@
 #include "win32_window.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include <dwmapi.h>
 #include <flutter_windows.h>
+#include <shellscalingapi.h>
 
 #include "resource.h"
 
@@ -132,6 +136,15 @@ bool Win32Window::Create(const std::wstring& title,
                               static_cast<LONG>(origin.y)};
   HMONITOR monitor = MonitorFromPoint(target_point, MONITOR_DEFAULTTONEAREST);
   UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
+  if (dpi == 0 || dpi == 96) {
+    // Flutter 3.47's helper reports 96 for a 175% monitor. Ask the monitor
+    // directly so the window is created at the physical size Windows expects.
+    UINT dpi_x = 96;
+    UINT dpi_y = 96;
+    if (SUCCEEDED(GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &dpi_x, &dpi_y))) {
+      dpi = dpi_x;
+    }
+  }
   double scale_factor = dpi / 96.0;
 
   HWND window = CreateWindow(
@@ -146,11 +159,121 @@ bool Win32Window::Create(const std::wstring& title,
 
   UpdateTheme(window);
 
+  // Resize before FlutterViewController is created (OnCreate). Doing this
+  // after the first frame (the old ResizeToWorkArea timer) resized the engine
+  // surface after it had presented once and left the window black on 175%
+  // displays. At this point the HWND already has its real per-monitor DPI, so
+  // the logical size and the native client rect can be made to agree before
+  // the view exists.
+  {
+    HMONITOR actual_monitor =
+        MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
+    UINT window_dpi = GetDpiForWindow(window);
+    if (window_dpi == 0 || window_dpi == 96) {
+      UINT dpi_x = 96;
+      UINT dpi_y = 96;
+      if (SUCCEEDED(GetDpiForMonitor(actual_monitor, MDT_EFFECTIVE_DPI, &dpi_x,
+                                     &dpi_y))) {
+        window_dpi = dpi_x;
+      }
+    }
+    if (window_dpi == 0) {
+      window_dpi = 96;
+    }
+    const double window_scale = window_dpi / 96.0;
+
+    int target_x = 0;
+    int target_y = 0;
+    int physical_width = 0;
+    int physical_height = 0;
+    bool have_bounds = false;
+
+    // A geometry restored from the previous run wins over the default centred
+    // size. The provider has already clamped it into a monitor work area, so
+    // the window always comes back on screen even when the monitor it was saved
+    // on is gone.
+    RECT restored{};
+    bool restored_maximized = false;
+    if (initial_bounds_provider_ &&
+        initial_bounds_provider_(&restored, &restored_maximized)) {
+      const int restored_width = static_cast<int>(restored.right - restored.left);
+      const int restored_height =
+          static_cast<int>(restored.bottom - restored.top);
+      if (restored_width > 0 && restored_height > 0) {
+        target_x = static_cast<int>(restored.left);
+        target_y = static_cast<int>(restored.top);
+        physical_width = restored_width;
+        physical_height = restored_height;
+        start_maximized_ = restored_maximized;
+        have_bounds = true;
+      }
+    }
+
+    MONITORINFO monitor_info{};
+    monitor_info.cbSize = sizeof(monitor_info);
+    if (!have_bounds && GetMonitorInfo(actual_monitor, &monitor_info)) {
+      const int work_width =
+          monitor_info.rcWork.right - monitor_info.rcWork.left;
+      const int work_height =
+          monitor_info.rcWork.bottom - monitor_info.rcWork.top;
+      int logical_width = 1360;
+      int logical_height = 860;
+      if (logical_width * window_scale > work_width - 40) {
+        logical_width = std::max(
+            900, static_cast<int>((work_width - 40) / window_scale));
+      }
+      if (logical_height * window_scale > work_height - 60) {
+        logical_height = std::max(
+            600, static_cast<int>((work_height - 60) / window_scale));
+      }
+      physical_width =
+          static_cast<int>(std::lround(logical_width * window_scale));
+      physical_height =
+          static_cast<int>(std::lround(logical_height * window_scale));
+      target_x = monitor_info.rcWork.left +
+                 std::max(0, (work_width - physical_width) / 2);
+      target_y = monitor_info.rcWork.top +
+                 std::max(0, (work_height - physical_height) / 2);
+      have_bounds = true;
+    }
+
+    if (have_bounds) {
+      SetWindowPos(window, nullptr, target_x, target_y, physical_width,
+                   physical_height, SWP_NOZORDER | SWP_NOACTIVATE);
+
+      // The minimum track size follows the DPI of the monitor the window
+      // actually landed on, which after a restore is not necessarily the one
+      // |origin| pointed at.
+      HMONITOR final_monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
+      UINT final_dpi = GetDpiForWindow(window);
+      if (final_dpi == 0 || final_dpi == 96) {
+        UINT dpi_x = 96;
+        UINT dpi_y = 96;
+        if (SUCCEEDED(GetDpiForMonitor(final_monitor, MDT_EFFECTIVE_DPI, &dpi_x,
+                                       &dpi_y))) {
+          final_dpi = dpi_x;
+        }
+      }
+      if (final_dpi == 0) {
+        final_dpi = 96;
+      }
+      const double final_scale = final_dpi / 96.0;
+      SetMinimumSize(Size(
+          static_cast<int>(std::lround(1024 * final_scale)),
+          static_cast<int>(std::lround(600 * final_scale))));
+    }
+  }
+
   return OnCreate();
 }
 
 bool Win32Window::Show() {
-  return ShowWindow(window_handle_, SW_SHOWNORMAL);
+  // A restored "maximized" state is applied as a placement at the moment the
+  // window first becomes visible. ShowWindow is not a resize of the engine
+  // surface to a computed size: the client rect follows the normal maximise
+  // path.
+  return ShowWindow(window_handle_,
+                    start_maximized_ ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL);
 }
 
 // static
@@ -180,21 +303,11 @@ Win32Window::MessageHandler(HWND hwnd,
                             LPARAM const lparam) noexcept {
   switch (message) {
     case WM_CLOSE: {
-      if (ask_before_close_) {
-        const int choice = MessageBoxW(
-            hwnd,
-            L"是否让 Mconnect 在后台继续运行？\n\n"
-            L"选择“是”：最小化窗口并继续播放。\n"
-            L"选择“否”：退出 Mconnect。",
-            L"关闭 Mconnect",
-            MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON1);
-        if (choice == IDYES) {
-          ShowWindow(hwnd, SW_MINIMIZE);
-          return 0;
-        }
-        if (choice != IDNO) {
-          return 0;
-        }
+      // Close behaviour belongs to FlutterWindow / the tray setting now: the
+      // old MessageBox asked the question every single time and could not be
+      // answered from the settings page.
+      if (OnCloseRequested()) {
+        return 0;
       }
       DestroyWindow(hwnd);
       return 0;
@@ -291,12 +404,20 @@ void Win32Window::SetQuitOnClose(bool quit_on_close) {
   quit_on_close_ = quit_on_close;
 }
 
-void Win32Window::SetAskBeforeClose(bool ask_before_close) {
-  ask_before_close_ = ask_before_close;
+void Win32Window::SetInitialBoundsProvider(InitialBoundsProvider provider) {
+  initial_bounds_provider_ = std::move(provider);
 }
 
 void Win32Window::SetMinimumSize(const Size& size) {
   minimum_size_ = size;
+}
+
+void Win32Window::SetSize(int width, int height) {
+  if (window_handle_ == nullptr) {
+    return;
+  }
+  SetWindowPos(window_handle_, nullptr, 0, 0, width, height,
+               SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 bool Win32Window::OnCreate() {
@@ -306,6 +427,11 @@ bool Win32Window::OnCreate() {
 
 void Win32Window::OnDestroy() {
   // No-op; provided for subclasses.
+}
+
+bool Win32Window::OnCloseRequested() {
+  // No-op; provided for subclasses.
+  return false;
 }
 
 void Win32Window::UpdateTheme(HWND const window) {

@@ -164,3 +164,16 @@ android/build/
 
 # ZCode 会话规划文件
 .zcode/
+
+# 发布产物：APK / 安装器 / 便携 zip 通过 GitHub Release 上传，不进仓库
+# （真正的构建产物在 /build/ 下，这里再兜一层，防止手动拷到根目录时被误提交）
+/Mconnect-Setup-*.exe
+/Mconnect-*-win64-portable.zip
+/Mconnect-*-*.apk
+/dist/
+
+# Local desktop runtime data and QA screenshots
+/.mconnect_data/
+/.mconnect_data_release/
+/.mconnect_tmp/
+/.screenshots/

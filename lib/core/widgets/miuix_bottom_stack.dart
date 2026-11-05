@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../desktop/desktop_shell_policy.dart';
 import '../theme/ui_style_provider.dart';
 import 'miuix_bottom_layout.dart';
 import '../../features/player/presentation/widgets/mini_player_bar.dart';
@@ -166,6 +167,11 @@ class RouteBottomInset extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // The desktop shell is a Column: its player bar occupies layout space, so a
+    // route must not reserve the phone capsule's bottom clearance inside itself.
+    // Keeping this guard here (rather than branching every route builder) means
+    // the mobile path stays byte-for-byte unchanged.
+    if (DesktopShellPolicy.isEnabled) return child;
     final style = ref.watch(uiStyleProvider).style;
     return Padding(
       padding: EdgeInsets.only(

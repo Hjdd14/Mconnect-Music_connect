@@ -2,7 +2,7 @@
 ; Build with: "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\mconnect.iss
 
 #define MyAppName "Mconnect"
-#define MyAppVersion "1.5.0"
+#define MyAppVersion "1.6.0"
 #define MyAppPublisher "Mconnect"
 #define MyAppURL "https://github.com/Hjdd14/Mconnect-Music_connect"
 #define MyAppExeName "mconnect.exe"
@@ -46,7 +46,11 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 ; 只保留这一条：`*` 已经包含 exe，再单列一次 exe 等于重复打包。
-Source: "{#MyAppSourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; `tmp` and `.mconnect_data` are what the app creates when it is RUN from
+; this folder (cache, logs, Hive boxes and the drift database). They are test
+; leftovers, not program files: packaging them would ship a stale settings DB
+; and a local library that do not belong to the user.
+Source: "{#MyAppSourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "tmp,tmp\*,.mconnect_data,.mconnect_data\*"
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

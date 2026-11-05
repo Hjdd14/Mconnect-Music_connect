@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart' as just_audio;
 
 import '../../../core/android_auto/audio_browse_tree.dart';
+import '../../../core/desktop/desktop_integration_service.dart';
 import '../../../core/diagnostics/diagnostics_service.dart';
 import '../../../core/platform/platform_utils.dart';
 import '../../../models/song.dart';
@@ -763,4 +764,218 @@ Uri? _parseOptionalUri(String? value) {
   final uri = Uri.tryParse(trimmed);
   if (uri == null || !uri.hasScheme) return null;
   return uri;
+}
+
+/// Windows counterpart of [AudioServicePlayerController].
+///
+/// Android has `audio_service` (a real `MediaSession`); Windows has the runner,
+/// reached through `DesktopIntegrationService`. This class is only the mapping
+/// between the two vocabularies plus the de-duplication a 1 Hz position tick
+/// needs — the native SMTC session and the tray icon are the runner's job.
+///
+/// Two properties matter and are asserted:
+///
+/// * **nothing here can throw.** Every native call answers `bool`/`null`, so a
+///   build whose runner has no `desktop_integration` handler still plays music
+///   (silently, with a diagnostic) instead of failing every play/pause.
+/// * **each payload is published only when it changed.** `update` runs once a
+///   second forever; rebuilding the SMTC metadata or the tray tooltip on every
+///   tick is exactly the O(n)-per-tick cost Android had to be fixed for.
+class WindowsPlaybackNotificationController
+    implements PlaybackNotificationController {
+  WindowsPlaybackNotificationController({DesktopIntegrationService? service})
+      : _service = service ?? DesktopIntegrationService.instance;
+
+  /// Position deltas smaller than this do not re-publish the timeline. A seek
+  /// backwards is always published, or the progress would run backwards on the
+  /// OS media flyout after the user drags the slider.
+  static const Duration timelineThreshold = Duration(seconds: 1);
+
+  final DesktopIntegrationService _service;
+
+  StreamSubscription<DesktopIntegrationEvent>? _events;
+  PlaybackNotificationActions? _actions;
+  bool _initialized = false;
+
+  /// The controller currently attached to a player, or null.
+  ///
+  /// [PlaybackNotificationController.update] carries the floating-lyrics flag
+  /// but not the taskbar one, so the setting that owns it has to push the value
+  /// in from outside; this is the handle it uses. Cleared by [detach] so a
+  /// disposed controller is never written to.
+  static WindowsPlaybackNotificationController? active;
+
+  /// The taskbar-lyrics toggle. Owned by whoever renders that setting:
+  /// [PlaybackNotificationController.update] does not carry it, so it is a
+  /// property rather than a constructor argument.
+  bool taskbarLyricsEnabled = false;
+
+  String? _publishedSongKey;
+  int? _publishedDurationMs;
+  bool? _publishedPlaying;
+  int? _publishedPositionMs;
+  String? _publishedTrayKey;
+
+  @override
+  Future<void> initialize({DiagnosticsService? diagnostics}) async {
+    if (_initialized) return;
+    _initialized = true;
+    final available = await _service.initialize();
+    if (!available) {
+      diagnostics?.record(
+        'player',
+        'windows_smtc_unavailable',
+        data: {'reason': 'desktop_integration channel has no handler'},
+      );
+    }
+  }
+
+  @override
+  void attach(PlaybackNotificationActions actions) {
+    _actions = actions;
+    active = this;
+    _events ??= _service.events.listen(_handleEvent);
+  }
+
+  @override
+  void detach() {
+    _actions = null;
+    if (identical(active, this)) active = null;
+    final events = _events;
+    _events = null;
+    if (events != null) unawaited(events.cancel());
+    // Forget what was published: a later attach starts from a clean slate and
+    // republishes instead of assuming the runner still holds the old item.
+    _publishedSongKey = null;
+    _publishedDurationMs = null;
+    _publishedPlaying = null;
+    _publishedPositionMs = null;
+
+    _publishedTrayKey = null;
+  }
+
+  @override
+  void update({
+    required Song? currentSong,
+    required List<Song> playlist,
+    required int currentIndex,
+    required bool isCurrentSongLiked,
+    required bool isFloatingLyricsEnabled,
+    required bool isPlaying,
+    required Duration position,
+    required Duration duration,
+  }) {
+    final song = currentSong;
+    final songKey = song == null
+        ? ''
+        : '${song.platform.name}:${song.id}';
+    final durationMs = duration.inMilliseconds;
+    final positionMs = position.inMilliseconds;
+    final songChanged = songKey != _publishedSongKey;
+
+    if (songChanged || durationMs != _publishedDurationMs) {
+      _publishedSongKey = songKey;
+      _publishedDurationMs = durationMs;
+      if (song != null) {
+        unawaited(
+          _service.setMediaMetadata(
+            title: song.name,
+            artist: song.artistNames.trim(),
+            album: song.album?.name,
+            coverUrl: song.coverUrl ?? song.album?.coverUrl,
+            durationMs: durationMs,
+          ),
+        );
+      }
+    }
+
+    if (_publishedPlaying != isPlaying || songChanged) {
+      _publishedPlaying = isPlaying;
+      unawaited(
+        _service.setPlaybackState(
+          song == null
+              ? DesktopPlaybackStatus.stopped
+              : (isPlaying
+                    ? DesktopPlaybackStatus.playing
+                    : DesktopPlaybackStatus.paused),
+        ),
+      );
+    }
+
+    if (songChanged || _shouldPublishTimeline(positionMs, position)) {
+      _publishedPositionMs = positionMs;
+      unawaited(
+        _service.setTimeline(
+          positionMs: positionMs,
+          durationMs: durationMs,
+        ),
+      );
+    }
+
+    final liked = song != null && isCurrentSongLiked;
+    final lyrics = song != null && isFloatingLyricsEnabled;
+    final trayKey = [
+      isPlaying,
+      song != null,
+      liked,
+      lyrics,
+      taskbarLyricsEnabled,
+      song?.name ?? "",
+      song?.artistNames ?? "",
+    ].join("\u0001");
+    if (trayKey == _publishedTrayKey) return;
+    _publishedTrayKey = trayKey;
+
+    unawaited(
+      _service.setTrayState(
+        playing: isPlaying,
+        hasSong: song != null,
+        floatingLyrics: lyrics,
+        taskbarLyrics: taskbarLyricsEnabled,
+        liked: liked,
+        title: song?.name,
+        artist: song?.artistNames,
+      ),
+    );
+  }
+
+  /// Whether a position tick deserves a native call.
+  bool _shouldPublishTimeline(int positionMs, Duration position) {
+    final previous = _publishedPositionMs;
+    if (previous == null || previous < 0) return true;
+    if (positionMs == previous) return false;
+    if (positionMs < previous) return true;
+    return position - Duration(milliseconds: previous) >= timelineThreshold;
+  }
+
+  void _handleEvent(DesktopIntegrationEvent event) {
+    final actions = _actions;
+    if (actions == null) return;
+    final action = event["action"]?.toString();
+    if (action == null || action.isEmpty) return;
+    switch (action) {
+      case "play":
+        unawaited(actions.play());
+      case "pause":
+        unawaited(actions.pause());
+      case "stop":
+        // The app has no stop action; pausing is the closest equivalent and is
+        // what the Android notification does when the session is torn down.
+        unawaited(actions.pause());
+      case "next":
+        unawaited(actions.skipToNext());
+      case "previous":
+        unawaited(actions.skipToPrevious());
+      case "seek":
+        final raw = event["positionMs"];
+        final positionMs = raw is int ? raw : int.tryParse(raw?.toString() ?? "");
+        if (positionMs != null) {
+          unawaited(actions.seek(Duration(milliseconds: positionMs)));
+        }
+      case "toggleLike":
+        unawaited(actions.toggleLikeCurrentSong());
+      case "toggleLyrics":
+        unawaited(actions.toggleFloatingLyrics());
+    }
+  }
 }

@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../desktop/desktop_shell.dart';
+import '../desktop/desktop_shell_policy.dart';
+import '../desktop/desktop_tokens.dart';
 import '../motion/app_motion.dart';
 import '../motion/app_page_transition.dart';
 import '../theme/app_background.dart';
@@ -16,17 +19,29 @@ import '../../features/toplist/presentation/pages/toplists_page.dart';
 import '../../features/auth/presentation/pages/login_page.dart';
 import '../../features/discovery/presentation/pages/rankings_page.dart';
 import '../../features/discovery/presentation/pages/recommendations_page.dart';
+import '../../features/discovery/presentation/desktop/discovery_desktop_page.dart';
+import '../../features/discovery/presentation/desktop/recommendations_desktop_page.dart';
+import '../../features/download/presentation/desktop/downloads_desktop_page.dart';
 import '../../features/home/presentation/screens/home_screen.dart';
 import '../../features/library/presentation/pages/history_page.dart';
 import '../../features/library/presentation/pages/import_playlist_page.dart';
 import '../../features/library/presentation/pages/likes_page.dart';
 import '../../features/library/presentation/pages/platform_playlists_page.dart';
 import '../../features/library/presentation/pages/playlist_detail_page.dart';
+import '../../features/library/presentation/desktop/library_desktop_page.dart';
+import '../../features/library/presentation/desktop/recent_desktop_page.dart';
+import '../../features/local_music/presentation/desktop/local_music_desktop_page.dart';
 import '../../features/local_music/presentation/pages/local_music_page.dart';
 import '../../features/offline_cache/presentation/pages/offline_cache_page.dart';
 import '../../features/player/presentation/pages/queue_page.dart';
+import '../../features/player/presentation/desktop/player_desktop_page.dart';
+import '../../features/player/presentation/desktop/queue_desktop_page.dart';
 import '../../features/player/presentation/screens/player_screen.dart';
+import '../../features/search/presentation/desktop/search_desktop_page.dart';
 import '../../features/settings/presentation/pages/settings_page.dart';
+import '../../features/settings/presentation/desktop/settings_desktop_page.dart';
+import '../../features/smart_playlists/presentation/desktop/smart_playlists_desktop_page.dart';
+import '../../features/stats/presentation/desktop/listening_stats_desktop_page.dart';
 import '../../features/stats/presentation/pages/listening_stats_page.dart';
 import '../../features/smart_playlists/presentation/pages/smart_playlist_editor_page.dart';
 import '../../features/smart_playlists/presentation/pages/smart_playlists_page.dart';
@@ -34,254 +49,309 @@ import '../../models/platform_type.dart';
 
 /// 根 Navigator 的 key：`/queue` 用 `parentNavigatorKey` 挂到它上面（见该路由
 /// 的注释）。go_router 的顶层 Navigator 默认没有显式 key，挂根必须显式声明。
-final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>(
-  debugLabel: 'root-navigator',
-);
-
-final appRouter = GoRouter(
-  navigatorKey: _rootNavigatorKey,
-  initialLocation: '/',
-  routes: [
-    GoRoute(
-      path: '/player',
-      pageBuilder: (context, state) => CustomTransitionPage(
-        child: const PlayerGlassRouteSurface(child: PlayerScreen()),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          final tween = Tween(
-            begin: const Offset(0, 1),
-            end: Offset.zero,
-          ).chain(CurveTween(curve: AppMotion.routeCurve));
-          return SlideTransition(
-            position: animation.drive(tween),
-            child: child,
-          );
-        },
-        transitionDuration: const Duration(milliseconds: 350),
-      ),
-    ),
-    // 播放队列页（W1-D）。
-    //
-    // ⚠️ 历史与教训：W1-D 曾把本页放在 ShellRoute 内，真机（release/debug 均
-    // 复现）点了入口后整页 touch-dead、音乐仍在播。设备日志抓到两次同一断言：
-    //   navigator.dart:4096 '!keyReservation.contains(key)': is not true
-    // （完整栈：NavigatorState._updatePages ← didUpdateWidget，即 pages 列表
-    // 本身携带重复 key），随后 pop 时又炸 go_router builder.dart:424 的
-    // `_pageToRouteMatchBase[page]!` null check。
-    //
-    // 成因：从 ShellRoute **外**的顶层路由（/player）push ShellRoute 内的路由
-    // 时，go_router 14.8.1 会构造 ImperativeRouteMatch，其匹配链把 ShellRoute
-    // 整体重建一遍；根 Navigator 与嵌套 Navigator 的 pages 在同一帧内分别用
-    // `ValueKey(route.hashCode)`（ShellRouteMatch）与 `ValueKey(newMatchedPath)`
-    // （RouteMatch）派生 key，两个 Navigator 的 page 集合在重建瞬间对不上，
-    // /queue 的 key 在其中一个 Navigator 的 pages 里出现两次。防重入闸门挡不住
-    // 它——断言在**一次** push 内部就发生了。
-    //
-    // 所以本页挂到**根 Navigator**（parentNavigatorKey 指向根），与 /player
-    // 同构：入口只在 /player 里，返回即回到播放页，不需要 shell 的迷你播放器
-    //（用户此刻就在全屏播放页上）。`test/app_router_routes_test.dart` 旧的
-    //「必须在 ShellRoute 内」断言随之更新为「必须在根 Navigator」。
-    GoRoute(
-      path: '/queue',
-      parentNavigatorKey: _rootNavigatorKey,
-      pageBuilder: (context, state) => CustomTransitionPage<void>(
-        key: state.pageKey,
-        name: state.name ?? state.path,
-        restorationId: state.pageKey.value,
-        transitionDuration: AppMotion.routeForward,
-        reverseTransitionDuration: AppMotion.routeReverse,
-        transitionsBuilder: (context, animation, secondaryAnimation, child) =>
-            buildAppPageTransition(
-          animation: animation,
-          secondaryAnimation: secondaryAnimation,
-          reduceMotion: MediaQuery.disableAnimationsOf(context),
-          child: AppBackgroundShell(
-            drawImage: false,
-            drawScrim: false,
-            baseOpacity: secondaryBackingOpacity,
-            child: SizedBox.expand(
-              key: const Key('app-route-background-surface'),
-              child: SecondaryGlassSurface(child: child),
-            ),
-          ),
-        ),
-        child: const QueuePage(),
-      ),
-    ),
-    ShellRoute(
-      pageBuilder: (context, state, child) => _appShellPage(
-        state,
-        AppRouteShell(path: state.uri.path, child: child),
-      ),
-      routes: [
-        GoRoute(
-          path: '/',
-          pageBuilder: (context, state) =>
-              _appLeafPage(state, const HomeScreen()),
-        ),
-        GoRoute(
-          path: '/recommendations',
-          pageBuilder: (context, state) =>
-              _appLeafPage(state, const RecommendationsPage()),
-        ),
-        GoRoute(
-          path: '/rankings',
-          pageBuilder: (context, state) =>
-              _appLeafPage(state, const RankingsPage()),
-        ),
-        GoRoute(
-          path: '/likes',
-          pageBuilder: (context, state) =>
-              _appLeafPage(state, const LikesPage()),
-        ),
-        GoRoute(
-          path: '/history',
-          pageBuilder: (context, state) =>
-              _appLeafPage(state, const HistoryPage()),
-        ),
-        GoRoute(
-          path: '/import-playlist',
-          pageBuilder: (context, state) =>
-              _appLeafPage(state, const ImportPlaylistPage()),
-        ),
-        GoRoute(
-          path: '/platform-playlists',
-          pageBuilder: (context, state) =>
-              _appLeafPage(state, const PlatformPlaylistsPage()),
-        ),
-        GoRoute(
-          path: '/local-music',
-          pageBuilder: (context, state) =>
-              _appLeafPage(state, const LocalMusicPage()),
-        ),
-        GoRoute(
-          path: '/offline-cache',
-          pageBuilder: (context, state) =>
-              _appLeafPage(state, const OfflineCachePage()),
-        ),
-        GoRoute(
-          path: '/listening-stats',
-          pageBuilder: (context, state) =>
-              _appLeafPage(state, const ListeningStatsPage()),
-        ),
-        GoRoute(
-          path: '/smart-playlists',
-          pageBuilder: (context, state) =>
-              _appLeafPage(state, const SmartPlaylistsPage()),
-        ),
-        GoRoute(
-          path: '/smart-playlists/editor',
-          pageBuilder: (context, state) => _appLeafPage(
-            state,
-            SmartPlaylistEditorPage(ruleId: state.uri.queryParameters['id']),
-          ),
-        ),
-        GoRoute(
-          path: '/playlist/:platform/:id',
-          pageBuilder: (context, state) {
-            final platform = PlatformType.parse(
-              state.pathParameters['platform']!,
+/// Builds the app router for the current form factor.
+///
+/// The desktop decision is taken once at startup. Keeping it as a parameter
+/// (rather than reading the platform inside every page) is what makes the
+/// desktop shell testable without booting the whole app.
+GoRouter createAppRouter({
+  required bool desktop,
+  GlobalKey<NavigatorState>? navigatorKey,
+}) {
+  final rootNavigatorKey =
+      navigatorKey ?? GlobalKey<NavigatorState>(debugLabel: 'root-navigator');
+  return GoRouter(
+    navigatorKey: rootNavigatorKey,
+    initialLocation: '/',
+    routes: [
+      GoRoute(
+        path: '/player',
+        pageBuilder: (context, state) => CustomTransitionPage(
+          child: desktop
+              ? const PlayerDesktopPage()
+              : const PlayerGlassRouteSurface(child: PlayerScreen()),
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            final tween = Tween(
+              begin: const Offset(0, 1),
+              end: Offset.zero,
+            ).chain(CurveTween(curve: AppMotion.routeCurve));
+            return SlideTransition(
+              position: animation.drive(tween),
+              child: child,
             );
-            return _appLeafPage(
-              state,
-              PlaylistDetailPage(
-                platform: platform,
-                playlistId: state.pathParameters['id']!,
-                playlistName: state.uri.queryParameters['name'] ?? '歌单',
-                coverUrl: state.uri.queryParameters['cover'],
+          },
+          transitionDuration: const Duration(milliseconds: 350),
+        ),
+      ),
+      // 播放队列页（W1-D）。
+      //
+      // ⚠️ 历史与教训：W1-D 曾把本页放在 ShellRoute 内，真机（release/debug 均
+      // 复现）点了入口后整页 touch-dead、音乐仍在播。设备日志抓到两次同一断言：
+      //   navigator.dart:4096 '!keyReservation.contains(key)': is not true
+      // （完整栈：NavigatorState._updatePages ← didUpdateWidget，即 pages 列表
+      // 本身携带重复 key），随后 pop 时又炸 go_router builder.dart:424 的
+      // `_pageToRouteMatchBase[page]!` null check。
+      //
+      // 成因：从 ShellRoute **外**的顶层路由（/player）push ShellRoute 内的路由
+      // 时，go_router 14.8.1 会构造 ImperativeRouteMatch，其匹配链把 ShellRoute
+      // 整体重建一遍；根 Navigator 与嵌套 Navigator 的 pages 在同一帧内分别用
+      // `ValueKey(route.hashCode)`（ShellRouteMatch）与 `ValueKey(newMatchedPath)`
+      // （RouteMatch）派生 key，两个 Navigator 的 page 集合在重建瞬间对不上，
+      // /queue 的 key 在其中一个 Navigator 的 pages 里出现两次。防重入闸门挡不住
+      // 它——断言在**一次** push 内部就发生了。
+      //
+      // 所以本页挂到**根 Navigator**（parentNavigatorKey 指向根），与 /player
+      // 同构：入口只在 /player 里，返回即回到播放页，不需要 shell 的迷你播放器
+      //（用户此刻就在全屏播放页上）。`test/app_router_routes_test.dart` 旧的
+      //「必须在 ShellRoute 内」断言随之更新为「必须在根 Navigator」。
+      GoRoute(
+        path: '/queue',
+        parentNavigatorKey: rootNavigatorKey,
+        pageBuilder: (context, state) => CustomTransitionPage<void>(
+          key: state.pageKey,
+          name: state.name ?? state.path,
+          restorationId: state.pageKey.value,
+          transitionDuration: AppMotion.routeForward,
+          reverseTransitionDuration: AppMotion.routeReverse,
+          transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+              buildAppPageTransition(
+                animation: animation,
+                secondaryAnimation: secondaryAnimation,
+                reduceMotion: MediaQuery.disableAnimationsOf(context),
+                child: AppBackgroundShell(
+                  drawImage: false,
+                  drawScrim: false,
+                  baseOpacity: secondaryBackingOpacity,
+                  child: SizedBox.expand(
+                    key: const Key('app-route-background-surface'),
+                    child: SecondaryGlassSurface(child: child),
+                  ),
+                ),
               ),
-            );
-          },
+          child: desktop ? const QueueDesktopPage() : const QueuePage(),
         ),
-        GoRoute(
-          path: '/toplists',
-          pageBuilder: (context, state) =>
-              _appLeafPage(state, const ToplistsPage()),
+      ),
+      ShellRoute(
+        pageBuilder: (context, state, child) => _appShellPage(
+          state,
+          desktop
+              ? DesktopShell(path: state.uri.path, child: child)
+              : AppRouteShell(path: state.uri.path, child: child),
         ),
-        GoRoute(
-          path: '/toplist/:platform/:id',
-          pageBuilder: (context, state) => _appLeafPage(
-            state,
-            ToplistDetailPage(
-              platform: PlatformType.parse(state.pathParameters['platform']!),
-              toplistId: state.pathParameters['id']!,
-              toplistName: state.uri.queryParameters['name'],
+        routes: [
+          GoRoute(
+            path: '/',
+            pageBuilder: (context, state) => _appLeafPage(
+              state,
+              desktop ? const DiscoveryDesktopPage() : const HomeScreen(),
             ),
           ),
-        ),
-        GoRoute(
-          path: '/album/:platform/:id',
-          pageBuilder: (context, state) => _appLeafPage(
-            state,
-            AlbumPage(
-              platform: PlatformType.parse(state.pathParameters['platform']!),
-              albumId: state.pathParameters['id']!,
-              albumName: state.uri.queryParameters['name'],
+          GoRoute(
+            path: '/search',
+            redirect: desktop ? null : (context, state) => '/?tab=0',
+            pageBuilder: (context, state) =>
+                _appLeafPage(state, const SearchDesktopPage()),
+          ),
+          GoRoute(
+            path: '/library',
+            redirect: desktop ? null : (context, state) => '/?tab=2',
+            pageBuilder: (context, state) =>
+                _appLeafPage(state, const LibraryDesktopPage()),
+          ),
+          GoRoute(
+            path: '/downloads',
+            redirect: desktop ? null : (context, state) => '/?tab=3',
+            pageBuilder: (context, state) =>
+                _appLeafPage(state, const DownloadsDesktopPage()),
+          ),
+          GoRoute(
+            path: '/recommendations',
+            pageBuilder: (context, state) => _appLeafPage(
+              state,
+              desktop
+                  ? const RecommendationsDesktopPage()
+                  : const RecommendationsPage(),
             ),
           ),
-        ),
-        GoRoute(
-          path: '/artist/:platform/:id',
-          pageBuilder: (context, state) => _appLeafPage(
-            state,
-            ArtistPage(
-              platform: PlatformType.parse(state.pathParameters['platform']!),
-              artistId: state.pathParameters['id']!,
-              artistName: state.uri.queryParameters['name'],
+          GoRoute(
+            path: '/rankings',
+            pageBuilder: (context, state) =>
+                _appLeafPage(state, const RankingsPage()),
+          ),
+          GoRoute(
+            path: '/likes',
+            pageBuilder: (context, state) =>
+                _appLeafPage(state, const LikesPage()),
+          ),
+          GoRoute(
+            path: '/history',
+            pageBuilder: (context, state) => _appLeafPage(
+              state,
+              desktop ? const RecentDesktopPage() : const HistoryPage(),
             ),
           ),
-        ),
-        GoRoute(
-          path: '/new-songs',
-          pageBuilder: (context, state) =>
-              _appLeafPage(state, const NewSongsPage()),
-        ),
-        GoRoute(
-          path: '/backup',
-          pageBuilder: (context, state) =>
-              _appLeafPage(state, const BackupPage()),
-        ),
-        GoRoute(
-          path: '/settings',
-          pageBuilder: (context, state) =>
-              _appLeafPage(state, const SettingsPage()),
-        ),
-        GoRoute(
-          path: '/settings/accounts',
-          pageBuilder: (context, state) =>
-              _appLeafPage(state, const SettingsAccountsPage()),
-        ),
-        GoRoute(
-          path: '/settings/appearance',
-          pageBuilder: (context, state) =>
-              _appLeafPage(state, const SettingsAppearancePage()),
-        ),
-        GoRoute(
-          path: '/settings/floating-lyrics',
-          pageBuilder: (context, state) =>
-              _appLeafPage(state, const SettingsFloatingLyricsPage()),
-        ),
-        GoRoute(
-          path: '/settings/audio',
-          pageBuilder: (context, state) =>
-              _appLeafPage(state, const SettingsAudioPage()),
-        ),
-        GoRoute(
-          path: '/settings/diagnostics',
-          pageBuilder: (context, state) =>
-              _appLeafPage(state, const SettingsDiagnosticsPage()),
-        ),
-        GoRoute(
-          path: '/login/:platform',
-          pageBuilder: (context, state) {
-            final platform = PlatformType.parse(
-              state.pathParameters['platform']!,
-            );
-            return _appLeafPage(state, LoginPage(platform: platform));
-          },
-        ),
-      ],
-    ),
-  ],
+          GoRoute(
+            path: '/import-playlist',
+            pageBuilder: (context, state) =>
+                _appLeafPage(state, const ImportPlaylistPage()),
+          ),
+          GoRoute(
+            path: '/platform-playlists',
+            pageBuilder: (context, state) =>
+                _appLeafPage(state, const PlatformPlaylistsPage()),
+          ),
+          GoRoute(
+            path: '/local-music',
+            pageBuilder: (context, state) => _appLeafPage(
+              state,
+              desktop ? const LocalMusicDesktopPage() : const LocalMusicPage(),
+            ),
+          ),
+          GoRoute(
+            path: '/offline-cache',
+            pageBuilder: (context, state) =>
+                _appLeafPage(state, const OfflineCachePage()),
+          ),
+          GoRoute(
+            path: '/listening-stats',
+            pageBuilder: (context, state) => _appLeafPage(
+              state,
+              desktop
+                  ? const ListeningStatsDesktopPage()
+                  : const ListeningStatsPage(),
+            ),
+          ),
+          GoRoute(
+            path: '/smart-playlists',
+            pageBuilder: (context, state) => _appLeafPage(
+              state,
+              desktop
+                  ? const SmartPlaylistsDesktopPage()
+                  : const SmartPlaylistsPage(),
+            ),
+          ),
+          GoRoute(
+            path: '/smart-playlists/editor',
+            pageBuilder: (context, state) => _appLeafPage(
+              state,
+              SmartPlaylistEditorPage(ruleId: state.uri.queryParameters['id']),
+            ),
+          ),
+          GoRoute(
+            path: '/playlist/:platform/:id',
+            pageBuilder: (context, state) {
+              final platform = PlatformType.parse(
+                state.pathParameters['platform']!,
+              );
+              return _appLeafPage(
+                state,
+                PlaylistDetailPage(
+                  platform: platform,
+                  playlistId: state.pathParameters['id']!,
+                  playlistName: state.uri.queryParameters['name'] ?? '歌单',
+                  coverUrl: state.uri.queryParameters['cover'],
+                ),
+              );
+            },
+          ),
+          GoRoute(
+            path: '/toplists',
+            pageBuilder: (context, state) =>
+                _appLeafPage(state, const ToplistsPage()),
+          ),
+          GoRoute(
+            path: '/toplist/:platform/:id',
+            pageBuilder: (context, state) => _appLeafPage(
+              state,
+              ToplistDetailPage(
+                platform: PlatformType.parse(state.pathParameters['platform']!),
+                toplistId: state.pathParameters['id']!,
+                toplistName: state.uri.queryParameters['name'],
+              ),
+            ),
+          ),
+          GoRoute(
+            path: '/album/:platform/:id',
+            pageBuilder: (context, state) => _appLeafPage(
+              state,
+              AlbumPage(
+                platform: PlatformType.parse(state.pathParameters['platform']!),
+                albumId: state.pathParameters['id']!,
+                albumName: state.uri.queryParameters['name'],
+              ),
+            ),
+          ),
+          GoRoute(
+            path: '/artist/:platform/:id',
+            pageBuilder: (context, state) => _appLeafPage(
+              state,
+              ArtistPage(
+                platform: PlatformType.parse(state.pathParameters['platform']!),
+                artistId: state.pathParameters['id']!,
+                artistName: state.uri.queryParameters['name'],
+              ),
+            ),
+          ),
+          GoRoute(
+            path: '/new-songs',
+            pageBuilder: (context, state) =>
+                _appLeafPage(state, const NewSongsPage()),
+          ),
+          GoRoute(
+            path: '/backup',
+            pageBuilder: (context, state) =>
+                _appLeafPage(state, const BackupPage()),
+          ),
+          GoRoute(
+            path: '/settings',
+            pageBuilder: (context, state) => _appLeafPage(
+              state,
+              desktop ? const SettingsDesktopPage() : const SettingsPage(),
+            ),
+          ),
+          GoRoute(
+            path: '/settings/accounts',
+            pageBuilder: (context, state) =>
+                _appLeafPage(state, const SettingsAccountsPage()),
+          ),
+          GoRoute(
+            path: '/settings/appearance',
+            pageBuilder: (context, state) =>
+                _appLeafPage(state, const SettingsAppearancePage()),
+          ),
+          GoRoute(
+            path: '/settings/floating-lyrics',
+            pageBuilder: (context, state) =>
+                _appLeafPage(state, const SettingsFloatingLyricsPage()),
+          ),
+          GoRoute(
+            path: '/settings/audio',
+            pageBuilder: (context, state) =>
+                _appLeafPage(state, const SettingsAudioPage()),
+          ),
+          GoRoute(
+            path: '/settings/diagnostics',
+            pageBuilder: (context, state) =>
+                _appLeafPage(state, const SettingsDiagnosticsPage()),
+          ),
+          GoRoute(
+            path: '/login/:platform',
+            pageBuilder: (context, state) {
+              final platform = PlatformType.parse(
+                state.pathParameters['platform']!,
+              );
+              return _appLeafPage(state, LoginPage(platform: platform));
+            },
+          ),
+        ],
+      ),
+    ],
+  );
+}
+
+/// The production router. The form factor is fixed at process start.
+final GoRouter appRouter = createAppRouter(
+  desktop: DesktopShellPolicy.isEnabled,
 );
 
 /// Opacity of a page's backing plate, which sits over the app-level background.
@@ -327,9 +397,66 @@ double routeBackingOpacityFor(String location) =>
 /// The two roles are now separate ([appShellPage] / [appLeafPage]) and the bottom
 /// clearance is applied to the *route's content* ([RouteBottomInset]) instead of
 /// around the navigator, so no band needs patching at all.
+/// The opaque floor every desktop leaf route carries.
+///
+/// The shell's [DesktopPageSurface] is deliberately translucent over the
+/// ambient cover. That is fine while one page is visible, but during a route
+/// transition both leaf pages paint into the same plate. The outgoing page used
+/// to remain visible through the incoming page's transparent background for
+/// the whole fade (reported as a ~0.5 s overlap). This floor is the desktop
+/// counterpart of the opaque backing mobile uses: it has no alpha, so the
+/// outgoing page cannot composite through, while the gradient keeps the plate
+/// from reading as a flat rectangle.
+class _DesktopRouteBacking extends StatelessWidget {
+  final Widget child;
+  final Radius radius;
+
+  const _DesktopRouteBacking({required this.child, required this.radius});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final borderRadius = BorderRadius.all(radius);
+    return SizedBox.expand(
+      // The Scaffold workaround gives the route its own opaque Material layer
+      // (flutter#174439). Its background is rectangular, however, while the
+      // desktop plate is rounded; without the clip the page paints a square
+      // patch outside the plate's corners (a visible dark ring). Clip the whole
+      // route once, then paint the same rounded floor inside it.
+      child: ClipRRect(
+        borderRadius: borderRadius,
+        child: Scaffold(
+          backgroundColor: scheme.surfaceContainerLow.withValues(alpha: 1.0),
+          resizeToAvoidBottomInset: false,
+          body: DecoratedBox(
+            key: const Key('desktop-route-opaque-backing'),
+            decoration: BoxDecoration(
+              // Force alpha 1 even if a future theme makes the container colour
+              // translucent: the floor exists specifically to stop the covered
+              // route from compositing through during the slide.
+              color: scheme.surfaceContainerLow.withValues(alpha: 1.0),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  scheme.primary.withValues(alpha: 0.035),
+                  Colors.transparent,
+                ],
+              ),
+              borderRadius: borderRadius,
+            ),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 CustomTransitionPage<void> _appPage(
   GoRouterState state,
   Widget child, {
+
   /// Wrap the page in the frosted sheet. False for the shell page, which paints
   /// the capsules and must stay transparent above the app background.
   required bool frost,
@@ -337,6 +464,46 @@ CustomTransitionPage<void> _appPage(
   /// Reserve the floating bottom stack's clearance inside the route.
   required bool insetContent,
 }) {
+  if (DesktopShellPolicy.isEnabled) {
+    // Desktop routes are slide-only, never a cross-fade. The page content sits
+    // on the shell's semi-transparent plate, so a FadeTransition made the
+    // outgoing page's text composite through the incoming page for the whole
+    // 200 ms (the reported page overlap). Mobile fixed the same defect by
+    // making the incoming page opaque; here the equivalent backing is painted
+    // inside every leaf route, and the slide keeps it opaque from frame zero.
+    return CustomTransitionPage<void>(
+      key: state.pageKey,
+      name: state.name ?? state.path,
+      arguments: <String, String>{
+        ...state.pathParameters,
+        ...state.uri.queryParameters,
+      },
+      restorationId: state.pageKey.value,
+      transitionDuration: const Duration(milliseconds: 200),
+      reverseTransitionDuration: const Duration(milliseconds: 160),
+      transitionsBuilder: (context, animation, _, child) {
+        if (MediaQuery.disableAnimationsOf(context)) return child;
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+        );
+        return SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 0.008),
+            end: Offset.zero,
+          ).animate(curved),
+          child: child,
+        );
+      },
+      // The shell page hosts the sidebar/player and must stay transparent over
+      // the ambient background. Only leaf pages get the opaque plate; otherwise
+      // the whole desktop window would go flat during navigation.
+      child: insetContent
+          ? _DesktopRouteBacking(radius: DesktopRadii.xl, child: child)
+          : child,
+    );
+  }
+
   return CustomTransitionPage<void>(
     key: state.pageKey,
     name: state.name ?? state.path,
@@ -366,8 +533,8 @@ CustomTransitionPage<void> _appPage(
       // cannot composite through it — and because the floor *is* the (blurred)
       // picture, "opaque" no longer means "the background disappears".
       //
-      // That sheet is also why no `BackdropFilter` appears in this file any more:
-      // a backdrop filter samples the live scene, which during a transition still
+      // That sheet is also why no `BackdropFilter` appears in this file any more: a
+      // backdrop filter samples the live scene, which during a transition still
       // contains the outgoing route, which is how the previous page's text ended up
       // smeared into a visible ghost inside the panel. **Reintroducing one brings
       // the ghost back.** See `SecondaryGlassSurface`'s doc comment.
@@ -412,12 +579,7 @@ CustomTransitionPage<void> _appShellPage(GoRouterState state, Widget child) =>
 /// Frosted unless it is the home tab host, and always carrying its own bottom
 /// clearance.
 CustomTransitionPage<void> _appLeafPage(GoRouterState state, Widget child) =>
-    _appPage(
-      state,
-      child,
-      frost: state.uri.path != '/',
-      insetContent: true,
-    );
+    _appPage(state, child, frost: state.uri.path != '/', insetContent: true);
 
 /// Hands the shell's live tab index to the home screen.
 ///

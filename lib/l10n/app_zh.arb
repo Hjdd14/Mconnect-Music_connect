@@ -464,5 +464,26 @@
   "@libraryPlaylistCopyError": { "placeholders": { "error": { "type": "String" } } },
   "@libraryPlaylistRenameError": { "placeholders": { "error": { "type": "String" } } },
   "librarySelectAll": "全选",
-  "libraryPlaylistCopyEmpty": "该歌单没有可复制的歌曲"
+  "libraryPlaylistCopyEmpty": "该歌单没有可复制的歌曲",
+
+  "desktopBehavior": "桌面行为",
+  "desktopBehaviorSubtitle": "托盘、全局快捷键、防休眠与窗口位置",
+  "desktopWindowSection": "窗口与托盘",
+  "desktopHotkeysSection": "快捷键与电源",
+  "desktopCloseToTray": "关闭到托盘",
+  "desktopCloseToTraySubtitle": "点关闭按钮时隐藏到托盘，而不是退出应用",
+  "desktopFirstRunHint": "首次托盘提示",
+  "desktopFirstRunHintSubtitle": "第一次隐藏到托盘时提示如何从托盘重新打开",
+  "desktopRememberWindow": "记住窗口位置与大小",
+  "desktopRememberWindowSubtitle": "下次启动时恢复到上次的窗口位置与尺寸",
+  "desktopResetWindow": "重置窗口状态",
+  "desktopResetWindowDone": "窗口状态已重置",
+  "desktopResetWindowFailed": "当前环境还不支持重置窗口状态（原生端未就绪）",
+  "desktopHotkeysEnabled": "启用全局快捷键",
+  "desktopHotkeysEnabledSubtitle": "应用不在前台时也能开关歌词与播放",
+  "desktopHotkeyToggleLyrics": "歌词开关快捷键",
+  "desktopHotkeyPlayPause": "播放/暂停快捷键",
+  "desktopHotkeyHint": "例如 Ctrl+Alt+L",
+  "desktopPreventSleep": "播放时防止休眠",
+  "desktopPreventSleepSubtitle": "播放期间阻止系统进入睡眠，暂停后恢复"
 }

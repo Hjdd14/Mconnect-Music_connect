@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 import 'package:just_audio/just_audio.dart' as just_audio;
 import 'package:media_kit/media_kit.dart' as media_kit;
 
@@ -50,6 +51,9 @@ class MediaKitWindowsAudioController
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
 
+  /// Set by [dispose]; every public entry point short-circuits on it (H-11).
+  bool _disposed = false;
+
   MediaKitWindowsAudioController({
     MediaKitWindowsBackend Function()? backendFactory,
   }) : _backendFactory = backendFactory ?? RealMediaKitWindowsBackend.create;
@@ -84,6 +88,7 @@ class MediaKitWindowsAudioController
   @override
   Future<void> setUrl(String url) async {
     final backend = _ensureBackend();
+    if (backend == null) return;
     _completed = false;
     await backend.open(url);
     await _publishKnownLocalDuration(backend, url);
@@ -93,6 +98,7 @@ class MediaKitWindowsAudioController
   @override
   Future<void> play() async {
     final backend = _ensureBackend();
+    if (backend == null) return;
     await backend.play();
     _playing = true;
     _completed = false;
@@ -102,6 +108,7 @@ class MediaKitWindowsAudioController
   @override
   Future<void> pause() async {
     final backend = _ensureBackend();
+    if (backend == null) return;
     await backend.pause();
     _playing = false;
     _emitPlaybackState();
@@ -110,6 +117,7 @@ class MediaKitWindowsAudioController
   @override
   Future<void> stop() async {
     final backend = _ensureBackend();
+    if (backend == null) return;
     await backend.stop();
     _playing = false;
     _completed = false;
@@ -120,25 +128,30 @@ class MediaKitWindowsAudioController
   @override
   Future<void> seek(Duration position) async {
     final backend = _ensureBackend();
+    if (backend == null) return;
     await backend.seek(position);
     _position = position;
-    _positionController.add(position);
+    if (!_positionController.isClosed) {
+      _positionController.add(position);
+    }
   }
 
   @override
-  Future<void> setVolume(double volume) {
+  Future<void> setVolume(double volume) async {
     final backend = _ensureBackend();
+    if (backend == null) return;
     _volume = volume.clamp(0.0, 1.0);
-    return backend.setVolume(volume.clamp(0.0, 1.0) * 100);
+    await backend.setVolume(volume.clamp(0.0, 1.0) * 100);
   }
 
   @override
   Future<void> applyEqualizer({
     required bool enabled,
     required List<double> bandGains,
-  }) {
+  }) async {
     final backend = _ensureBackend();
-    return backend.setAudioFilter(
+    if (backend == null) return;
+    await backend.setAudioFilter(
       _equalizerFilter(enabled: enabled, bandGains: bandGains),
     );
   }
@@ -149,24 +162,44 @@ class MediaKitWindowsAudioController
   @override
   Future<void> setPlaybackSpeed(double speed) async {
     final backend = _ensureBackend();
+    if (backend == null) return;
     _playbackSpeed = speed;
     await backend.setSpeed(speed);
   }
 
   @override
   Future<void> dispose() async {
+    // Idempotent, and the flag is set FIRST: cancelling subscriptions and
+    // closing the controllers is async, so a concurrent `_ensureBackend`
+    // (a fade tick, a volume restore) could otherwise slip in between and
+    // build a backend that this method has already decided not to release.
+    if (_disposed) return;
+    _disposed = true;
+    _playing = false;
+    _buffering = false;
+    final backend = _backend;
+    _backend = null;
     for (final subscription in _subscriptions) {
       await subscription.cancel();
     }
     _subscriptions.clear();
-    await _backend?.dispose();
-    _backend = null;
-    await _positionController.close();
-    await _durationController.close();
-    await _playerStateController.close();
+    await backend?.dispose();
+    if (!_positionController.isClosed) await _positionController.close();
+    if (!_durationController.isClosed) await _durationController.close();
+    if (!_playerStateController.isClosed) await _playerStateController.close();
   }
 
-  MediaKitWindowsBackend _ensureBackend() {
+  /// The backend, or `null` once this controller is disposed.
+  ///
+  /// H-11: `dispose` closes the three stream controllers and nulls `_backend`,
+  /// but the old implementation happily built a *new* media_kit Player on the
+  /// next call (a `setVolume` from the volume guard, a fade tick finishing
+  /// after the page closed) and nothing ever called its `dispose`: one leaked
+  /// mpv instance per disposed controller. Returning `null` makes the caller
+  /// short-circuit instead, and no backend can exist behind a disposed
+  /// controller.
+  MediaKitWindowsBackend? _ensureBackend() {
+    if (_disposed) return null;
     final existing = _backend;
     if (existing != null) return existing;
     final backend = _backendFactory();
@@ -175,7 +208,9 @@ class MediaKitWindowsAudioController
       ..add(
         backend.positionStream.listen((position) {
           _position = position;
-          _positionController.add(position);
+          if (!_positionController.isClosed) {
+            _positionController.add(position);
+          }
         }),
       )
       ..add(
@@ -312,7 +347,28 @@ class RealMediaKitWindowsBackend implements MediaKitWindowsBackend {
 
   static RealMediaKitWindowsBackend create() {
     media_kit.MediaKit.ensureInitialized();
-    return RealMediaKitWindowsBackend._(media_kit.Player());
+    final player = media_kit.Player();
+    // libmpv has its own TLS stack and does not read Dart's SecurityContext.
+    // Point it at the same current CA bundle the API uses, otherwise HTTPS
+    // stream URLs fail after login while lyrics (Dio) still work.
+    final ca = p.join(
+      p.dirname(Platform.resolvedExecutable),
+      'data',
+      'flutter_assets',
+      'assets',
+      'certs',
+      'cacert.pem',
+    );
+    if (File(ca).existsSync() && player.platform is media_kit.NativePlayer) {
+      unawaited(
+        (player.platform as media_kit.NativePlayer)
+            .setProperty('tls-ca-file', ca)
+            .catchError((Object error) {
+              debugPrint('libmpv tls-ca-file failed: $error');
+            }),
+      );
+    }
+    return RealMediaKitWindowsBackend._(player);
   }
 
   @override

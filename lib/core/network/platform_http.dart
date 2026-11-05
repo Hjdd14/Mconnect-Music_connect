@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../l10n/l10n.dart';
 import '../../models/platform_type.dart';
@@ -169,6 +170,12 @@ class PlatformErrorInterceptor extends Interceptor {
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
+    if (kDebugMode) {
+      debugPrint(
+        'DioError type=${err.type} uri=${err.requestOptions.uri} '
+        'message=${err.message} error=${err.error}',
+      );
+    }
     final translated = translateDioException(err, label: label);
     final owner = platform;
     if (owner != null && translated is LoginExpiredException) {

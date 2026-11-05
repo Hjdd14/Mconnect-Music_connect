@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+
+import '../../../core/diagnostics/diagnostics_service.dart';
 
 import 'local_library_reconciler.dart';
 import 'local_lyrics_loader.dart';
@@ -26,6 +29,17 @@ export 'local_music_scan_result.dart' show LocalMusicScanResult, LocalMusicScann
 /// Android does not use this path: SAF URIs are opaque to `dart:io`, so
 /// `AndroidLocalMusicService`/`MainActivity` do the equivalent work with
 /// `MediaMetadataRetriever` and hand the same records to the same reconciler.
+
+/// Runs the directory walk off the UI isolate.
+///
+/// Injectable so the failure path is testable: the default is `Isolate.run`,
+/// and a platform that cannot start one (a restricted embedder, a web build)
+/// must degrade to an inline scan instead of losing the whole library page.
+typedef IsolateScanRunner =
+    Future<List<Map<String, Object?>>> Function(
+      FutureOr<List<Map<String, Object?>>> Function() computation,
+    );
+
 class LocalMusicRepository implements LocalMusicScanner {
   static const supportedAudioExtensions = {
     '.mp3',
@@ -50,13 +64,15 @@ class LocalMusicRepository implements LocalMusicScanner {
     LocalLyricsLoader? lyricsLoader,
     this.coverDirectoryPath,
     bool? scanInIsolate,
+    IsolateScanRunner? isolateRunner,
   }) : _metadataReader = metadataReader,
        _trackStore = trackStore ?? DriftLocalTrackStore(),
        _lyricsStore = lyricsStore ?? DriftLocalLyricsStore(),
        _lyricsLoader = lyricsLoader ?? LocalLyricsLoader(),
        // A stateful test double cannot cross an isolate boundary, so injecting
        // one forces the inline path.
-       _scanInIsolate = scanInIsolate ?? metadataReader == null;
+       _scanInIsolate = scanInIsolate ?? metadataReader == null,
+       _isolateRunner = isolateRunner ?? runScanInIsolate;
 
   final LocalMetadataReader? _metadataReader;
   final LocalTrackStore _trackStore;
@@ -67,6 +83,8 @@ class LocalMusicRepository implements LocalMusicScanner {
   final String? coverDirectoryPath;
 
   final bool _scanInIsolate;
+
+  final IsolateScanRunner _isolateRunner;
 
   @override
   Future<LocalMusicScanResult> scanDirectory(String rootPath) async {
@@ -88,14 +106,7 @@ class LocalMusicRepository implements LocalMusicScanner {
     } else {
       // Tag parsing is file IO and CPU and must not run on the UI isolate
       // (H-16). Everything crossing the boundary is plain data.
-      final coverDirectory = await _resolvedCoverDirectoryPath();
-      walked = await Isolate.run(
-        () => _walkLocalMusic(
-          rootPath,
-          knownSnapshot,
-          AudioMetadataReader(coverDirectoryPath: coverDirectory),
-        ),
-      );
+      walked = await _walkOnIsolate(rootPath, knownSnapshot);
     }
 
     final reconciler = LocalLibraryReconciler(
@@ -112,6 +123,35 @@ class LocalMusicRepository implements LocalMusicScanner {
     );
   }
 
+  /// Runs [_walkLocalMusic] on a worker isolate, falling back to an inline walk
+  /// when the isolate cannot start.
+  ///
+  /// The fallback exists because a scan is the only way the local page gets any
+  /// content: an environment that refuses to spawn an isolate would otherwise
+  /// show an empty library forever, with the reason buried in an unhandled
+  /// async error. A slow frame is the better failure.
+  Future<List<Map<String, Object?>>> _walkOnIsolate(
+    String rootPath,
+    Map<String, List<int>> knownSnapshot,
+  ) async {
+    final coverDirectory = await _resolvedCoverDirectoryPath();
+    List<Map<String, Object?>> walk() => _walkLocalMusic(
+      rootPath,
+      knownSnapshot,
+      AudioMetadataReader(coverDirectoryPath: coverDirectory),
+    );
+    try {
+      return await _isolateRunner(walk);
+    } on Object catch (error, stack) {
+      DiagnosticsService.instance.recordError(
+        'local_music.isolate_scan',
+        error,
+        stack,
+      );
+      return walk();
+    }
+  }
+
   /// Where extracted covers are written. Resolved *before* the isolate starts
   /// because `path_provider` is asynchronous and the reader is not.
   Future<String> _resolvedCoverDirectoryPath() async {
@@ -126,6 +166,21 @@ class LocalMusicRepository implements LocalMusicScanner {
       return p.join(Directory.systemTemp.path, 'mconnect', 'local_covers');
     }
   }
+}
+
+/// The default [IsolateScanRunner].
+///
+/// `Isolate.run` is enough here because everything that crosses the boundary is
+/// plain data (`String`, `int`, `Map<String, Object?>`) and the tag parser
+/// (`audio_metadata_reader`) is **pure Dart**: it opens files with `dart:io`
+/// and parses bytes, with no platform channel, no plugin registration and no
+/// static state that has to be initialised on the UI isolate. That is also why
+/// the scan does not need the chunked `yield` workaround: the whole walk runs
+/// on another isolate and cannot block a frame.
+Future<List<Map<String, Object?>>> runScanInIsolate(
+  FutureOr<List<Map<String, Object?>>> Function() computation,
+) {
+  return Isolate.run(computation);
 }
 
 /// Walks [rootPath] and reads tags for every file that is new or changed.

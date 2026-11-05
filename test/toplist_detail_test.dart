@@ -78,6 +78,15 @@ void main() {
 
     // 列表行数 = 真实 fixture 的 songlist 条数。
     expect(find.byType(RankedSongTile), findsNWidgets(3));
+    // 每行都有一个封面位（以前只有名次方块）；封面 URL 由适配器决定，
+    // 有 URL 时渲染 CachedNetworkImage、没有时落占位（见 ranked_song_tile_cover_test）。
+    expect(
+      find.descendant(
+        of: find.byType(RankedSongTile),
+        matching: find.byKey(const ValueKey('ranked-song-cover')),
+      ),
+      findsNWidgets(3),
+    );
   });
 
   testWidgets('上升/下降/新上榜/增长率四种标记都能渲染', (tester) async {

@@ -774,4 +774,64 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get libraryPlaylistCopyEmpty => '该歌单没有可复制的歌曲';
+
+  @override
+  String get desktopBehavior => '桌面行为';
+
+  @override
+  String get desktopBehaviorSubtitle => '托盘、全局快捷键、防休眠与窗口位置';
+
+  @override
+  String get desktopWindowSection => '窗口与托盘';
+
+  @override
+  String get desktopHotkeysSection => '快捷键与电源';
+
+  @override
+  String get desktopCloseToTray => '关闭到托盘';
+
+  @override
+  String get desktopCloseToTraySubtitle => '点关闭按钮时隐藏到托盘，而不是退出应用';
+
+  @override
+  String get desktopFirstRunHint => '首次托盘提示';
+
+  @override
+  String get desktopFirstRunHintSubtitle => '第一次隐藏到托盘时提示如何从托盘重新打开';
+
+  @override
+  String get desktopRememberWindow => '记住窗口位置与大小';
+
+  @override
+  String get desktopRememberWindowSubtitle => '下次启动时恢复到上次的窗口位置与尺寸';
+
+  @override
+  String get desktopResetWindow => '重置窗口状态';
+
+  @override
+  String get desktopResetWindowDone => '窗口状态已重置';
+
+  @override
+  String get desktopResetWindowFailed => '当前环境还不支持重置窗口状态（原生端未就绪）';
+
+  @override
+  String get desktopHotkeysEnabled => '启用全局快捷键';
+
+  @override
+  String get desktopHotkeysEnabledSubtitle => '应用不在前台时也能开关歌词与播放';
+
+  @override
+  String get desktopHotkeyToggleLyrics => '歌词开关快捷键';
+
+  @override
+  String get desktopHotkeyPlayPause => '播放/暂停快捷键';
+
+  @override
+  String get desktopHotkeyHint => '例如 Ctrl+Alt+L';
+
+  @override
+  String get desktopPreventSleep => '播放时防止休眠';
+
+  @override
+  String get desktopPreventSleepSubtitle => '播放期间阻止系统进入睡眠，暂停后恢复';
 }

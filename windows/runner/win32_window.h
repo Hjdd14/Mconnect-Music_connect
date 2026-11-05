@@ -52,11 +52,25 @@ class Win32Window {
   // If true, closing this window will quit the application.
   void SetQuitOnClose(bool quit_on_close);
 
-  // If true, ask the user whether close should minimize or exit.
-  void SetAskBeforeClose(bool ask_before_close);
+  // Supplies the initial window bounds (physical pixels) and the "start
+  // maximized" flag before the window is created. Returning false keeps the
+  // default centred geometry.
+  //
+  // This runs inside Create, i.e. *before* FlutterViewController exists: the
+  // engine surface is created at the restored size from its very first frame,
+  // so a restored window never resizes the surface after presenting once (the
+  // bug the pre-first-frame sizing fixed). The provider is expected to clamp
+  // the rect to a monitor work area itself.
+  using InitialBoundsProvider = std::function<bool(RECT* bounds, bool* maximized)>;
+  void SetInitialBoundsProvider(InitialBoundsProvider provider);
 
   // Sets the minimum track size for interactive resizing.
   void SetMinimumSize(const Size& size);
+
+  // Resizes the window (physical pixels) after creation. Used to correct the
+  // initial size on high-DPI monitors where FlutterDesktopGetDpiForMonitor
+  // reports 96 before the window exists.
+  void SetSize(int width, int height);
 
   // Return a RECT representing the bounds of the current client area.
   RECT GetClientArea();
@@ -76,6 +90,11 @@ class Win32Window {
 
   // Called when Destroy is called.
   virtual void OnDestroy();
+
+  // Called from WM_CLOSE before the window is destroyed. Returning true means
+  // the subclass handled the close (e.g. it hid the window into the tray) and
+  // the window must stay alive.
+  virtual bool OnCloseRequested();
 
  private:
   friend class WindowClassRegistrar;
@@ -97,7 +116,12 @@ class Win32Window {
   static void UpdateTheme(HWND const window);
 
   bool quit_on_close_ = false;
-  bool ask_before_close_ = false;
+
+  InitialBoundsProvider initial_bounds_provider_;
+
+  // Set by |initial_bounds_provider_|: Show() then makes the window appear
+  // maximized instead of resizing it afterwards.
+  bool start_maximized_ = false;
 
   // window handle for top level window.
   HWND window_handle_ = nullptr;

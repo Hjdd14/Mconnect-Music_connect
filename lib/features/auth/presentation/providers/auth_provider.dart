@@ -14,6 +14,15 @@ class AuthState {
   final Map<PlatformType, User?> loggedUsers;
   final bool isLoading;
 
+  /// True while [AuthNotifier.init] is still restoring the persisted sessions.
+  ///
+  /// The restore reads secure storage and calls `getUserInfo()` on every
+  /// platform, so it finishes well after the first frame. Screens that load
+  /// per-account data (the desktop 发现 page) have to wait for it, otherwise
+  /// they run while every platform still reports "not logged in" and only a
+  /// manual refresh brings the data back.
+  final bool restoring;
+
   /// Platform whose session just expired, if any (task-5).
   ///
   /// The UI cannot learn this from [loggedUsers] alone: a user who was never
@@ -28,6 +37,7 @@ class AuthState {
   const AuthState({
     this.loggedUsers = const {},
     this.isLoading = false,
+    this.restoring = false,
     this.expiredPlatform,
     this.expiryNoticeId = 0,
   });
@@ -35,12 +45,14 @@ class AuthState {
   AuthState copyWith({
     Map<PlatformType, User?>? loggedUsers,
     bool? isLoading,
+    bool? restoring,
     PlatformType? Function()? expiredPlatform,
     int? expiryNoticeId,
   }) {
     return AuthState(
       loggedUsers: loggedUsers ?? this.loggedUsers,
       isLoading: isLoading ?? this.isLoading,
+      restoring: restoring ?? this.restoring,
       expiredPlatform: expiredPlatform != null
           ? expiredPlatform()
           : this.expiredPlatform,
@@ -61,11 +73,18 @@ class AuthNotifier extends StateNotifier<AuthState> {
   /// Restore sessions from secure storage on app startup.
   /// Only restores cookies + user data — no network calls.
   Future<void> init() async {
+    // Mark the restore as in flight so the first screens can show a spinner
+    // instead of "not logged in" while the cookies are still being read.
+    state = state.copyWith(restoring: true);
     try {
       // Timeout: don't block app startup for more than 8 seconds
       await _restoreSessions().timeout(const Duration(seconds: 8));
     } catch (e) {
       debugPrint('Session restore timeout/error: $e');
+    } finally {
+      // A timeout must still clear the flag: `_restoreSessions` keeps running
+      // and its later `loggedUsers` write is what triggers a reload.
+      state = state.copyWith(restoring: false);
     }
   }
 

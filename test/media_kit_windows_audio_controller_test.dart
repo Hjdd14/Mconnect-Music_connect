@@ -175,6 +175,57 @@ void main() {
     expect(backend.speedChanges, [1.5]);
     expect(controller.playbackSpeed, 1.5);
   });
+
+  group('dispose (H-11: a disposed controller must not leak an mpv player)', () {
+    test('no public method rebuilds the backend after dispose', () async {
+      final created = <_FakeMediaKitWindowsBackend>[];
+      final controller = MediaKitWindowsAudioController(
+        backendFactory: () {
+          final backend = _FakeMediaKitWindowsBackend();
+          created.add(backend);
+          return backend;
+        },
+      );
+
+      await controller.setVolume(0.5);
+      expect(created, hasLength(1), reason: 'the first call creates the backend');
+
+      await controller.dispose();
+
+      await controller.setUrl('https://example.test/song.mp3');
+      await controller.play();
+      await controller.pause();
+      await controller.stop();
+      await controller.seek(const Duration(seconds: 1));
+      await controller.setVolume(0.3);
+      await controller.applyEqualizer(enabled: true, bandGains: const [1, 0, 0, 0, 0]);
+      await controller.setPlaybackSpeed(1.5);
+
+      expect(
+        created,
+        hasLength(1),
+        reason: 'a call after dispose used to build a second media_kit Player and never release it',
+      );
+      expect(created.single.disposeCount, 1);
+      expect(controller.playing, isFalse);
+      // The post-dispose setVolume(0.3) was ignored, so the last accepted value stands.
+      expect(controller.volume, 0.5);
+    });
+
+    test('dispose is idempotent and leaves the streams closed', () async {
+      final backend = _FakeMediaKitWindowsBackend();
+      final controller = MediaKitWindowsAudioController(backendFactory: () => backend);
+
+      await controller.setVolume(0.2);
+      await controller.dispose();
+      await controller.dispose();
+
+      expect(backend.disposeCount, 1);
+      await expectLater(controller.positionStream, emitsDone);
+      await expectLater(controller.durationStream, emitsDone);
+      await expectLater(controller.playerStateStream, emitsDone);
+    });
+  });
 }
 
 class _FakeMediaKitWindowsBackend implements MediaKitWindowsBackend {
@@ -189,6 +240,7 @@ class _FakeMediaKitWindowsBackend implements MediaKitWindowsBackend {
   final List<String> audioFilters = [];
   final List<double> speedChanges = [];
   int durationReadCount = 0;
+  int disposeCount = 0;
   bool _playing = false;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
@@ -286,6 +338,7 @@ class _FakeMediaKitWindowsBackend implements MediaKitWindowsBackend {
 
   @override
   Future<void> dispose() async {
+    disposeCount++;
     await _positionController.close();
     await _durationController.close();
     await _playingController.close();
@@ -293,4 +346,5 @@ class _FakeMediaKitWindowsBackend implements MediaKitWindowsBackend {
     await _completedController.close();
     await _errorController.close();
   }
+
 }

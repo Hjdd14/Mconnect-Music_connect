@@ -482,8 +482,13 @@ class KugouPlatform extends MusicPlatform {
         coverUrl = unionCover.replaceFirst('{size}', '480');
       }
     }
+    // `imgurl`/`pic` are what `rank/song` and `album/song` rows use; this parser
+    // used to look only at the search-shaped fields, so a chart row whose cover
+    // lived in `imgurl` rendered without artwork.
     coverUrl ??= s['album_img'] ?? s['image'] ?? s['cover'];
     coverUrl ??= s['album_sizable_cover'];
+    coverUrl ??= s['imgurl'];
+    coverUrl ??= s['pic'];
     coverUrl = _normalizeSizeTemplate(coverUrl);
     final durationSeconds =
         int.tryParse((s['duration'] ?? s['timeLength'] ?? 0).toString()) ?? 0;
@@ -494,8 +499,14 @@ class KugouPlatform extends MusicPlatform {
       platform: PlatformType.kugou,
       name: songName,
       artists: _artistsFromSong(s, fallbackName: singerName),
+      // The album link is rendered from this object; without a cover the album
+      // page opened from a chart row had no artwork either.
       album: s['album_name'] != null
-          ? Album(id: s['album_id']?.toString() ?? '', name: s['album_name'])
+          ? Album(
+              id: s['album_id']?.toString() ?? '',
+              name: s['album_name'],
+              coverUrl: coverUrl,
+            )
           : null,
       duration: timelenMs > 0
           ? Duration(milliseconds: timelenMs)

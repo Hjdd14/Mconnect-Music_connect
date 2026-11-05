@@ -296,5 +296,26 @@
   "libraryPlaylistCopyError": "Could not copy the playlist: {error}",
   "libraryPlaylistRenameFailed": "Rename failed (blank name, or playlist missing)",
   "librarySelectAll": "Select all",
-  "libraryPlaylistCopyEmpty": "This playlist has no songs to copy"
+  "libraryPlaylistCopyEmpty": "This playlist has no songs to copy",
+
+  "desktopBehavior": "Desktop behaviour",
+  "desktopBehaviorSubtitle": "Tray, global hotkeys, sleep prevention and window memory",
+  "desktopWindowSection": "Window & tray",
+  "desktopHotkeysSection": "Hotkeys & power",
+  "desktopCloseToTray": "Close to tray",
+  "desktopCloseToTraySubtitle": "The close button hides the window to the system tray instead of quitting",
+  "desktopFirstRunHint": "First-run tray hint",
+  "desktopFirstRunHintSubtitle": "Explain how to reopen the app from the tray the first time it hides",
+  "desktopRememberWindow": "Remember window position and size",
+  "desktopRememberWindowSubtitle": "Restore the window where you left it on the next launch",
+  "desktopResetWindow": "Reset window state",
+  "desktopResetWindowDone": "Window state reset",
+  "desktopResetWindowFailed": "This environment cannot reset the window state yet (the native side is not ready)",
+  "desktopHotkeysEnabled": "Enable global hotkeys",
+  "desktopHotkeysEnabledSubtitle": "Toggle lyrics and playback while the app is in the background",
+  "desktopHotkeyToggleLyrics": "Toggle-lyrics hotkey",
+  "desktopHotkeyPlayPause": "Play/pause hotkey",
+  "desktopHotkeyHint": "e.g. Ctrl+Alt+L",
+  "desktopPreventSleep": "Prevent sleep while playing",
+  "desktopPreventSleepSubtitle": "Keep the machine awake during playback, and release it when paused"
 }
