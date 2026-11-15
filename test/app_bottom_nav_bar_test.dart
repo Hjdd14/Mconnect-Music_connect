@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mconnect/core/theme/ui_style_provider.dart';
 import 'package:mconnect/core/widgets/app_bottom_nav_bar.dart';
 import 'package:mconnect/core/widgets/floating_glass_nav_bar.dart';
+import 'package:mconnect/core/platform/platform_utils.dart';
 import 'package:mconnect/core/widgets/miuix_bottom_layout.dart';
 
 class _StubUiStyleNotifier extends UiStyleNotifier {
@@ -16,6 +17,14 @@ class _StubUiStyleNotifier extends UiStyleNotifier {
 }
 
 void main() {
+  // The glass/opaque decision reads `PlatformUtils.current` (dart:io). On a
+  // Linux runner that is `linux`, so the capsule rendered the *glass* path and
+  // every icon appeared twice — these assertions describe the degraded Windows
+  // path the widget deliberately takes there. Pin the platform instead of
+  // letting the host decide, so the suite is host-independent.
+  setUp(() => PlatformUtils.setDebugOverride(AppPlatform.windows));
+  tearDown(() => PlatformUtils.setDebugOverride(null));
+
   Widget wrap({required UiStyle style, required Widget child}) {
     return ProviderScope(
       overrides: [

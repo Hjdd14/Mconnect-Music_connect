@@ -176,6 +176,9 @@ android/build/
 /Mconnect-*-*.apk
 /dist/
 
+# 误建的 Windows 控制台设备节点（`> CON` 之类的重定向会产生它，无法删除也无法提交）
+/CON
+
 # Local desktop runtime data and QA screenshots
 /.mconnect_data/
 /.mconnect_data_release/

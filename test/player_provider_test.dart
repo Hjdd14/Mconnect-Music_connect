@@ -1249,7 +1249,7 @@ void main() {
         audioControllerFactory: () => _FakeAudioController(),
         keepAliveController: const NoopPlaybackKeepAliveController(),
         isOfflineModeEnabled: () => true,
-        offlineFilePathResolver: (song) async => r'C:\music\offline-1.mp3',
+        offlineFilePathResolver: (song) async => _offlinePath('offline-1.mp3'),
       );
       addTearDown(notifier.dispose);
 
@@ -1275,7 +1275,7 @@ void main() {
       isOfflineModeEnabled: () => false,
       offlineFilePathResolver: (song) async {
         resolveCalls++;
-        return r'C:\music\offline-2.mp3';
+        return _offlinePath('offline-2.mp3');
       },
     );
     addTearDown(notifier.dispose);
@@ -1351,7 +1351,7 @@ void main() {
         keepAliveController: const NoopPlaybackKeepAliveController(),
         isOfflineModeEnabled: () => true,
         offlineFilePathResolver: (song) async =>
-            r'C:\music\offline-restored.flac',
+            _offlinePath('offline-restored.flac'),
       );
       addTearDown(notifier.dispose);
 
@@ -3214,3 +3214,12 @@ class _ControlledUrlPlatform extends _FakeMusicPlatform {
     return super.getSongUrl(songId, quality: quality);
   }
 }
+
+/// A path the platform actually considers absolute.
+///
+/// The offline resolver feeds `Uri.file(...)`, whose result depends on the host:
+/// on Linux a Windows literal like `C:\\music\\x.mp3` is not absolute, so it
+/// came back percent-encoded without the `file:` scheme and these assertions
+/// failed on CI. A temp path is absolute everywhere.
+String _offlinePath(String name) =>
+    '${Directory.systemTemp.path}${Platform.pathSeparator}$name';

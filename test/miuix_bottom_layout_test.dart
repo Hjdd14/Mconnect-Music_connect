@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mconnect/core/platform/platform_utils.dart';
 import 'package:mconnect/core/theme/ui_style_provider.dart';
 import 'package:mconnect/core/widgets/app_bottom_nav_bar.dart';
 import 'package:mconnect/core/widgets/floating_glass_nav_bar.dart';
@@ -81,6 +82,11 @@ class _IdleAudioController implements PlayerAudioController {
 }
 
 void main() {
+  // Geometry assertions describe the degraded (opaque, Windows) capsule. On a
+  // Linux runner the glass path measures differently, so pin the platform.
+  setUp(() => PlatformUtils.setDebugOverride(AppPlatform.windows));
+  tearDown(() => PlatformUtils.setDebugOverride(null));
+
   Widget host({required Widget child, bool withSong = true}) {
     return ProviderScope(
       overrides: [
