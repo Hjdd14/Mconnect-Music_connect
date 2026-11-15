@@ -64,9 +64,7 @@ class DriftSmartPlaylistSnapshotRepository
     DateTime? generatedAt,
   }) async {
     final at = generatedAt ?? DateTime.now();
-    await _db.songsDao.insertSongs(
-      songs.map(songsCompanionFromSong).toList(),
-    );
+    await _db.songsDao.insertSongs(songs.map(songsCompanionFromSong).toList());
     await _db.smartPlaylistSnapshotsDao.saveSnapshot(
       ruleId: ruleId,
       songKeys: songs.map(_songKey).toList(),
@@ -127,12 +125,10 @@ class DriftSmartPlaylistSnapshotRepository
     for (final key in keys) {
       final separator = key.indexOf(':');
       if (separator <= 0) continue;
-      parsed.add(
-        (
-          id: key.substring(separator + 1),
-          platform: key.substring(0, separator),
-        ),
-      );
+      parsed.add((
+        id: key.substring(separator + 1),
+        platform: key.substring(0, separator),
+      ));
     }
     final records = await _db.songsDao.getSongsByIds(parsed);
     final byKey = {

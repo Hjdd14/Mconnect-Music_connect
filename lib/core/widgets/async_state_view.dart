@@ -76,10 +76,7 @@ class AsyncStateView extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     // `onSurfaceVariant` is the theme's own "secondary text" role. `outline` is
     // a border colour and fails contrast for body copy in both themes.
-    final bodyStyle = TextStyle(
-      color: scheme.onSurfaceVariant,
-      fontSize: 16,
-    );
+    final bodyStyle = TextStyle(color: scheme.onSurfaceVariant, fontSize: 16);
     final captionStyle = TextStyle(
       color: scheme.onSurfaceVariant.withValues(alpha: 0.75),
       fontSize: 13,
@@ -126,7 +123,11 @@ class AsyncStateView extends StatelessWidget {
                 Text(title!, style: bodyStyle, textAlign: TextAlign.center),
                 if (message != null) ...[
                   const SizedBox(height: 8),
-                  Text(message!, style: captionStyle, textAlign: TextAlign.center),
+                  Text(
+                    message!,
+                    style: captionStyle,
+                    textAlign: TextAlign.center,
+                  ),
                 ],
                 if (onRetry != null) ...[
                   const SizedBox(height: 16),
@@ -167,9 +168,7 @@ class SliverAsyncStateView extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SliverFillRemaining(
     hasScrollBody: hasScrollBody,
-    child: padding == null
-        ? child
-        : Padding(padding: padding!, child: child),
+    child: padding == null ? child : Padding(padding: padding!, child: child),
   );
 }
 
@@ -214,7 +213,11 @@ class _AsyncSkeletonList extends StatelessWidget {
 }
 
 class _SkeletonBox extends StatelessWidget {
-  const _SkeletonBox({required this.width, required this.height, required this.radius});
+  const _SkeletonBox({
+    required this.width,
+    required this.height,
+    required this.radius,
+  });
 
   final double width;
   final double height;

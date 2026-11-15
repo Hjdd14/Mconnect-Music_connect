@@ -118,7 +118,8 @@ int playedCharacterCount(
 /// time. Callers use this estimate for the highlight only and keep the raw
 /// position for line switching, so a lyric line can never advance early.
 class LyricsProgressEstimator {
-  LyricsProgressEstimator({DateTime Function()? now}) : _now = now ?? DateTime.now;
+  LyricsProgressEstimator({DateTime Function()? now})
+    : _now = now ?? DateTime.now;
 
   final DateTime Function() _now;
   Duration? _lastPosition;

@@ -227,10 +227,7 @@ class MyPlaylistsRepository {
         .whereType<_StoredSong>()
         .map((song) => song.toJson())
         .toList(growable: false);
-    return encodeShareLink(
-      name: playlist.name,
-      songsJson: songs,
-    );
+    return encodeShareLink(name: playlist.name, songsJson: songs);
   }
 
   Future<Playlist?> importShareLink(String link) async {
@@ -243,15 +240,13 @@ class MyPlaylistsRepository {
     required String name,
     required List<Map<String, dynamic>> songsJson,
   }) {
-    final payload = {
-      'version': 1,
-      'name': name,
-      'songs': songsJson,
-    };
+    final payload = {'version': 1, 'name': name, 'songs': songsJson};
     final data = base64UrlEncode(utf8.encode(jsonEncode(payload)));
-    return Uri(scheme: _shareScheme, host: _shareHost, queryParameters: {
-      'data': data,
-    }).toString();
+    return Uri(
+      scheme: _shareScheme,
+      host: _shareHost,
+      queryParameters: {'data': data},
+    ).toString();
   }
 
   static DecodedPlaylistShare? decodeShareLink(String link) {
@@ -278,8 +273,7 @@ class MyPlaylistsRepository {
   }
 
   Future<File> _file() async {
-    final dir =
-        storageDirectory ?? await getApplicationDocumentsDirectory();
+    final dir = storageDirectory ?? await getApplicationDocumentsDirectory();
     if (!await dir.exists()) {
       await dir.create(recursive: true);
     }
@@ -397,7 +391,9 @@ class _MyPlaylistsState {
       songs: {
         for (final entry in songsJson.entries)
           if (entry.value is Map<String, dynamic>)
-            entry.key: _StoredSong.fromJson(entry.value as Map<String, dynamic>),
+            entry.key: _StoredSong.fromJson(
+              entry.value as Map<String, dynamic>,
+            ),
       },
     );
   }

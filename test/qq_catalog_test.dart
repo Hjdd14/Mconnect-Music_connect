@@ -303,11 +303,7 @@ void main() {
       expect(result.source!.note, '未登录，已回退到新歌榜');
       expect(result.source!.isPersonalized, isFalse);
       expect(api.rankedCalls.single.topId, QqToplistIds.newSongs);
-      expect(
-        api.dailyPlaylistIdCalls,
-        0,
-        reason: '匿名调用不该先去抓今日私享页面再等超时',
-      );
+      expect(api.dailyPlaylistIdCalls, 0, reason: '匿名调用不该先去抓今日私享页面再等超时');
     });
 
     test('登录后使用今日私享并标注 personalPrivate', () async {

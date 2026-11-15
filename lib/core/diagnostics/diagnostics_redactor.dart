@@ -131,10 +131,7 @@ class DiagnosticsRedactor {
     // 2. `Bearer eyJhbGciOi...`
     text = _apply(
       text,
-      RegExp(
-        r'\b(bearer)\s+[A-Za-z0-9\-._~+/=]{8,}',
-        caseSensitive: false,
-      ),
+      RegExp(r'\b(bearer)\s+[A-Za-z0-9\-._~+/=]{8,}', caseSensitive: false),
       (match) {
         rules.add(ruleBearer);
         return '${match.group(1)} $placeholder';
@@ -166,10 +163,7 @@ class DiagnosticsRedactor {
     // 4. JSON-style `"key": "value"`.
     text = _apply(
       text,
-      RegExp(
-        '("$_keyAlternation"\\s*:\\s*")[^"]*(")',
-        caseSensitive: false,
-      ),
+      RegExp('("$_keyAlternation"\\s*:\\s*")[^"]*(")', caseSensitive: false),
       (match) {
         rules.add(ruleSensitiveKey);
         return '${match.group(1)}$placeholder${match.group(2)}';

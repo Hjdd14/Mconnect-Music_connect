@@ -14,55 +14,60 @@ void main() {
   // 行为级用例需要构造一个"非 NativePlayer"的 media_kit Player，那会在单测里初始化
   // libmpv；真实渲染效果列入【需真机】。
   group('Windows equalizer quiet-failure diagnostic', () {
-    test('records windows_equalizer_unsupported in the non-NativePlayer branch', () {
-      final source = File(
-        'lib/features/player/data/media_kit_windows_audio_controller.dart',
-      ).readAsStringSync();
+    test(
+      'records windows_equalizer_unsupported in the non-NativePlayer branch',
+      () {
+        final source = File(
+          'lib/features/player/data/media_kit_windows_audio_controller.dart',
+        ).readAsStringSync();
 
-      expect(
-        source,
-        contains('windows_equalizer_unsupported'),
-        reason: '静默失效必须留下诊断，否则真机上无法复盘',
-      );
-      expect(
-        source,
-        contains('filter.trim().isEmpty'),
-        reason: '关闭 EQ 的空 filter 不该刷诊断',
-      );
+        expect(
+          source,
+          contains('windows_equalizer_unsupported'),
+          reason: '静默失效必须留下诊断，否则真机上无法复盘',
+        );
+        expect(
+          source,
+          contains('filter.trim().isEmpty'),
+          reason: '关闭 EQ 的空 filter 不该刷诊断',
+        );
 
-      // 锚点必须**唯一**：该文件 :29 是接口声明 `setAudioFilter(String filter);`，
-      // :370 才是实现（结尾是 `async {`）。用不带 async 的锚会切出接口那一小段，
-      // 于是下面 nativeBranch == -1（上一版就是这样红的）。
-      // 所以：① 锚在实现独有的 async 形态上；② 切片后立刻断言"这确实是实现体"。
-      final methodStart = source.indexOf('setAudioFilter(String filter) async');
-      expect(
-        methodStart,
-        greaterThan(-1),
-        reason: '找不到 setAudioFilter 的实现（锚点必须带 async，接口声明以 ; 结尾）',
-      );
-      final methodEnd = source.indexOf('Future<void>', methodStart + 1);
-      expect(
-        methodEnd,
-        greaterThan(methodStart),
-        reason: '取不到方法结束位置（片段里出现了别的 Future<void>？）',
-      );
-      final method = source.substring(methodStart, methodEnd);
-      expect(
-        method,
-        contains('setProperty'),
-        reason: '切出来的不是实现体（锚点命中了接口声明？）',
-      );
+        // 锚点必须**唯一**：该文件 :29 是接口声明 `setAudioFilter(String filter);`，
+        // :370 才是实现（结尾是 `async {`）。用不带 async 的锚会切出接口那一小段，
+        // 于是下面 nativeBranch == -1（上一版就是这样红的）。
+        // 所以：① 锚在实现独有的 async 形态上；② 切片后立刻断言"这确实是实现体"。
+        final methodStart = source.indexOf(
+          'setAudioFilter(String filter) async',
+        );
+        expect(
+          methodStart,
+          greaterThan(-1),
+          reason: '找不到 setAudioFilter 的实现（锚点必须带 async，接口声明以 ; 结尾）',
+        );
+        final methodEnd = source.indexOf('Future<void>', methodStart + 1);
+        expect(
+          methodEnd,
+          greaterThan(methodStart),
+          reason: '取不到方法结束位置（片段里出现了别的 Future<void>？）',
+        );
+        final method = source.substring(methodStart, methodEnd);
+        expect(
+          method,
+          contains('setProperty'),
+          reason: '切出来的不是实现体（锚点命中了接口声明？）',
+        );
 
-      final nativeBranch = method.indexOf("setProperty('af', filter)");
-      final diagnostic = method.indexOf('windows_equalizer_unsupported');
-      expect(nativeBranch, greaterThan(-1), reason: 'NativePlayer 分支不见了');
-      expect(diagnostic, greaterThan(-1), reason: '静默失效的诊断不见了');
-      expect(
-        diagnostic,
-        greaterThan(nativeBranch),
-        reason: '诊断必须在 setProperty 之后（即只服务非 NativePlayer 分支）',
-      );
-    });
+        final nativeBranch = method.indexOf("setProperty('af', filter)");
+        final diagnostic = method.indexOf('windows_equalizer_unsupported');
+        expect(nativeBranch, greaterThan(-1), reason: 'NativePlayer 分支不见了');
+        expect(diagnostic, greaterThan(-1), reason: '静默失效的诊断不见了');
+        expect(
+          diagnostic,
+          greaterThan(nativeBranch),
+          reason: '诊断必须在 setProperty 之后（即只服务非 NativePlayer 分支）',
+        );
+      },
+    );
   });
 
   // W2-B item b：EQ 预设的 JSON 导入/导出。对外交换格式必须带 schema + version，
@@ -78,10 +83,13 @@ void main() {
       expect(LoudnessNormalizer.gainFor(trackGainDb: double.infinity), isNull);
     });
 
-    test('applies the tag value as-is (no sign inversion) inside the range', () {
-      expect(LoudnessNormalizer.gainFor(trackGainDb: -6.5), -6.5);
-      expect(LoudnessNormalizer.gainFor(trackGainDb: 2.0), 2.0);
-    });
+    test(
+      'applies the tag value as-is (no sign inversion) inside the range',
+      () {
+        expect(LoudnessNormalizer.gainFor(trackGainDb: -6.5), -6.5);
+        expect(LoudnessNormalizer.gainFor(trackGainDb: 2.0), 2.0);
+      },
+    );
 
     test('clamps boosts and cuts to the policy range', () {
       expect(
@@ -96,10 +104,7 @@ void main() {
 
     test('peak protection wins over the policy range (never overshoot)', () {
       // peak 1.2 上再 +6dB 会让峰值到 2.4 → 必然削波，所以保护必须赢。
-      final gain = LoudnessNormalizer.gainFor(
-        trackGainDb: 6,
-        trackPeak: 1.2,
-      )!;
+      final gain = LoudnessNormalizer.gainFor(trackGainDb: 6, trackPeak: 1.2)!;
 
       expect(gain, lessThan(6));
       expect(
@@ -112,10 +117,7 @@ void main() {
     });
 
     test('peak protection does not shrink a safe attenuation', () {
-      final gain = LoudnessNormalizer.gainFor(
-        trackGainDb: -6,
-        trackPeak: 0.5,
-      )!;
+      final gain = LoudnessNormalizer.gainFor(trackGainDb: -6, trackPeak: 0.5)!;
 
       expect(gain, -6, reason: '峰值本来就低，削波保护不该把衰减改小');
     });
@@ -265,11 +267,9 @@ void main() {
     });
 
     test('the payload carries an explicit schema tag and version', () {
-      final json =
-          jsonDecode(
-                EqPresetDocument.fromPreset(EqualizerPreset.vocal).encode(),
-              )
-              as Map<String, dynamic>;
+      final json = jsonDecode(
+        EqPresetDocument.fromPreset(EqualizerPreset.vocal).encode(),
+      ) as Map<String, dynamic>;
 
       expect(json['schema'], EqPresetDocument.schemaTag);
       expect(json['version'], EqPresetDocument.schemaVersion);
@@ -359,7 +359,10 @@ void main() {
         });
       }
 
-      expect(build(const ['loud', 0, 0, 0, 0]).error, EqPresetError.nonNumericGain);
+      expect(
+        build(const ['loud', 0, 0, 0, 0]).error,
+        EqPresetError.nonNumericGain,
+      );
       expect(
         build(const [0, 0, 0, 0, double.nan]).error,
         EqPresetError.nonNumericGain,
@@ -592,33 +595,30 @@ void main() {
       },
     );
 
-    test(
-      'disables Android EQ and loudness without rewriting bands for a flat plan',
-      () async {
-        final events = <String>[];
+    test('disables Android EQ and loudness without rewriting bands for a flat plan', () async {
+      final events = <String>[];
 
-        await JustAudioController.applyAndroidEqualizerPlanForTest(
-          enabled: true,
-          bandGains: const [0, 0, 0],
-          bandCount: 3,
-          minDecibels: -12,
-          maxDecibels: 12,
-          setEnabled: (value) async => events.add('enabled:$value'),
-          setBandGain: (index, gain) async =>
-              events.add('gain:$index:${gain.round()}'),
-          setLoudnessEnabled: (value) async =>
-              events.add('loudnessEnabled:$value'),
-          setLoudnessGain: (gain) async =>
-              events.add('loudnessGain:${gain.round()}'),
-        );
+      await JustAudioController.applyAndroidEqualizerPlanForTest(
+        enabled: true,
+        bandGains: const [0, 0, 0],
+        bandCount: 3,
+        minDecibels: -12,
+        maxDecibels: 12,
+        setEnabled: (value) async => events.add('enabled:$value'),
+        setBandGain: (index, gain) async =>
+            events.add('gain:$index:${gain.round()}'),
+        setLoudnessEnabled: (value) async =>
+            events.add('loudnessEnabled:$value'),
+        setLoudnessGain: (gain) async =>
+            events.add('loudnessGain:${gain.round()}'),
+      );
 
-        expect(events, [
-          'loudnessEnabled:false',
-          'loudnessGain:0',
-          'enabled:false',
-        ]);
-      },
-    );
+      expect(events, [
+        'loudnessEnabled:false',
+        'loudnessGain:0',
+        'enabled:false',
+      ]);
+    });
 
     test(
       'stops clearing loudness when a newer EQ apply supersedes the plan',

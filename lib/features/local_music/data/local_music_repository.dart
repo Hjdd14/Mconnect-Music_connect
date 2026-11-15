@@ -15,7 +15,8 @@ import 'local_music_scan_result.dart';
 import 'local_scan_snapshot.dart';
 import 'local_track_store.dart';
 
-export 'local_music_scan_result.dart' show LocalMusicScanResult, LocalMusicScanner;
+export 'local_music_scan_result.dart'
+    show LocalMusicScanResult, LocalMusicScanner;
 
 /// Desktop / Dart-side local music scanner.
 ///
@@ -35,10 +36,9 @@ export 'local_music_scan_result.dart' show LocalMusicScanResult, LocalMusicScann
 /// Injectable so the failure path is testable: the default is `Isolate.run`,
 /// and a platform that cannot start one (a restricted embedder, a web build)
 /// must degrade to an inline scan instead of losing the whole library page.
-typedef IsolateScanRunner =
-    Future<List<Map<String, Object?>>> Function(
-      FutureOr<List<Map<String, Object?>>> Function() computation,
-    );
+typedef IsolateScanRunner = Future<List<Map<String, Object?>>> Function(
+  FutureOr<List<Map<String, Object?>>> Function() computation,
+);
 
 class LocalMusicRepository implements LocalMusicScanner {
   static const supportedAudioExtensions = {
@@ -55,7 +55,8 @@ class LocalMusicRepository implements LocalMusicScanner {
     '.aif',
   };
 
-  static const supportedLyricsExtensions = LocalLyricsLoader.supportedExtensions;
+  static const supportedLyricsExtensions =
+      LocalLyricsLoader.supportedExtensions;
 
   LocalMusicRepository({
     LocalMetadataReader? metadataReader,
@@ -116,9 +117,7 @@ class LocalMusicRepository implements LocalMusicScanner {
     );
     return reconciler.reconcile(
       rootPath: rootPath,
-      files: [
-        for (final record in walked) LocalScannedFile.fromMap(record),
-      ],
+      files: [for (final record in walked) LocalScannedFile.fromMap(record)],
       stopwatch: stopwatch,
     );
   }

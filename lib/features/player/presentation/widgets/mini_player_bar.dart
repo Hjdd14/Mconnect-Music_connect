@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+
 import '../../../../core/diagnostics/diagnostics_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/utils/snackbar_helper.dart';
@@ -62,11 +63,7 @@ class _MiniPlayerBarState extends ConsumerState<MiniPlayerBar> {
     DiagnosticsService.instance.record(
       'navigation',
       'open_player_from_mini',
-      data: {
-        'from': from,
-        'song_id': song.id,
-        'platform': song.platform.name,
-      },
+      data: {'from': from, 'song_id': song.id, 'platform': song.platform.name},
     );
     unawaited(
       context.push(
@@ -115,8 +112,22 @@ class _MiniPlayerBarState extends ConsumerState<MiniPlayerBar> {
     return GestureDetector(
       onTap: () => _openPlayer(context, song),
       child: widget.floating
-          ? _buildFloatingCapsule(context, ref, song, isPlaying, position, duration)
-          : _buildMaterialBar(context, ref, song, isPlaying, position, duration),
+          ? _buildFloatingCapsule(
+              context,
+              ref,
+              song,
+              isPlaying,
+              position,
+              duration,
+            )
+          : _buildMaterialBar(
+              context,
+              ref,
+              song,
+              isPlaying,
+              position,
+              duration,
+            ),
     );
   }
 
@@ -132,9 +143,8 @@ class _MiniPlayerBarState extends ConsumerState<MiniPlayerBar> {
     return Container(
       height: 64,
       decoration: BoxDecoration(
-        color: Theme.of(
-          context,
-        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.92),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest
+            .withValues(alpha: 0.92),
         boxShadow: [
           BoxShadow(
             color: Theme.of(context).shadowColor.withValues(alpha: 0.08),
@@ -272,7 +282,8 @@ class _MiniPlayerBarState extends ConsumerState<MiniPlayerBar> {
                   memCacheWidth: (coverSize * 2).round(),
                   fit: BoxFit.cover,
                   placeholder: (_, _) => _coverPlaceholder(context, coverSize),
-                  errorWidget: (_, _, _) => _coverPlaceholder(context, coverSize),
+                  errorWidget: (_, _, _) =>
+                      _coverPlaceholder(context, coverSize),
                 )
               : _coverPlaceholder(context, coverSize),
         ),
@@ -650,10 +661,9 @@ class _CapsuleProgressPainter extends CustomPainter {
     final perimeter = metric.length;
     if (perimeter <= 0) return;
 
-    final start = CapsuleProgressGeometry.startOffsetFor(
-      size.width,
-      size.height,
-    ) % perimeter;
+    final start =
+        CapsuleProgressGeometry.startOffsetFor(size.width, size.height) %
+        perimeter;
     // Deliberately not wrapped: at progress == 1 the sweep ends exactly at `start`,
     // which would become an empty segment if it were modularised.
     final sweep = clamped * perimeter;

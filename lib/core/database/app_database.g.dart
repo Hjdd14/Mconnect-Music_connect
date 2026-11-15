@@ -6460,36 +6460,34 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   ];
 }
 
-typedef $$SongsTableCreateCompanionBuilder =
-    SongsCompanion Function({
-      required String id,
-      required String platform,
-      required String name,
-      required String artists,
-      Value<String?> albumName,
-      Value<String?> albumCover,
-      Value<int> durationMs,
-      required String fingerprint,
-      Value<String?> albumId,
-      Value<String?> artistId,
-      Value<int?> trackNumber,
-      Value<int> rowid,
-    });
-typedef $$SongsTableUpdateCompanionBuilder =
-    SongsCompanion Function({
-      Value<String> id,
-      Value<String> platform,
-      Value<String> name,
-      Value<String> artists,
-      Value<String?> albumName,
-      Value<String?> albumCover,
-      Value<int> durationMs,
-      Value<String> fingerprint,
-      Value<String?> albumId,
-      Value<String?> artistId,
-      Value<int?> trackNumber,
-      Value<int> rowid,
-    });
+typedef $$SongsTableCreateCompanionBuilder = SongsCompanion Function({
+  required String id,
+  required String platform,
+  required String name,
+  required String artists,
+  Value<String?> albumName,
+  Value<String?> albumCover,
+  Value<int> durationMs,
+  required String fingerprint,
+  Value<String?> albumId,
+  Value<String?> artistId,
+  Value<int?> trackNumber,
+  Value<int> rowid,
+});
+typedef $$SongsTableUpdateCompanionBuilder = SongsCompanion Function({
+  Value<String> id,
+  Value<String> platform,
+  Value<String> name,
+  Value<String> artists,
+  Value<String?> albumName,
+  Value<String?> albumCover,
+  Value<int> durationMs,
+  Value<String> fingerprint,
+  Value<String?> albumId,
+  Value<String?> artistId,
+  Value<int?> trackNumber,
+  Value<int> rowid,
+});
 
 class $$SongsTableFilterComposer extends Composer<_$AppDatabase, $SongsTable> {
   $$SongsTableFilterComposer({
@@ -6983,20 +6981,18 @@ typedef $$ListeningHistoryTableProcessedTableManager =
       ListeningHistoryEntry,
       PrefetchHooks Function()
     >;
-typedef $$UserLikesTableCreateCompanionBuilder =
-    UserLikesCompanion Function({
-      Value<int> id,
-      required String songId,
-      required String platform,
-      required int addedAt,
-    });
-typedef $$UserLikesTableUpdateCompanionBuilder =
-    UserLikesCompanion Function({
-      Value<int> id,
-      Value<String> songId,
-      Value<String> platform,
-      Value<int> addedAt,
-    });
+typedef $$UserLikesTableCreateCompanionBuilder = UserLikesCompanion Function({
+  Value<int> id,
+  required String songId,
+  required String platform,
+  required int addedAt,
+});
+typedef $$UserLikesTableUpdateCompanionBuilder = UserLikesCompanion Function({
+  Value<int> id,
+  Value<String> songId,
+  Value<String> platform,
+  Value<int> addedAt,
+});
 
 class $$UserLikesTableFilterComposer
     extends Composer<_$AppDatabase, $UserLikesTable> {
@@ -7992,28 +7988,26 @@ typedef $$ToplistsCacheTableProcessedTableManager =
       ToplistCacheRow,
       PrefetchHooks Function()
     >;
-typedef $$PlayEventsTableCreateCompanionBuilder =
-    PlayEventsCompanion Function({
-      Value<int> id,
-      required String songId,
-      required String platform,
-      required int startedAt,
-      Value<int?> endedAt,
-      Value<int> durationListened,
-      Value<double> completedRatio,
-      Value<String?> source,
-    });
-typedef $$PlayEventsTableUpdateCompanionBuilder =
-    PlayEventsCompanion Function({
-      Value<int> id,
-      Value<String> songId,
-      Value<String> platform,
-      Value<int> startedAt,
-      Value<int?> endedAt,
-      Value<int> durationListened,
-      Value<double> completedRatio,
-      Value<String?> source,
-    });
+typedef $$PlayEventsTableCreateCompanionBuilder = PlayEventsCompanion Function({
+  Value<int> id,
+  required String songId,
+  required String platform,
+  required int startedAt,
+  Value<int?> endedAt,
+  Value<int> durationListened,
+  Value<double> completedRatio,
+  Value<String?> source,
+});
+typedef $$PlayEventsTableUpdateCompanionBuilder = PlayEventsCompanion Function({
+  Value<int> id,
+  Value<String> songId,
+  Value<String> platform,
+  Value<int> startedAt,
+  Value<int?> endedAt,
+  Value<int> durationListened,
+  Value<double> completedRatio,
+  Value<String?> source,
+});
 
 class $$PlayEventsTableFilterComposer
     extends Composer<_$AppDatabase, $PlayEventsTable> {
@@ -8244,24 +8238,22 @@ typedef $$PlayEventsTableProcessedTableManager =
       PlayEvent,
       PrefetchHooks Function()
     >;
-typedef $$DailyStatsTableCreateCompanionBuilder =
-    DailyStatsCompanion Function({
-      required String day,
-      required String songId,
-      required String platform,
-      Value<int> playCount,
-      Value<int> listenMs,
-      Value<int> rowid,
-    });
-typedef $$DailyStatsTableUpdateCompanionBuilder =
-    DailyStatsCompanion Function({
-      Value<String> day,
-      Value<String> songId,
-      Value<String> platform,
-      Value<int> playCount,
-      Value<int> listenMs,
-      Value<int> rowid,
-    });
+typedef $$DailyStatsTableCreateCompanionBuilder = DailyStatsCompanion Function({
+  required String day,
+  required String songId,
+  required String platform,
+  Value<int> playCount,
+  Value<int> listenMs,
+  Value<int> rowid,
+});
+typedef $$DailyStatsTableUpdateCompanionBuilder = DailyStatsCompanion Function({
+  Value<String> day,
+  Value<String> songId,
+  Value<String> platform,
+  Value<int> playCount,
+  Value<int> listenMs,
+  Value<int> rowid,
+});
 
 class $$DailyStatsTableFilterComposer
     extends Composer<_$AppDatabase, $DailyStatsTable> {

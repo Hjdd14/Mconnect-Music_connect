@@ -60,6 +60,10 @@ key.properties
 *.p12
 *.pfx
 *.pem
+# ...but the bundled CA bundle is part of the build: pubspec declares it as an
+# asset, so a clone without it fails `flutter analyze` (asset_does_not_exist) and
+# ships an app without the trust store it expects.
+!assets/certs/cacert.pem
 .env
 .env.*
 !.env.example

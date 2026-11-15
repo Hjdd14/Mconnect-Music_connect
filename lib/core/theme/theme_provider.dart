@@ -48,12 +48,10 @@ class ThemeSettingsNotifier extends StateNotifier<ThemeSettings> {
     try {
       final box = Hive.box(_themeBoxName);
       final modeIndex = box.get(_themeModeKey, defaultValue: 0) as int;
-      final seedColorValue =
-          box.get(
-                _themeSeedColorKey,
-                defaultValue: AppTheme.defaultSeedColor.toARGB32(),
-              )
-              as int;
+      final seedColorValue = box.get(
+        _themeSeedColorKey,
+        defaultValue: AppTheme.defaultSeedColor.toARGB32(),
+      ) as int;
       if (!mounted) return;
       state = ThemeSettings(
         mode: ThemeMode.values[modeIndex.clamp(0, ThemeMode.values.length - 1)],

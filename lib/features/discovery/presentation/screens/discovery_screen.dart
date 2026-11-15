@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+
 import '../../../../core/theme/platform_accent.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+
 import '../../../../core/widgets/app_scrollbar.dart';
 import '../../../../core/widgets/async_state_view.dart';
 import '../../../../models/platform_type.dart';

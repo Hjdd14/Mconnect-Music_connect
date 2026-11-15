@@ -103,64 +103,67 @@ void main() {
       expect(api.vipType, isNull);
     });
 
-    test('a signed request after logout no longer carries token/userid', () async {
-      final dio = Dio();
-      final queries = <Map<String, dynamic>>[];
-      dio.interceptors.add(
-        InterceptorsWrapper(
-          onRequest: (options, handler) {
-            queries.add(Map<String, dynamic>.from(options.queryParameters));
-            handler.resolve(
-              Response(
-                requestOptions: options,
-                statusCode: 200,
-                data: {
-                  'status': 1,
-                  'data': {'lists': []},
-                },
-              ),
-            );
-          },
-        ),
-      );
-      final api = KugouApi(dio: dio)
-        ..setSessionFields(
-          token: 'leaked-token',
-          userid: '10001',
-          vipToken: 'vip-tok',
-          vipType: '6',
-          dfid: 'dfid-1',
-          mid: 'mid-1',
-          uuid: 'uuid-1',
-        );
-      final platform = KugouPlatform(api: api);
-      await platform.restoreSession(
-        _MemorySessionStorage(
-          user: const User(
-            id: '10001',
-            nickname: 'Kugou User',
-            platform: PlatformType.kugou,
+    test(
+      'a signed request after logout no longer carries token/userid',
+      () async {
+        final dio = Dio();
+        final queries = <Map<String, dynamic>>[];
+        dio.interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (options, handler) {
+              queries.add(Map<String, dynamic>.from(options.queryParameters));
+              handler.resolve(
+                Response(
+                  requestOptions: options,
+                  statusCode: 200,
+                  data: {
+                    'status': 1,
+                    'data': {'lists': []},
+                  },
+                ),
+              );
+            },
           ),
-        ),
-      );
+        );
+        final api = KugouApi(dio: dio)
+          ..setSessionFields(
+            token: 'leaked-token',
+            userid: '10001',
+            vipToken: 'vip-tok',
+            vipType: '6',
+            dfid: 'dfid-1',
+            mid: 'mid-1',
+            uuid: 'uuid-1',
+          );
+        final platform = KugouPlatform(api: api);
+        await platform.restoreSession(
+          _MemorySessionStorage(
+            user: const User(
+              id: '10001',
+              nickname: 'Kugou User',
+              platform: PlatformType.kugou,
+            ),
+          ),
+        );
 
-      await platform.logout();
-      await api.searchPlaylists('anything');
+        await platform.logout();
+        await api.searchPlaylists('anything');
 
-      expect(queries, hasLength(1));
-      final query = queries.single;
-      expect(
-        query.containsKey('token'),
-        isFalse,
-        reason: 'the stale token is injected by _signedAndroidParams',
-      );
-      expect(query.containsKey('userid'), isFalse);
-      // Device ids survive, so the signature stays stable.
-      expect(query['mid'], 'mid-1');
-      expect(query['dfid'], 'dfid-1');
-      expect(query['uuid'], 'uuid-1');
-      expect(query['signature'], isA<String>());
-    });
+        expect(queries, hasLength(1));
+        final query = queries.single;
+        expect(
+          query.containsKey('token'),
+          isFalse,
+          reason: 'the stale token is injected by _signedAndroidParams',
+        );
+        expect(query.containsKey('userid'), isFalse);
+        // Device ids survive, so the signature stays stable.
+        expect(query['mid'], 'mid-1');
+        expect(query['dfid'], 'dfid-1');
+        expect(query['uuid'], 'uuid-1');
+        expect(query['signature'], isA<String>());
+      },
+    );
 
     test('restoreSession still re-hydrates a saved JSON cookie', () async {
       final api = KugouApi();

@@ -186,21 +186,24 @@ void main() {
     expect(settings.values['theme_mode'], 'dark');
   });
 
-  test('a backup from a newer app version is refused without writing', () async {
-    await seed();
-    final json = await service.exportToJson();
-    await store.clearAll();
+  test(
+    'a backup from a newer app version is refused without writing',
+    () async {
+      await seed();
+      final json = await service.exportToJson();
+      await store.clearAll();
 
-    final decoded = jsonDecode(json) as Map<String, dynamic>;
-    (decoded['manifest'] as Map<String, dynamic>)['version'] =
-        backupFormatVersion + 1;
+      final decoded = jsonDecode(json) as Map<String, dynamic>;
+      (decoded['manifest'] as Map<String, dynamic>)['version'] =
+          backupFormatVersion + 1;
 
-    expect(
-      () => service.importFromJson(jsonEncode(decoded)),
-      throwsA(isA<BackupFormatException>()),
-    );
-    expect((await snapshotFacts())['likes'], isEmpty);
-  });
+      expect(
+        () => service.importFromJson(jsonEncode(decoded)),
+        throwsA(isA<BackupFormatException>()),
+      );
+      expect((await snapshotFacts())['likes'], isEmpty);
+    },
+  );
 
   test('a corrupt file is rejected before anything is written', () async {
     await seed();
@@ -254,94 +257,110 @@ void main() {
     expect(summary.manifest.appVersion, 'v1.3.2');
   });
 
-  test('exportToFile writes a parseable file next to the app documents', () async {
-    await seed();
-    final dir = Directory(p.join(tempDir.path, 'exports'));
-    final file = await service.exportToFile(directory: dir);
+  test(
+    'exportToFile writes a parseable file next to the app documents',
+    () async {
+      await seed();
+      final dir = Directory(p.join(tempDir.path, 'exports'));
+      final file = await service.exportToFile(directory: dir);
 
-    expect(await file.exists(), isTrue);
-    expect(p.basename(file.path), startsWith(BackupService.filePrefix));
-    final summary = service.inspect(await file.readAsString());
-    expect(summary.likeCount, 2);
-  });
+      expect(await file.exists(), isTrue);
+      expect(p.basename(file.path), startsWith(BackupService.filePrefix));
+      final summary = service.inspect(await file.readAsString());
+      expect(summary.likeCount, 2);
+    },
+  );
 
-  test('imported playlists dedupe the same recording across platforms', () async {
-    final netease = _song('n1', PlatformType.netease, '夜曲');
-    final qq = _song('q1', PlatformType.qq, '夜曲');
-    // Sanity: these two really are the same recording by `dedupeKey`.
-    expect(BackupSong.fromSong(netease).dedupeKey,
-        BackupSong.fromSong(qq).dedupeKey);
+  test(
+    'imported playlists dedupe the same recording across platforms',
+    () async {
+      final netease = _song('n1', PlatformType.netease, '夜曲');
+      final qq = _song('q1', PlatformType.qq, '夜曲');
+      // Sanity: these two really are the same recording by `dedupeKey`.
+      expect(
+        BackupSong.fromSong(netease).dedupeKey,
+        BackupSong.fromSong(qq).dedupeKey,
+      );
 
-    final data = BackupData(
-      songs: [BackupSong.fromSong(netease), BackupSong.fromSong(qq)],
-      playlists: [
-        BackupPlaylist(
-          id: 'imported',
-          name: '去重歌单',
-          songs: [BackupSong.fromSong(netease), BackupSong.fromSong(qq)],
-        ),
-      ],
-    );
+      final data = BackupData(
+        songs: [BackupSong.fromSong(netease), BackupSong.fromSong(qq)],
+        playlists: [
+          BackupPlaylist(
+            id: 'imported',
+            name: '去重歌单',
+            songs: [BackupSong.fromSong(netease), BackupSong.fromSong(qq)],
+          ),
+        ],
+      );
 
-    await store.restore(data);
+      await store.restore(data);
 
-    final created = (await playlists.getPlaylists()).single;
-    final songs = await playlists.getSongs(created.editableId);
-    expect(songs, hasLength(1), reason: 'cross-platform duplicates merge');
-  });
+      final created = (await playlists.getPlaylists()).single;
+      final songs = await playlists.getSongs(created.editableId);
+      expect(songs, hasLength(1), reason: 'cross-platform duplicates merge');
+    },
+  );
 
-  test('imported playlists with the same name merge into the local one', () async {
-    final existing = await playlists.createPlaylist('合并目标');
-    await playlists.addSong(
-      existing.editableId,
-      _song('keep', PlatformType.netease, '保留曲'),
-    );
+  test(
+    'imported playlists with the same name merge into the local one',
+    () async {
+      final existing = await playlists.createPlaylist('合并目标');
+      await playlists.addSong(
+        existing.editableId,
+        _song('keep', PlatformType.netease, '保留曲'),
+      );
 
-    final data = BackupData(
-      playlists: [
-        BackupPlaylist(
-          id: 'imported',
-          name: '合并目标',
-          songs: [BackupSong.fromSong(_song('added', PlatformType.qq, '新增曲'))],
-        ),
-      ],
-    );
+      final data = BackupData(
+        playlists: [
+          BackupPlaylist(
+            id: 'imported',
+            name: '合并目标',
+            songs: [
+              BackupSong.fromSong(_song('added', PlatformType.qq, '新增曲')),
+            ],
+          ),
+        ],
+      );
 
-    final report = await store.restore(data);
+      final report = await store.restore(data);
 
-    expect(report.playlistsMerged, 1);
-    expect(report.playlistsCreated, 0);
-    expect(await playlists.getPlaylists(), hasLength(1));
-    final songs = await playlists.getSongs(existing.editableId);
-    expect(songs, hasLength(2));
-  });
+      expect(report.playlistsMerged, 1);
+      expect(report.playlistsCreated, 0);
+      expect(await playlists.getPlaylists(), hasLength(1));
+      final songs = await playlists.getSongs(existing.editableId);
+      expect(songs, hasLength(2));
+    },
+  );
 
-  test('a newer smart-playlist rule from the file wins, an older one does not', () async {
-    final older = SmartPlaylistRule(
-      id: 'rule-shared',
-      name: '本地规则',
-      createdAt: DateTime(2026, 1, 1),
-      updatedAt: DateTime(2026, 1, 1),
-    );
-    await rules.saveRules([older]);
+  test(
+    'a newer smart-playlist rule from the file wins, an older one does not',
+    () async {
+      final older = SmartPlaylistRule(
+        id: 'rule-shared',
+        name: '本地规则',
+        createdAt: DateTime(2026, 1, 1),
+        updatedAt: DateTime(2026, 1, 1),
+      );
+      await rules.saveRules([older]);
 
-    final newer = SmartPlaylistRule(
-      id: 'rule-shared',
-      name: '备份规则',
-      createdAt: DateTime(2026, 1, 1),
-      updatedAt: DateTime(2026, 5, 1),
-    );
+      final newer = SmartPlaylistRule(
+        id: 'rule-shared',
+        name: '备份规则',
+        createdAt: DateTime(2026, 1, 1),
+        updatedAt: DateTime(2026, 5, 1),
+      );
 
-    var report = await store.restore(
-      BackupData(smartRules: [newer.toJson()]),
-    );
-    expect(report.smartRulesUpdated, 1);
-    expect((await rules.loadRules()).single.name, '备份规则');
+      var report = await store.restore(
+        BackupData(smartRules: [newer.toJson()]),
+      );
+      expect(report.smartRulesUpdated, 1);
+      expect((await rules.loadRules()).single.name, '备份规则');
 
-    report = await store.restore(BackupData(smartRules: [older.toJson()]));
-    expect(report.smartRulesUpdated, 0);
-    expect((await rules.loadRules()).single.name, '备份规则');
-  });
+      report = await store.restore(BackupData(smartRules: [older.toJson()]));
+      expect(report.smartRulesUpdated, 0);
+      expect((await rules.loadRules()).single.name, '备份规则');
+    },
+  );
 
   test('saved smart playlists survive the round trip', () async {
     final snapshots = DriftSmartPlaylistSnapshotRepository(db);
@@ -357,7 +376,8 @@ void main() {
 
     await service.importFromJson(json);
 
-    final restored = await DriftSmartPlaylistSnapshotRepository(db).load('rule-1');
+    final restored = await DriftSmartPlaylistSnapshotRepository(db)
+        .load('rule-1');
     expect(restored!.songs.single.id, 'snap-1');
     expect(restored.songs.single.platform, PlatformType.netease);
     expect(restored.generatedAt, DateTime(2026, 5, 1));

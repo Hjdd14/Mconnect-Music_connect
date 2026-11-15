@@ -48,7 +48,8 @@ class LyricsLine {
   });
 
   bool get hasWordTiming => words != null && words!.isNotEmpty;
-  bool get hasTranslation => translation != null && translation!.trim().isNotEmpty;
+  bool get hasTranslation =>
+      translation != null && translation!.trim().isNotEmpty;
 
   LyricsLine withTranslation(String? translation) => LyricsLine(
     timestamp: timestamp,
@@ -179,10 +180,12 @@ class LyricsDocument {
         // negative position is meaningless downstream (line matching, the
         // progress highlight), so it becomes zero.
         final shiftedMs = base.inMilliseconds + offsetMs;
-        lines.add(LyricsLine(
-          timestamp: Duration(milliseconds: shiftedMs < 0 ? 0 : shiftedMs),
-          text: text,
-        ));
+        lines.add(
+          LyricsLine(
+            timestamp: Duration(milliseconds: shiftedMs < 0 ? 0 : shiftedMs),
+            text: text,
+          ),
+        );
       }
     }
 
@@ -249,12 +252,14 @@ class LyricsDocument {
         extras.add(candidate);
       }
 
-      merged.add(LyricsLine(
-        timestamp: timestamp,
-        text: first.text,
-        translation: translation,
-        words: first.words,
-      ));
+      merged.add(
+        LyricsLine(
+          timestamp: timestamp,
+          text: first.text,
+          translation: translation,
+          words: first.words,
+        ),
+      );
       merged.addAll(extras);
       index = end;
     }
@@ -282,22 +287,26 @@ class LyricsDocument {
         for (final wm in wordMatches) {
           final wordDuration = int.parse(wm.group(2)!);
           final word = wm.group(3)!;
-          words.add(WordTiming(
-            word: word,
-            start: Duration(milliseconds: currentMs),
-            duration: Duration(milliseconds: wordDuration),
-          ));
+          words.add(
+            WordTiming(
+              word: word,
+              start: Duration(milliseconds: currentMs),
+              duration: Duration(milliseconds: wordDuration),
+            ),
+          );
           currentMs += wordDuration;
         }
       }
 
       final text = textContent.replaceAll(RegExp(r'<[^>]+>'), '').trim();
       if (text.isEmpty) continue;
-      lines.add(LyricsLine(
-        timestamp: Duration(milliseconds: timestamp),
-        text: text,
-        words: words.isNotEmpty ? words : null,
-      ));
+      lines.add(
+        LyricsLine(
+          timestamp: Duration(milliseconds: timestamp),
+          text: text,
+          words: words.isNotEmpty ? words : null,
+        ),
+      );
     }
 
     final sorted = _stableSortByTimestamp(lines);
@@ -393,18 +402,22 @@ class LyricsDocument {
         final wordStart = int.parse(wm.group(1)!);
         final wordDuration = int.parse(wm.group(2)!);
         final word = wm.group(3)!;
-        words.add(WordTiming(
-          word: word,
-          start: Duration(milliseconds: timestamp + wordStart),
-          duration: Duration(milliseconds: wordDuration),
-        ));
+        words.add(
+          WordTiming(
+            word: word,
+            start: Duration(milliseconds: timestamp + wordStart),
+            duration: Duration(milliseconds: wordDuration),
+          ),
+        );
       }
 
-      lines.add(LyricsLine(
-        timestamp: Duration(milliseconds: timestamp),
-        text: text,
-        words: words.isNotEmpty ? words : null,
-      ));
+      lines.add(
+        LyricsLine(
+          timestamp: Duration(milliseconds: timestamp),
+          text: text,
+          words: words.isNotEmpty ? words : null,
+        ),
+      );
     }
 
     final sorted = _stableSortByTimestamp(lines);

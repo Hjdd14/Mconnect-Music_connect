@@ -160,24 +160,15 @@ void main() {
     expect(find.text('v1.6.0'), findsOneWidget);
   });
 
-  testWidgets(
-    'settings home exposes section entry points',
-    (tester) async {
-      await tester.pumpWidget(
-        const ProviderScope(child: MaterialApp(home: SettingsPage())),
-      );
+  testWidgets('settings home exposes section entry points', (tester) async {
+    await tester.pumpWidget(
+      const ProviderScope(child: MaterialApp(home: SettingsPage())),
+    );
 
-      for (final label in const [
-        '账号管理',
-        '外观',
-        '悬浮歌词',
-        '音频增强',
-        '诊断与关于',
-      ]) {
-        expect(find.text(label), findsOneWidget);
-      }
-    },
-  );
+    for (final label in const ['账号管理', '外观', '悬浮歌词', '音频增强', '诊断与关于']) {
+      expect(find.text(label), findsOneWidget);
+    }
+  });
 
   testWidgets(
     'an ENABLED scrobble section does not throw CircularDependencyError',
@@ -254,31 +245,21 @@ void main() {
     },
   );
 
-  testWidgets(
-    'floating lyrics settings page exposes lyrics controls',
-    (tester) async {
-      await tester.pumpWidget(
-        const ProviderScope(
-          child: MaterialApp(home: SettingsFloatingLyricsPage()),
-        ),
-      );
+  testWidgets('floating lyrics settings page exposes lyrics controls', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const ProviderScope(
+        child: MaterialApp(home: SettingsFloatingLyricsPage()),
+      ),
+    );
 
-      for (final label in const [
-        '桌面悬浮歌词',
-        '锁定位置',
-        '歌词底色',
-        '已播放高亮色',
-        '字号',
-      ]) {
-        await _dragUntilTextVisible(tester, label);
-        expect(find.text(label), findsOneWidget);
-      }
-      expect(
-        find.byKey(const Key('floating-lyrics-lock-tile')),
-        findsOneWidget,
-      );
-    },
-  );
+    for (final label in const ['桌面悬浮歌词', '锁定位置', '歌词底色', '已播放高亮色', '字号']) {
+      await _dragUntilTextVisible(tester, label);
+      expect(find.text(label), findsOneWidget);
+    }
+    expect(find.byKey(const Key('floating-lyrics-lock-tile')), findsOneWidget);
+  });
 
   testWidgets('floating lyrics color rows open a full color picker', (
     tester,
@@ -372,25 +353,24 @@ void main() {
     }
   });
 
-  testWidgets(
-    'appearance settings page exposes the ui style switch',
-    (tester) async {
-      await tester.pumpWidget(
-        const ProviderScope(child: MaterialApp(home: SettingsAppearancePage())),
-      );
+  testWidgets('appearance settings page exposes the ui style switch', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const ProviderScope(child: MaterialApp(home: SettingsAppearancePage())),
+    );
 
-      expect(find.text('UI 风格'), findsOneWidget);
-      await tester.scrollUntilVisible(
-        find.byKey(const Key('ui-style-tile')),
-        220,
-        scrollable: find.byType(Scrollable).first,
-      );
+    expect(find.text('UI 风格'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('ui-style-tile')),
+      220,
+      scrollable: find.byType(Scrollable).first,
+    );
 
-      expect(find.byKey(const Key('ui-style-tile')), findsOneWidget);
-      expect(find.text('Material 风格'), findsOneWidget);
-      expect(find.text('Miuix 风格'), findsOneWidget);
-    },
-  );
+    expect(find.byKey(const Key('ui-style-tile')), findsOneWidget);
+    expect(find.text('Material 风格'), findsOneWidget);
+    expect(find.text('Miuix 风格'), findsOneWidget);
+  });
 
   testWidgets(
     'appearance settings page keeps the existing controls above the ui style switch',

@@ -14,7 +14,8 @@ const _neteaseCookie = 'MUSIC_U=8f3a1c9d7e5b2a4fsecretcookievalue';
 const _kugouToken = 'kugou-accesstoken-9f8e7d6c5b4a3210';
 const _qqSkey = 'qq-skey-abcdef1234567890';
 const _jsonToken = 'json-access-token-zyxwvu9876543210';
-const _bearerToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.bearersecretpayload.signature';
+const _bearerToken =
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.bearersecretpayload.signature';
 
 /// Last.fm/Libre.fm scrobbling credentials: the session key parameter is
 /// literally `sk`, and the request signature is `api_sig`. Both are written by a
@@ -48,7 +49,10 @@ void main() {
       expect(result.text, contains('https://u.y.qq.com/cgi-bin/musicu.fcg'));
       expect(result.text, isNot(contains(_qqSkey)));
       expect(result.text, isNot(contains('format=json')));
-      expect(result.text, contains('https://u.y.qq.com/cgi-bin/musicu.fcg?<redacted>'));
+      expect(
+        result.text,
+        contains('https://u.y.qq.com/cgi-bin/musicu.fcg?<redacted>'),
+      );
       expect(result.rules, contains(DiagnosticsRedactor.ruleUrlQuery));
     });
 
@@ -227,7 +231,10 @@ void main() {
       final withQuery = DiagnosticsRedactor.redact(
         'GET https://music.163.com/api/song/detail?id=1',
       );
-      expect(withQuery.text, 'GET https://music.163.com/api/song/detail?<redacted>');
+      expect(
+        withQuery.text,
+        'GET https://music.163.com/api/song/detail?<redacted>',
+      );
       expect(withQuery.rules, contains(DiagnosticsRedactor.ruleUrlQuery));
     });
 
@@ -277,7 +284,11 @@ void main() {
     test('writes a real, readable file containing the recent events', () async {
       service.record('player', 'load_started song=song-1');
       service.record('network', 'request_finished status=200');
-      service.recordError('player', StateError('broken'), StackTrace.fromString('stack line'));
+      service.recordError(
+        'player',
+        StateError('broken'),
+        StackTrace.fromString('stack line'),
+      );
 
       final result = await exporter().export(
         now: DateTime(2026, 10, 7, 12, 34, 56, 789),
@@ -345,7 +356,10 @@ void main() {
         '2026-10-01T00:00:00.000 [network] get https://krcs.kugou.com/search?token=$_kugouToken\n',
         mode: FileMode.append,
       );
-      service.record('network', 'request https://music.163.com/api/x?token=$_jsonToken');
+      service.record(
+        'network',
+        'request https://music.163.com/api/x?token=$_jsonToken',
+      );
       service.record('session', 'Cookie: $_neteaseCookie');
       service.record('qq', 'skey=$_qqSkey');
       service.record('auth', 'retrying with Bearer $_bearerToken');
@@ -360,11 +374,7 @@ void main() {
         _qqSkey,
         _bearerToken,
       ]) {
-        expect(
-          content,
-          isNot(contains(secret)),
-          reason: '导出文件不得包含 $secret',
-        );
+        expect(content, isNot(contains(secret)), reason: '导出文件不得包含 $secret');
       }
       expect(content, contains(DiagnosticsRedactor.placeholder));
       expect(result.redactions, contains(DiagnosticsRedactor.ruleUrlQuery));
@@ -376,7 +386,10 @@ void main() {
     test('the secret really is present when redaction is disabled', () async {
       // The red→green companion: it proves the assertion above measures the
       // redactor and not some unrelated reason for the string being absent.
-      service.record('network', 'request https://music.163.com/api/x?token=$_jsonToken');
+      service.record(
+        'network',
+        'request https://music.163.com/api/x?token=$_jsonToken',
+      );
       service.record('session', 'Cookie: $_neteaseCookie');
 
       final result = await exporter(
@@ -436,7 +449,9 @@ void main() {
     test('an unusable output directory fails with a clear message', () async {
       // A *file* where the export wants a directory: `create(recursive: true)`
       // cannot succeed, and the caller must see why.
-      final blocker = File('${serviceDir.path}${Platform.pathSeparator}not-a-dir');
+      final blocker = File(
+        '${serviceDir.path}${Platform.pathSeparator}not-a-dir',
+      );
       await blocker.writeAsString('x');
 
       await expectLater(
@@ -469,35 +484,44 @@ void main() {
       expect(result.logBytesIncluded, 0);
     });
 
-    test('the top-level exportDiagnosticsLog helper uses the injected service', () async {
-      service.record('helper', 'via_top_level_function');
+    test(
+      'the top-level exportDiagnosticsLog helper uses the injected service',
+      () async {
+        service.record('helper', 'via_top_level_function');
 
-      final result = await exportDiagnosticsLog(
-        service: service,
-        directoryProvider: () async => exportDir,
-      );
+        final result = await exportDiagnosticsLog(
+          service: service,
+          directoryProvider: () async => exportDir,
+        );
 
-      expect(result.file.existsSync(), isTrue);
-      expect(
-        await result.file.readAsString(),
-        contains('via_top_level_function'),
-      );
-    });
+        expect(result.file.existsSync(), isTrue);
+        expect(
+          await result.file.readAsString(),
+          contains('via_top_level_function'),
+        );
+      },
+    );
 
-    test('the service-level exportToFile extension is wired to the same logic', () async {
-      service.record('helper', 'via_service_extension');
+    test(
+      'the service-level exportToFile extension is wired to the same logic',
+      () async {
+        service.record('helper', 'via_service_extension');
 
-      final result = await service.exportToFile(
-        directoryProvider: () async => exportDir,
-        now: DateTime(2026, 1, 2, 3, 4, 5),
-      );
+        final result = await service.exportToFile(
+          directoryProvider: () async => exportDir,
+          now: DateTime(2026, 1, 2, 3, 4, 5),
+        );
 
-      expect(result.filePath, contains('mconnect-diagnostics-20260102-030405'));
-      expect(
-        await result.file.readAsString(),
-        contains('via_service_extension'),
-      );
-    });
+        expect(
+          result.filePath,
+          contains('mconnect-diagnostics-20260102-030405'),
+        );
+        expect(
+          await result.file.readAsString(),
+          contains('via_service_extension'),
+        );
+      },
+    );
 
     test('exports non-ascii messages as valid UTF-8', () async {
       service.record('player', '播放失败：歌曲不存在（网络超时）');
@@ -506,7 +530,10 @@ void main() {
       final bytes = await result.file.readAsBytes();
 
       expect(utf8.decode(bytes), contains('播放失败：歌曲不存在（网络超时）'));
-      expect(result.byteSize, utf8.encode(await result.file.readAsString()).length);
+      expect(
+        result.byteSize,
+        utf8.encode(await result.file.readAsString()).length,
+      );
     });
   });
 }

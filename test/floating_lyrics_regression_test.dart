@@ -35,7 +35,9 @@ void main() {
   const channel = MethodChannel('com.mconnect.mconnect/floating_lyrics');
 
   setUp(() async {
-    tempDir = await Directory.systemTemp.createTemp('mconnect_floating_regress_');
+    tempDir = await Directory.systemTemp.createTemp(
+      'mconnect_floating_regress_',
+    );
     Hive.init(tempDir.path);
     await Hive.openBox('settings');
     calls = <MethodCall>[];
@@ -56,9 +58,10 @@ void main() {
           calls.add(call);
           return switch (call.method) {
             'canDrawOverlays' => true,
-            'hide' => hideDelay == null
-                ? true
-                : await Future<bool>.delayed(hideDelay, () => true),
+            'hide' =>
+              hideDelay == null
+                  ? true
+                  : await Future<bool>.delayed(hideDelay, () => true),
             'update' => true,
             'show' => true,
             _ => null,
@@ -114,7 +117,8 @@ void main() {
       expect(
         methodsSinceLastHide(),
         contains('update'),
-        reason: '回到开启状态后必须再次 update —— 否则窗口（在修复前的原生闩锁下）永不重建，'
+        reason:
+            '回到开启状态后必须再次 update —— 否则窗口（在修复前的原生闩锁下）永不重建，'
             '这正是 v1.4.2 用户看到的"悬浮歌词彻底消失"',
       );
     },

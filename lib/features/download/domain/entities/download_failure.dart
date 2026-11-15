@@ -87,7 +87,8 @@ class DownloadFailure {
     final kind = switch (statusCode) {
       401 || 403 => DownloadFailureKind.auth,
       404 || 410 => DownloadFailureKind.notFound,
-      416 => DownloadFailureKind.network, // bad Range: the partial file is stale
+      416 =>
+        DownloadFailureKind.network, // bad Range: the partial file is stale
       null => DownloadFailureKind.network,
       _ => DownloadFailureKind.unsupported,
     };

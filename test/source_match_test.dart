@@ -39,7 +39,12 @@ void main() {
     });
 
     test('大小写/标点/空白不影响 key，且只取主艺人', () {
-      final song = _song('1', name: '  Hello, World!  ', artist: 'A/B', durationSeconds: 200);
+      final song = _song(
+        '1',
+        name: '  Hello, World!  ',
+        artist: 'A/B',
+        durationSeconds: 200,
+      );
       final identity = TrackIdentity.fromSong(song);
       expect(identity.titleKey, 'helloworld');
       expect(identity.artistKey, 'ab');
@@ -49,36 +54,69 @@ void main() {
 
   group('打分（阈值 0.8）', () {
     test('标题 + 主艺人 + 时长全对 → 满分', () {
-      final service = _service(cache: _MemorySourceMatchCache(), platforms: const []);
+      final service = _service(
+        cache: _MemorySourceMatchCache(),
+        platforms: const [],
+      );
       final identity = TrackIdentity.fromSong(
         _song('a', name: '夜曲', artist: '周杰伦', durationSeconds: 228),
       );
-      final candidate = _song('b', platform: PlatformType.qq, name: '夜曲', artist: '周杰伦', durationSeconds: 228);
+      final candidate = _song(
+        'b',
+        platform: PlatformType.qq,
+        name: '夜曲',
+        artist: '周杰伦',
+        durationSeconds: 228,
+      );
       // 不写 `isEqualTo(1.0)`：0.5+0.3+0.2 在 IEEE754 下不保证逐位等于 1.0。
-      expect(service.scoreCandidate(identity, candidate), greaterThanOrEqualTo(0.99));
+      expect(
+        service.scoreCandidate(identity, candidate),
+        greaterThanOrEqualTo(0.99),
+      );
     });
 
     test('时长差超过 ±3s → 0 分（时长不符不换）', () {
-      final service = _service(cache: _MemorySourceMatchCache(), platforms: const []);
-      final identity = TrackIdentity.fromSong(_song('a', name: '夜曲', durationSeconds: 228));
+      final service = _service(
+        cache: _MemorySourceMatchCache(),
+        platforms: const [],
+      );
+      final identity = TrackIdentity.fromSong(
+        _song('a', name: '夜曲', durationSeconds: 228),
+      );
       final candidate = _song('b', name: '夜曲', durationSeconds: 260);
       expect(service.scoreCandidate(identity, candidate), 0);
     });
 
     test('标题不同 → 低于阈值', () {
-      final service = _service(cache: _MemorySourceMatchCache(), platforms: const []);
-      final identity = TrackIdentity.fromSong(_song('a', name: '夜曲', durationSeconds: 228));
+      final service = _service(
+        cache: _MemorySourceMatchCache(),
+        platforms: const [],
+      );
+      final identity = TrackIdentity.fromSong(
+        _song('a', name: '夜曲', durationSeconds: 228),
+      );
       final candidate = _song('b', name: '完全另一首歌', durationSeconds: 228);
       expect(service.scoreCandidate(identity, candidate), lessThan(0.8));
     });
 
     test('任一侧艺人缺失 → 给中性分，不把正常匹配压到阈值以下', () {
-      final service = _service(cache: _MemorySourceMatchCache(), platforms: const []);
+      final service = _service(
+        cache: _MemorySourceMatchCache(),
+        platforms: const [],
+      );
       final identity = TrackIdentity.fromSong(
         _song('a', name: '夜曲', artist: '', durationSeconds: 228),
       );
-      final candidate = _song('b', name: '夜曲', artist: '周杰伦', durationSeconds: 228);
-      expect(service.scoreCandidate(identity, candidate), greaterThanOrEqualTo(0.8));
+      final candidate = _song(
+        'b',
+        name: '夜曲',
+        artist: '周杰伦',
+        durationSeconds: 228,
+      );
+      expect(
+        service.scoreCandidate(identity, candidate),
+        greaterThanOrEqualTo(0.8),
+      );
     });
   });
 
@@ -178,10 +216,10 @@ void main() {
       );
 
       expect(resolution.isResolved, isTrue);
-      expect(
-        qq.urlRequests.map((request) => request.quality).toList(),
-        [AudioLevel.lossless, AudioLevel.high],
-      );
+      expect(qq.urlRequests.map((request) => request.quality).toList(), [
+        AudioLevel.lossless,
+        AudioLevel.high,
+      ]);
       expect(resolution.url, contains('-high.mp3'));
     });
 
@@ -308,7 +346,8 @@ void main() {
       expect(
         resolution.failure,
         SourceMatchFailure.belowThreshold,
-        reason: '搜到了候选但时长差超容差 → 必须 belowThreshold；'
+        reason:
+            '搜到了候选但时长差超容差 → 必须 belowThreshold；'
             '老实现（单个 sawCandidate）会误报 urlUnavailable',
       );
       expect(cache.putCalls, 0);
@@ -410,7 +449,11 @@ void main() {
         type: PlatformType.qq,
         results: [_song('qq-11', platform: PlatformType.qq, name: '夜曲')],
       );
-      final service = _service(cache: cache, platforms: [qq], autoSwitch: false);
+      final service = _service(
+        cache: cache,
+        platforms: [qq],
+        autoSwitch: false,
+      );
 
       final resolution = await service.resolveDetailed(
         _song('n-11', name: '夜曲'),
@@ -544,17 +587,16 @@ void main() {
       final prefetcher = NextTrackPrefetcher(service: service, lookahead: 1);
 
       prefetcher.schedule(
-        playlist: [_song('n-0', name: '夜曲'), _song('n-1', name: '夜曲')],
+        playlist: [
+          _song('n-0', name: '夜曲'),
+          _song('n-1', name: '夜曲'),
+        ],
         currentIndex: 0,
         quality: AudioLevel.low,
       );
       await pumpEventQueue();
 
-      expect(
-        cache.putCalls,
-        1,
-        reason: '预解析必须把直链落进缓存，否则切歌时还得现解析',
-      );
+      expect(cache.putCalls, 1, reason: '预解析必须把直链落进缓存，否则切歌时还得现解析');
     });
   });
 
@@ -671,10 +713,7 @@ class _CountingService extends SourceMatchService {
   final asked = <String>[];
 
   @override
-  Future<SourceMatchResolution> resolveDetailed(
-    Song song,
-    AudioLevel quality,
-  ) {
+  Future<SourceMatchResolution> resolveDetailed(Song song, AudioLevel quality) {
     asked.add(song.id);
     return super.resolveDetailed(song, quality);
   }

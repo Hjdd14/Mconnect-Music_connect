@@ -40,10 +40,12 @@ class SafDownloadException implements Exception {
   const SafDownloadException(this.failure);
 
   DownloadFailureKind get kind => failure.kind;
-  bool get needsFolderRepick => failure.kind == DownloadFailureKind.storagePermission;
+  bool get needsFolderRepick =>
+      failure.kind == DownloadFailureKind.storagePermission;
 
   @override
-  String toString() => 'SafDownloadException(${failure.kind.name}): ${failure.message}';
+  String toString() =>
+      'SafDownloadException(${failure.kind.name}): ${failure.message}';
 }
 
 /// What a successful commit produced.
@@ -164,8 +166,7 @@ class SafDownloadWriter {
   /// Convenience for callers that only need "can I write into the tree?".
   ///
   /// Prefer [targetState] when the UI has to explain the fallback.
-  Future<bool> isReady() async =>
-      await targetState() == SafTargetState.ready;
+  Future<bool> isReady() async => await targetState() == SafTargetState.ready;
 
   /// Opens the folder picker and persists the grant. Returns null when the user
   /// cancelled.

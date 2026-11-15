@@ -71,33 +71,26 @@ void main() {
     expect(songs.single.id, 'HASH_LISTID');
   });
 
-  test(
-    'Kugou playlist detail extracts listid from collection id when public detail is empty',
-    () async {
-      final api = _KugouCollectionFallbackApi();
-      final songs = await KugouPlatform(
-        api: api,
-      ).getPlaylistDetail('collection_3_10001_456_0');
+  test('Kugou playlist detail extracts listid from collection id when public detail is empty', () async {
+    final api = _KugouCollectionFallbackApi();
+    final songs = await KugouPlatform(api: api)
+        .getPlaylistDetail('collection_3_10001_456_0');
 
-      expect(api.userListIds, ['456']);
-      expect(songs, hasLength(1));
-      expect(songs.single.id, 'HASH_COLLECTION_FALLBACK');
-    },
-  );
+    expect(api.userListIds, ['456']);
+    expect(songs, hasLength(1));
+    expect(songs.single.id, 'HASH_COLLECTION_FALLBACK');
+  });
 
-  test(
-    'Kugou created playlist refreshes user list instead of returning transient empty id',
-    () async {
-      final platform = KugouPlatform(api: _KugouCreatePlaylistApi());
+  test('Kugou created playlist refreshes user list instead of returning transient empty id', () async {
+    final platform = KugouPlatform(api: _KugouCreatePlaylistApi());
 
-      final playlist = await platform.createPlaylist('新建酷狗歌单');
+    final playlist = await platform.createPlaylist('新建酷狗歌单');
 
-      expect(playlist, isNotNull);
-      expect(playlist!.id, 'global-new');
-      expect(playlist.editableId, 'list-new');
-      expect(playlist.name, '新建酷狗歌单');
-    },
-  );
+    expect(playlist, isNotNull);
+    expect(playlist!.id, 'global-new');
+    expect(playlist.editableId, 'list-new');
+    expect(playlist.name, '新建酷狗歌单');
+  });
 
   test(
     'Kugou create playlist returns null when no stable detail id is available',
@@ -110,16 +103,13 @@ void main() {
     },
   );
 
-  test(
-    'Kugou create playlist does not expose transient listid when refresh misses',
-    () async {
-      final platform = KugouPlatform(api: _KugouCreateRefreshMissApi());
+  test('Kugou create playlist does not expose transient listid when refresh misses', () async {
+    final platform = KugouPlatform(api: _KugouCreateRefreshMissApi());
 
-      final playlist = await platform.createPlaylist('missing after refresh');
+    final playlist = await platform.createPlaylist('missing after refresh');
 
-      expect(playlist, isNull);
-    },
-  );
+    expect(playlist, isNull);
+  });
 
   test(
     'Kugou create playlist does not return a stale playlist with another name',
@@ -178,9 +168,8 @@ void main() {
     'Kugou shared playlist detail loads every page beyond the first 100 songs',
     () async {
       final api = _KugouPagedSharedPlaylistApi(total: 250);
-      final songs = await KugouPlatform(
-        api: api,
-      ).getPlaylistDetail('collection_large');
+      final songs = await KugouPlatform(api: api)
+          .getPlaylistDetail('collection_large');
 
       expect(songs, hasLength(250));
       expect(songs.first.id, 'HASH_0');
@@ -197,9 +186,8 @@ void main() {
     'Kugou user playlist fallback loads every page beyond the first 100 songs',
     () async {
       final api = _KugouPagedUserPlaylistApi(total: 230);
-      final songs = await KugouPlatform(
-        api: api,
-      ).getPlaylistDetail('list-large');
+      final songs = await KugouPlatform(api: api)
+          .getPlaylistDetail('list-large');
 
       expect(songs, hasLength(230));
       expect(songs.first.id, 'USER_HASH_0');

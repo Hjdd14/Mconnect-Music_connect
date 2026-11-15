@@ -99,7 +99,11 @@ class SettingsPageBody extends StatelessWidget {
 }
 
 class SettingsPage extends StatelessWidget {
-  const SettingsPage({super.key, this.diagnosticsExport, this.diagnosticsShare});
+  const SettingsPage({
+    super.key,
+    this.diagnosticsExport,
+    this.diagnosticsShare,
+  });
 
   /// Test seam for the 「导出诊断日志」 row.
   ///
@@ -313,26 +317,26 @@ class SettingsAccountsPage extends ConsumerWidget {
       title: context.l10n.settingsAccountsTitle,
       children: [
         _PlatformLoginTile(
-            platform: PlatformType.netease,
-            user: authState.userFor(PlatformType.netease),
-            onLogin: () => context.push('/login/netease'),
-            onLogout: () =>
-                ref.read(authProvider.notifier).logout(PlatformType.netease),
-          ),
-          _PlatformLoginTile(
-            platform: PlatformType.qq,
-            user: authState.userFor(PlatformType.qq),
-            onLogin: () => context.push('/login/qq'),
-            onLogout: () =>
-                ref.read(authProvider.notifier).logout(PlatformType.qq),
-          ),
-          _PlatformLoginTile(
-            platform: PlatformType.kugou,
-            user: authState.userFor(PlatformType.kugou),
-            onLogin: () => context.push('/login/kugou'),
-            onLogout: () =>
-                ref.read(authProvider.notifier).logout(PlatformType.kugou),
-          ),
+          platform: PlatformType.netease,
+          user: authState.userFor(PlatformType.netease),
+          onLogin: () => context.push('/login/netease'),
+          onLogout: () =>
+              ref.read(authProvider.notifier).logout(PlatformType.netease),
+        ),
+        _PlatformLoginTile(
+          platform: PlatformType.qq,
+          user: authState.userFor(PlatformType.qq),
+          onLogin: () => context.push('/login/qq'),
+          onLogout: () =>
+              ref.read(authProvider.notifier).logout(PlatformType.qq),
+        ),
+        _PlatformLoginTile(
+          platform: PlatformType.kugou,
+          user: authState.userFor(PlatformType.kugou),
+          onLogin: () => context.push('/login/kugou'),
+          onLogout: () =>
+              ref.read(authProvider.notifier).logout(PlatformType.kugou),
+        ),
       ],
     );
   }
@@ -380,52 +384,52 @@ class SettingsAppearancePage extends ConsumerWidget {
       title: context.l10n.settingsAppearanceTitle,
       children: [
         _ThemeTile(
-            title: context.l10n.themeFollowSystem,
-            icon: Icons.brightness_auto,
-            selected: themeSettings.mode == ThemeMode.system,
-            onTap: () => themeNotifier.setMode(ThemeMode.system),
+          title: context.l10n.themeFollowSystem,
+          icon: Icons.brightness_auto,
+          selected: themeSettings.mode == ThemeMode.system,
+          onTap: () => themeNotifier.setMode(ThemeMode.system),
+        ),
+        _ThemeTile(
+          title: context.l10n.themeLight,
+          icon: Icons.light_mode,
+          selected: themeSettings.mode == ThemeMode.light,
+          onTap: () => themeNotifier.setMode(ThemeMode.light),
+        ),
+        _ThemeTile(
+          title: context.l10n.themeDark,
+          icon: Icons.dark_mode,
+          selected: themeSettings.mode == ThemeMode.dark,
+          onTap: () => themeNotifier.setMode(ThemeMode.dark),
+        ),
+        _ColorPresetTile(
+          title: context.l10n.themeColor,
+          subtitle: context.l10n.themeColorSubtitle,
+          icon: Icons.palette_outlined,
+          selectedColor: themeSettings.seedColor,
+          presets: _themePresets,
+          fallbackColor: AppTheme.defaultSeedColor,
+          onSelected: themeNotifier.setSeedColor,
+        ),
+        _AppBackgroundTile(
+          settings: appBackground,
+          onPick: () => _pickBackground(context, appBackgroundNotifier),
+          onEdit: () =>
+              _editBackground(context, appBackground, appBackgroundNotifier),
+          onClear: () async {
+            await appBackgroundNotifier.clear();
+            if (!context.mounted) return;
+            showSuccessSnackBar(context, context.l10n.backgroundRemoved);
+          },
+        ),
+        if (showUiStyle) ...[
+          const Divider(),
+          _SectionHeader(context.l10n.uiStyle),
+          _UiStyleTile(
+            selected: uiStyleSettings.style,
+            onSelected: (style) =>
+                ref.read(uiStyleProvider.notifier).setStyle(style),
           ),
-          _ThemeTile(
-            title: context.l10n.themeLight,
-            icon: Icons.light_mode,
-            selected: themeSettings.mode == ThemeMode.light,
-            onTap: () => themeNotifier.setMode(ThemeMode.light),
-          ),
-          _ThemeTile(
-            title: context.l10n.themeDark,
-            icon: Icons.dark_mode,
-            selected: themeSettings.mode == ThemeMode.dark,
-            onTap: () => themeNotifier.setMode(ThemeMode.dark),
-          ),
-          _ColorPresetTile(
-            title: context.l10n.themeColor,
-            subtitle: context.l10n.themeColorSubtitle,
-            icon: Icons.palette_outlined,
-            selectedColor: themeSettings.seedColor,
-            presets: _themePresets,
-            fallbackColor: AppTheme.defaultSeedColor,
-            onSelected: themeNotifier.setSeedColor,
-          ),
-          _AppBackgroundTile(
-            settings: appBackground,
-            onPick: () => _pickBackground(context, appBackgroundNotifier),
-            onEdit: () =>
-                _editBackground(context, appBackground, appBackgroundNotifier),
-            onClear: () async {
-              await appBackgroundNotifier.clear();
-              if (!context.mounted) return;
-              showSuccessSnackBar(context, context.l10n.backgroundRemoved);
-            },
-          ),
-          if (showUiStyle) ...[
-            const Divider(),
-            _SectionHeader(context.l10n.uiStyle),
-            _UiStyleTile(
-              selected: uiStyleSettings.style,
-              onSelected: (style) =>
-                  ref.read(uiStyleProvider.notifier).setStyle(style),
-            ),
-          ],
+        ],
       ],
     );
   }
@@ -563,7 +567,9 @@ class SettingsFloatingLyricsPage extends ConsumerWidget {
             secondary: const Icon(Icons.picture_in_picture_alt_outlined),
             title: Text(context.l10n.floatingLyricsEnable),
             subtitle: Text(
-              isWindows ? context.l10n.floatingLyricsEnableSubtitle : context.l10n.floatingLyricsPermissionSubtitle,
+              isWindows
+                  ? context.l10n.floatingLyricsEnableSubtitle
+                  : context.l10n.floatingLyricsPermissionSubtitle,
             ),
             value: floatingLyrics.enabled,
             onChanged: (value) async {
@@ -699,8 +705,7 @@ class SettingsAudioPage extends ConsumerWidget {
                   : '关：失败只降一档音质，然后跳到下一首',
             ),
             value: autoSourceSwitch.enabled,
-            onChanged: (value) =>
-                autoSourceSwitchNotifier.setEnabled(value),
+            onChanged: (value) => autoSourceSwitchNotifier.setEnabled(value),
           ),
         if (showPlayback)
           SwitchListTile(
@@ -713,8 +718,7 @@ class SettingsAudioPage extends ConsumerWidget {
         if (showPlayback)
           _SliderTile(
             title: context.l10n.audioFadeDuration,
-            subtitle:
-                '${audioEffects.fadeDuration.inMilliseconds} ms',
+            subtitle: '${audioEffects.fadeDuration.inMilliseconds} ms',
             icon: Icons.timelapse,
             value: audioEffects.fadeDuration.inMilliseconds.toDouble(),
             min: 200,
@@ -911,7 +915,11 @@ class _AppBackgroundTile extends StatelessWidget {
       key: const Key('app-background-tile'),
       leading: const Icon(Icons.wallpaper_outlined),
       title: Text(context.l10n.customBackground),
-      subtitle: Text(enabled ? context.l10n.customBackgroundEnabledHint : context.l10n.customBackgroundChooseHint),
+      subtitle: Text(
+        enabled
+            ? context.l10n.customBackgroundEnabledHint
+            : context.l10n.customBackgroundChooseHint,
+      ),
       trailing: enabled
           ? IconButton(
               tooltip: context.l10n.removeBackground,
@@ -1554,7 +1562,10 @@ class _DiagnosticsTile extends StatelessWidget {
             case 'copy':
               await Clipboard.setData(ClipboardData(text: path));
               if (!context.mounted) return;
-              showSuccessSnackBar(context, context.l10n.diagnosticsLogPathCopied);
+              showSuccessSnackBar(
+                context,
+                context.l10n.diagnosticsLogPathCopied,
+              );
               break;
             case 'clear':
               await diagnostics.clear();
@@ -1699,10 +1710,15 @@ class _PlatformLoginTile extends StatelessWidget {
       title: Text(platform.label(context.l10n)),
       subtitle: isLoggedIn
           ? Text(
-              user!.nickname.isNotEmpty ? user!.nickname : context.l10n.accountLoggedIn,
+              user!.nickname.isNotEmpty
+                  ? user!.nickname
+                  : context.l10n.accountLoggedIn,
               style: TextStyle(color: cs.outline, fontSize: 13),
             )
-          : Text(context.l10n.accountTapToLogin, style: TextStyle(color: cs.outline, fontSize: 13)),
+          : Text(
+              context.l10n.accountTapToLogin,
+              style: TextStyle(color: cs.outline, fontSize: 13),
+            ),
       trailing: isLoggedIn
           ? IconButton(
               icon: Icon(Icons.logout, size: 20, color: cs.error),
@@ -1711,7 +1727,11 @@ class _PlatformLoginTile extends StatelessWidget {
                   context: context,
                   builder: (ctx) => AlertDialog(
                     title: Text(context.l10n.accountLogout),
-                    content: Text(context.l10n.accountLogoutConfirm(platform.label(context.l10n))),
+                    content: Text(
+                      context.l10n.accountLogoutConfirm(
+                        platform.label(context.l10n),
+                      ),
+                    ),
                     actions: [
                       TextButton(
                         onPressed: () => Navigator.pop(ctx),

@@ -40,7 +40,9 @@ class _RecommendationsDesktopPageState
       if (!mounted) return;
       final state = ref.read(playlistRecommendationsProvider);
       if (state.songsByPlatform.isEmpty && !state.isLoading) {
-        ref.read(playlistRecommendationsProvider.notifier).loadRecommendations();
+        ref
+            .read(playlistRecommendationsProvider.notifier)
+            .loadRecommendations();
       }
     });
   }

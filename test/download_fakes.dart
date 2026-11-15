@@ -225,7 +225,9 @@ class FakeDownloadPlatform extends MusicPlatform {
 
   @override
   Future<List<AudioQuality>> getAvailableQualities(String songId) async =>
-      const [AudioQuality(level: AudioLevel.low, bitrate: 128000, format: 'mp3')];
+      const [
+        AudioQuality(level: AudioLevel.low, bitrate: 128000, format: 'mp3'),
+      ];
 
   @override
   Future<VipLevel> getVipStatus() async => VipLevel.svip;
@@ -257,8 +259,11 @@ class FakeDownloadPlatform extends MusicPlatform {
   Future<void> logout() async {}
 
   @override
-  Future<List<Song>> search(String keyword, {int page = 1, int limit = 30}) async =>
-      const [];
+  Future<List<Song>> search(
+    String keyword, {
+    int page = 1,
+    int limit = 30,
+  }) async => const [];
 
   @override
   Future<List<Playlist>> searchPlaylists(

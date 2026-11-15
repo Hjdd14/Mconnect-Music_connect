@@ -20,7 +20,9 @@ SongsCompanion songsCompanionFromSong(Song song) {
     // NOTE: `Songs.artists` holds the comma-joined artist **names**, not JSON.
     artists: song.artists.map((artist) => artist.name).join(','),
     albumName: Value(_nonEmpty(song.album?.name)),
-    albumCover: Value(_nonEmpty(song.coverUrl) ?? _nonEmpty(song.album?.coverUrl)),
+    albumCover: Value(
+      _nonEmpty(song.coverUrl) ?? _nonEmpty(song.album?.coverUrl),
+    ),
     durationMs: Value(song.duration.inMilliseconds),
     fingerprint: song.fingerprint,
     albumId: Value(_nonEmpty(song.albumId) ?? _nonEmpty(song.album?.id)),

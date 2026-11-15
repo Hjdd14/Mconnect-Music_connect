@@ -633,7 +633,8 @@ class TaskbarStatusBar extends ConsumerWidget {
     final label = !status.found
         ? '未找到任务栏，已隐藏'
         : '已停靠：${_edgeLabel(status.edge)}$geometry';
-    final hint = status.lastError ??
+    final hint =
+        status.lastError ??
         (status.spaceInsufficient ? '任务栏应用区已被系统占满，歌词条铺满整条任务栏' : null);
 
     return Padding(

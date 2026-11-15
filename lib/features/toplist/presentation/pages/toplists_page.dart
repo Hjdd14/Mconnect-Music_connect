@@ -139,9 +139,7 @@ class _ToplistsPageState extends ConsumerState<ToplistsPage> {
 
   void _openChart(PlatformType platform, String toplistId, String? name) {
     final query = Uri(
-      queryParameters: {
-        if (name != null && name.isNotEmpty) 'name': name,
-      },
+      queryParameters: {if (name != null && name.isNotEmpty) 'name': name},
     ).query;
     context.push(
       '/toplist/${platform.name}/${Uri.encodeComponent(toplistId)}'
@@ -287,7 +285,10 @@ class _PlatformSection extends StatelessWidget {
               Container(
                 width: 10,
                 height: 10,
-                decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
+                decoration: BoxDecoration(
+                  color: accent,
+                  shape: BoxShape.circle,
+                ),
               ),
               const SizedBox(width: 8),
               Text(
@@ -297,10 +298,7 @@ class _PlatformSection extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              if (offline) ...[
-                const SizedBox(width: 8),
-                const _OfflineBadge(),
-              ],
+              if (offline) ...[const SizedBox(width: 8), const _OfflineBadge()],
               const Spacer(),
               if (toplists.isNotEmpty)
                 Text(
@@ -367,12 +365,12 @@ class _ToplistTile extends StatelessWidget {
     ];
     return ListTile(
       onTap: onTap,
-      leading: _ChartCover(coverUrl: toplist.coverUrl, accent: accent, size: 44),
-      title: Text(
-        toplist.name,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
+      leading: _ChartCover(
+        coverUrl: toplist.coverUrl,
+        accent: accent,
+        size: 44,
       ),
+      title: Text(toplist.name, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: details.isEmpty
           ? null
           : Text(
@@ -568,9 +566,8 @@ class _ToplistDetailPageState extends ConsumerState<ToplistDetailPage> {
                       fallbackName: title,
                       accent: accent,
                       songCount: ranked.length,
-                      onPlayAll: () => ref
-                          .read(playerProvider.notifier)
-                          .playPlaylist(songs),
+                      onPlayAll: () =>
+                          ref.read(playerProvider.notifier).playPlaylist(songs),
                       onCacheAll: () => _cacheAll(songs),
                     );
                   }
@@ -647,11 +644,7 @@ class _ChartHeader extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _ChartCover(
-                coverUrl: meta?.coverUrl,
-                accent: accent,
-                size: 96,
-              ),
+              _ChartCover(coverUrl: meta?.coverUrl, accent: accent, size: 96),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(

@@ -37,8 +37,8 @@ List<Song> sortAlbumSongs(List<Song> songs) {
   return numbered;
 }
 
-final albumDetailProvider =
-    FutureProvider.autoDispose.family<AlbumDetailData, AlbumKey>((ref, key) async {
+final albumDetailProvider = FutureProvider.autoDispose
+    .family<AlbumDetailData, AlbumKey>((ref, key) async {
       final platform = PlatformRegistry.get(key.platform);
       if (!platform.supportsAlbumPage) {
         throw UnsupportedActionException(platform.platformName);

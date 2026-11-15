@@ -122,9 +122,7 @@ class SmartPlaylistGenerator {
       filtered.add(song);
     }
 
-    filtered.sort(
-      (left, right) => _compare(rule.sortBy, left, right, context),
-    );
+    filtered.sort((left, right) => _compare(rule.sortBy, left, right, context));
     return filtered.take(rule.maxSongs).toList();
   }
 

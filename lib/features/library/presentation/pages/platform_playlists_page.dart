@@ -247,9 +247,9 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
   /// are not verified that would be a button that silently fails. Importing the
   /// already-fetched song list needs no platform write at all, so it always works.
   Future<void> _copyPlatformPlaylistToLocal(Playlist playlist) async {
-    final songs = await ref.read(platformPlaylistsProvider.notifier).loadSongs(
-      playlist,
-    );
+    final songs = await ref
+        .read(platformPlaylistsProvider.notifier)
+        .loadSongs(playlist);
     if (!mounted) return;
     if (songs.isEmpty) {
       showErrorSnackBar(context, context.l10n.libraryPlaylistCopyEmpty);
@@ -258,9 +258,9 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
     final copy = await ref
         .read(myPlaylistsProvider.notifier)
         .copySongsToLocal(
-      name: context.l10n.libraryPlaylistCopyOf(playlist.name),
-      songs: songs,
-    );
+          name: context.l10n.libraryPlaylistCopyOf(playlist.name),
+          songs: songs,
+        );
     if (!mounted) return;
     showInfoSnackBar(
       context,
@@ -380,9 +380,7 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
 
   /// Runs a share, reporting a failure instead of letting it escape: a platform
   /// with no share sheet must say so rather than take the page down.
-  Future<void> _share(
-    Future<void> Function(ShareService service) run,
-  ) async {
+  Future<void> _share(Future<void> Function(ShareService service) run) async {
     try {
       await run(ref.read(shareServiceProvider));
     } catch (error) {
@@ -551,7 +549,9 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        subtitle: Text(context.l10n.librarySongCount(playlist.songCount)),
+                        subtitle: Text(
+                          context.l10n.librarySongCount(playlist.songCount),
+                        ),
                         trailing: PopupMenuButton<String>(
                           tooltip: context.l10n.libraryPlaylistActions,
                           onSelected: (value) {
@@ -573,7 +573,9 @@ class _PlatformPlaylistsPageState extends ConsumerState<PlatformPlaylistsPage>
                               PopupMenuItem(
                                 value: 'rename',
                                 child: ListTile(
-                                  leading: const Icon(Icons.drive_file_rename_outline),
+                                  leading: const Icon(
+                                    Icons.drive_file_rename_outline,
+                                  ),
                                   title: Text(l.libraryRenamePlaylist),
                                 ),
                               ),

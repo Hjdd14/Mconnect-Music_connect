@@ -75,9 +75,9 @@ class HiveDownloadTaskStore implements DownloadTaskStore {
       return Hive.openBox(_boxName)
           .then<Box?>((box) => box)
           .catchError((Object error) {
-        debugPrint('DownloadTaskStore $operation failed: $error');
-        return null;
-      });
+            debugPrint('DownloadTaskStore $operation failed: $error');
+            return null;
+          });
     } catch (error) {
       debugPrint('DownloadTaskStore $operation failed: $error');
       return Future<Box?>.value();

@@ -66,7 +66,10 @@ void main() {
 
     expect(playlist, isNull);
     expect(notifier.state.playlistsFor(PlatformType.kugou), isEmpty);
-    expect(notifier.state.errorsByPlatform[PlatformType.kugou], contains('新建歌单失败'));
+    expect(
+      notifier.state.errorsByPlatform[PlatformType.kugou],
+      contains('新建歌单失败'),
+    );
   });
 
   // task-5: a 401 must clear the session, a network error must NOT.
@@ -104,7 +107,11 @@ void main() {
 
       await notifier.load();
 
-      expect(expired, isEmpty, reason: 'a timeout must not be treated as a 401');
+      expect(
+        expired,
+        isEmpty,
+        reason: 'a timeout must not be treated as a 401',
+      );
       expect(
         notifier.state.errorsByPlatform[PlatformType.netease],
         contains('加载失败'),
@@ -122,10 +129,7 @@ void main() {
 
       await notifier.load();
 
-      expect(
-        notifier.state.errorsByPlatform[PlatformType.qq],
-        '登录已过期，请重新登录',
-      );
+      expect(notifier.state.errorsByPlatform[PlatformType.qq], '登录已过期，请重新登录');
     });
   });
 }
@@ -182,7 +186,8 @@ class _FakePlaylistPlatform extends MusicPlatform {
   Stream<QrLoginStatus> pollQrStatus(String key) => throw UnimplementedError();
 
   @override
-  Future<LoginResult> loginByPhone(String phone, String code) => throw UnimplementedError();
+  Future<LoginResult> loginByPhone(String phone, String code) =>
+      throw UnimplementedError();
 
   @override
   Future<LoginResult> sendPhoneCode(String phone) async =>
@@ -195,17 +200,28 @@ class _FakePlaylistPlatform extends MusicPlatform {
   Future<void> logout() async {}
 
   @override
-  Future<List<Song>> search(String keyword, {int page = 1, int limit = 30}) async => const [];
+  Future<List<Song>> search(
+    String keyword, {
+    int page = 1,
+    int limit = 30,
+  }) async => const [];
 
   @override
-  Future<List<Playlist>> searchPlaylists(String keyword, {int page = 1, int limit = 30}) async =>
+  Future<List<Playlist>> searchPlaylists(
+    String keyword, {
+    int page = 1,
+    int limit = 30,
+  }) async => const [];
+
+  @override
+  Future<String> getSongUrl(
+    String songId, {
+    AudioLevel quality = AudioLevel.low,
+  }) async => '';
+
+  @override
+  Future<List<AudioQuality>> getAvailableQualities(String songId) async =>
       const [];
-
-  @override
-  Future<String> getSongUrl(String songId, {AudioLevel quality = AudioLevel.low}) async => '';
-
-  @override
-  Future<List<AudioQuality>> getAvailableQualities(String songId) async => const [];
 
   @override
   Future<String?> getLyrics(String songId) async => null;
@@ -226,7 +242,10 @@ class _FakePlaylistPlatform extends MusicPlatform {
   Future<Playlist?> createPlaylist(String name) async => createdPlaylist;
 
   @override
-  Future<bool> collectPlaylist(String playlistId, {bool collect = true}) async => false;
+  Future<bool> collectPlaylist(
+    String playlistId, {
+    bool collect = true,
+  }) async => false;
 
   @override
   Future<List<Song>> getDailyRecommendations() async => const [];

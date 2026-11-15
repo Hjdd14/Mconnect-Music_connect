@@ -85,7 +85,10 @@ void main() {
         hasLength(1),
       );
       expect(notifier.state.errorForPlatform(PlatformType.qq), isNotNull);
-      expect(notifier.state.errorForPlatform(PlatformType.qq), contains('boom'));
+      expect(
+        notifier.state.errorForPlatform(PlatformType.qq),
+        contains('boom'),
+      );
     });
 
     test('离线时先发布缓存并标记为离线', () async {

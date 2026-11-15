@@ -17,7 +17,7 @@ class _ScriptedAdapter implements HttpClientAdapter {
   _ScriptedAdapter(this.respond);
 
   final FutureOr<ResponseBody> Function(RequestOptions options, int attempt)
-      respond;
+  respond;
 
   int attempts = 0;
   final List<String> methods = [];
@@ -39,7 +39,8 @@ class _ScriptedAdapter implements HttpClientAdapter {
   void close({bool force = false}) {}
 }
 
-ResponseBody _json(String body, [int statusCode = 200]) => ResponseBody.fromString(
+ResponseBody _json(String body, [int statusCode = 200]) =>
+    ResponseBody.fromString(
       body,
       statusCode,
       headers: {
@@ -50,12 +51,12 @@ ResponseBody _json(String body, [int statusCode = 200]) => ResponseBody.fromStri
 /// [createPlatformDio] with retry delays flattened, so retry tests do not sleep
 /// for the production 1s/2s backoff.
 Dio _fastDio({int maxRetries = 2, String label = '测试平台'}) => createPlatformDio(
-      label: label,
-      baseUrl: 'https://example.invalid',
-      maxRetries: maxRetries,
-      retryBaseDelay: Duration.zero,
-      retryMaxDelay: Duration.zero,
-    );
+  label: label,
+  baseUrl: 'https://example.invalid',
+  maxRetries: maxRetries,
+  retryBaseDelay: Duration.zero,
+  retryMaxDelay: Duration.zero,
+);
 
 Future<DioException> _captureError(Future<Response<dynamic>> request) async {
   try {
@@ -192,7 +193,10 @@ void main() {
   });
 
   group('错误翻译', () {
-    Future<ApiException> translate(int statusCode, {String label = '酷狗音乐'}) async {
+    Future<ApiException> translate(
+      int statusCode, {
+      String label = '酷狗音乐',
+    }) async {
       final dio = _fastDio(maxRetries: 0, label: label);
       dio.httpClientAdapter = _ScriptedAdapter(
         (_, _) => _json('{"e":1}', statusCode),

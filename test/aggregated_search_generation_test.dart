@@ -61,25 +61,18 @@ void main() {
     platform.pending['晴天|1']!.complete([_song('new', '晴天')]);
     await fast;
     expect(notifier.state.query, '晴天');
-    expect(
-      notifier.state.songs.map((s) => s.sources.single.name).toList(),
-      ['晴天'],
-    );
+    expect(notifier.state.songs.map((s) => s.sources.single.name).toList(), [
+      '晴天',
+    ]);
 
     // The stale page-1 response arrives last and must be dropped.
     platform.pending['晴|1']!.complete([_song('old', '晴天旧结果')]);
     await slow;
 
-    expect(
-      notifier.state.query,
+    expect(notifier.state.query, '晴天', reason: '旧查询的结果不得把状态改回旧查询');
+    expect(notifier.state.songs.map((s) => s.sources.single.name).toList(), [
       '晴天',
-      reason: '旧查询的结果不得把状态改回旧查询',
-    );
-    expect(
-      notifier.state.songs.map((s) => s.sources.single.name).toList(),
-      ['晴天'],
-      reason: '旧响应必须被代际守卫丢弃',
-    );
+    ], reason: '旧响应必须被代际守卫丢弃');
     expect(notifier.state.isLoading, isFalse);
   });
 

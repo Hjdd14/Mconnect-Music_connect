@@ -245,7 +245,9 @@ class PlayerPlaybackMemory {
 
   /// 倍速必须是有限值且落在播放器支持的区间内，否则回落到原速。
   static double _playbackSpeed(dynamic value) {
-    final raw = value is num ? value.toDouble() : double.tryParse(value?.toString() ?? '');
+    final raw = value is num
+        ? value.toDouble()
+        : double.tryParse(value?.toString() ?? '');
     if (raw == null || !raw.isFinite) return 1.0;
     return raw.clamp(0.5, 2.0).toDouble();
   }

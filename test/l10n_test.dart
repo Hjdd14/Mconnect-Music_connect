@@ -29,14 +29,14 @@ void main() {
   Map<String, dynamic> readArb(String path) =>
       jsonDecode(File(path).readAsStringSync()) as Map<String, dynamic>;
 
-  Set<String> messageKeys(Map<String, dynamic> arb) => arb.keys
-      .where((key) => !key.startsWith('@'))
-      .toSet();
+  Set<String> messageKeys(Map<String, dynamic> arb) =>
+      arb.keys.where((key) => !key.startsWith('@')).toSet();
 
-  Set<String> placeholders(String value) => RegExp(r'\{(\w+)\}')
-      .allMatches(value)
-      .map((match) => match.group(1)!)
-      .toSet();
+  Set<String> placeholders(String value) =>
+      RegExp(r'\{(\w+)\}')
+          .allMatches(value)
+          .map((match) => match.group(1)!)
+          .toSet();
 
   setUpAll(() {
     zh = readArb('lib/l10n/app_zh.arb');
@@ -72,7 +72,8 @@ void main() {
   });
 
   test('the committed generated code is up to date with the ARB', () {
-    final generated = File('lib/l10n/app_localizations.dart').readAsStringSync();
+    final generated = File('lib/l10n/app_localizations.dart')
+        .readAsStringSync();
     // Parameterised messages generate a method (`String audioMinutes(int ...)`),
     // the rest a getter (`String get settingsTitle;`).
     final missing = messageKeys(zh)
@@ -85,7 +86,8 @@ void main() {
     expect(
       missing,
       isEmpty,
-      reason: 'run `flutter gen-l10n` — these keys are in the ARB but not in the '
+      reason:
+          'run `flutter gen-l10n` — these keys are in the ARB but not in the '
           'generated AppLocalizations',
     );
   });
@@ -144,7 +146,8 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Builder(
-          builder: (context) => Scaffold(body: Text(context.l10n.settingsTitle)),
+          builder: (context) =>
+              Scaffold(body: Text(context.l10n.settingsTitle)),
         ),
       ),
     );
@@ -175,10 +178,9 @@ void main() {
     }
     final text = corpus.toString();
 
-    final offenders = messageKeys(zh)
-        .where((key) => !RegExp('\\b$key\\b').hasMatch(text))
-        .toList()
-      ..sort();
+    final offenders = messageKeys(
+      zh,
+    ).where((key) => !RegExp('\\b$key\\b').hasMatch(text)).toList()..sort();
     expect(
       offenders,
       isEmpty,
@@ -192,10 +194,9 @@ void main() {
     // en 值含 CJK = 英文包里躺着中文，等于没翻；放开 en 那天就会露出来。
     // 品牌名不受影响：`platformQq` 的英文值是 "QQ Music" 之类，本来就不含汉字。
     final han = RegExp(r'[\u4e00-\u9fff]');
-    final offenders = messageKeys(en)
-        .where((key) => han.hasMatch(en[key]?.toString() ?? ''))
-        .toList()
-      ..sort();
+    final offenders = messageKeys(
+      en,
+    ).where((key) => han.hasMatch(en[key]?.toString() ?? '')).toList()..sort();
     expect(offenders, isEmpty, reason: 'en 值含中文 = 假翻译（等于没翻）：$offenders');
   });
 
@@ -256,9 +257,6 @@ void main() {
       'Your session expired, please sign in again',
     );
     expect(apiErrorText(ctx, NetworkException()), contains("Couldn't connect"));
-    expect(
-      apiErrorText(ctx, RequestCancelledException()),
-      'Request cancelled',
-    );
+    expect(apiErrorText(ctx, RequestCancelledException()), 'Request cancelled');
   });
 }

@@ -40,16 +40,18 @@ void main() {
   });
 
   test('the app constant matches pubspec', () {
-    final source = File(
-      'lib/core/constants/app_constants.dart',
-    ).readAsStringSync();
+    final source = File('lib/core/constants/app_constants.dart')
+        .readAsStringSync();
     final match = RegExp(r"appVersion\s*=\s*'v([\d.]+)'").firstMatch(source);
-    expect(match, isNotNull, reason: 'app_constants.dart must define appVersion');
+    expect(
+      match,
+      isNotNull,
+      reason: 'app_constants.dart must define appVersion',
+    );
     expect(
       match![1],
       name,
-      reason:
-          '设置页显示的就是 AppConstants.appVersion；它与 pubspec.yaml 必须一致',
+      reason: '设置页显示的就是 AppConstants.appVersion；它与 pubspec.yaml 必须一致',
     );
   });
 
@@ -195,7 +197,11 @@ void main() {
         r'@DriftDatabase\((.*?)\n\)',
         dotAll: true,
       ).firstMatch(db);
-      expect(block, isNotNull, reason: 'app_database.dart 必须有 @DriftDatabase(...)');
+      expect(
+        block,
+        isNotNull,
+        reason: 'app_database.dart 必须有 @DriftDatabase(...)',
+      );
 
       List<String> entries(String key) {
         final match = RegExp(
@@ -239,10 +245,10 @@ void main() {
       // pubspec 里所有 2 空格缩进的 `name:` 键（dependencies + dev_dependencies，
       // 以及 flutter/flutter_launcher_icons 等配置块的子键 —— 多出来的名字只会让
       // 这条护栏更宽松，不会造成误报）。
-      final declared = RegExp(r'^\s{2}([a-z0-9_]+):', multiLine: true)
-          .allMatches(pubspec)
-          .map((match) => match.group(1)!)
-          .toSet();
+      final declared = RegExp(
+        r'^\s{2}([a-z0-9_]+):',
+        multiLine: true,
+      ).allMatches(pubspec).map((match) => match.group(1)!).toSet();
       expect(
         declared,
         containsAll(<String>['flutter_riverpod', 'drift', 'just_audio']),
@@ -250,11 +256,7 @@ void main() {
       );
 
       final documented = <String>{};
-      for (final line in slice(
-        project,
-        '## 8. 依赖清单',
-        '\n## 9.',
-      ).split('\n')) {
+      for (final line in slice(project, '## 8. 依赖清单', '\n## 9.').split('\n')) {
         if (!line.startsWith('|')) continue;
         final cells = line.split('|');
         if (cells.length < 3) continue;
@@ -262,7 +264,9 @@ void main() {
         if (first.isEmpty || first == '包名' || first.startsWith('-')) continue;
         for (final part in first.split('+')) {
           final package = part.trim().split(RegExp(r'\s+')).first;
-          if (RegExp(r'^[a-z0-9_]+$').hasMatch(package)) documented.add(package);
+          if (RegExp(r'^[a-z0-9_]+$').hasMatch(package)) {
+            documented.add(package);
+          }
         }
       }
       expect(documented, isNotEmpty, reason: '§8 的依赖表解析失败，护栏会空转');
@@ -316,9 +320,7 @@ void main() {
       }
 
       // Dart：pubspec 的 `sdk: ^X.Y.Z` 是唯一来源，major.minor 必须一致。
-      final constraint = RegExp(
-        r'sdk:\s*\^(\d+)\.(\d+)\.',
-      ).firstMatch(pubspec);
+      final constraint = RegExp(r'sdk:\s*\^(\d+)\.(\d+)\.').firstMatch(pubspec);
       expect(constraint, isNotNull, reason: 'pubspec.yaml 必须声明 sdk 约束');
       expect(
         dart,
@@ -328,9 +330,10 @@ void main() {
     });
 
     test('.gitignore 不再忽略 PROJECT.md / CHANGELOG.md', () {
-      final ignored = File(
-        '.gitignore',
-      ).readAsLinesSync().map((line) => line.trim()).toSet();
+      final ignored = File('.gitignore')
+          .readAsLinesSync()
+          .map((line) => line.trim())
+          .toSet();
 
       // AGENTS.md §2 的 7 个版本同步点里有 2 个在这两个文件里；它们不在版本控制内
       // 时，CI 与 fresh clone 都看不到它们，而 `version_sync_test` 只能"存在才检查"。

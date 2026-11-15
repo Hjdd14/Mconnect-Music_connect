@@ -20,13 +20,7 @@ void showErrorSnackBar(
   Duration? duration,
   SnackBarAction? action,
 }) {
-  _show(
-    context,
-    message,
-    isError: true,
-    duration: duration,
-    action: action,
-  );
+  _show(context, message, isError: true, duration: duration, action: action);
 }
 
 void showSuccessSnackBar(
@@ -35,13 +29,7 @@ void showSuccessSnackBar(
   Duration? duration,
   SnackBarAction? action,
 }) {
-  _show(
-    context,
-    message,
-    isError: false,
-    duration: duration,
-    action: action,
-  );
+  _show(context, message, isError: false, duration: duration, action: action);
 }
 
 /// Neutral toast (information that is neither a success nor a failure).
@@ -51,13 +39,7 @@ void showInfoSnackBar(
   Duration? duration,
   SnackBarAction? action,
 }) {
-  _show(
-    context,
-    message,
-    isError: false,
-    duration: duration,
-    action: action,
-  );
+  _show(context, message, isError: false, duration: duration, action: action);
 }
 
 void _show(
@@ -75,9 +57,7 @@ void _show(
   messenger.showSnackBar(
     SnackBar(
       content: Text(message),
-      backgroundColor: isError
-          ? Theme.of(context).colorScheme.error
-          : null,
+      backgroundColor: isError ? Theme.of(context).colorScheme.error : null,
       behavior: SnackBarBehavior.floating,
       duration:
           duration ??

@@ -39,10 +39,7 @@ void main() {
   test('an unknown playlist platform is dropped, not re-attributed', () {
     final memory = PlayerPlaybackMemory.fromJson({
       'currentSong': songJson('1', 'netease'),
-      'playlist': [
-        songJson('1', 'netease'),
-        songJson('2', 'spotify'),
-      ],
+      'playlist': [songJson('1', 'netease'), songJson('2', 'spotify')],
       'currentIndex': 1,
     });
 

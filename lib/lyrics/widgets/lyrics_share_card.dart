@@ -48,10 +48,7 @@ class LyricsShareCard extends StatelessWidget {
     final count = lyricsShareCardLineCount;
     final clampedActive = activeIndex.clamp(0, lines.length - 1);
     if (lines.length <= count) {
-      return (
-        lines: lines,
-        activeIndex: activeIndex < 0 ? -1 : clampedActive,
-      );
+      return (lines: lines, activeIndex: activeIndex < 0 ? -1 : clampedActive);
     }
     var start = activeIndex < 0 ? 0 : clampedActive - count ~/ 2;
     if (start + count > lines.length) start = lines.length - count;
@@ -162,10 +159,7 @@ class LyricsShareCard extends StatelessWidget {
                 children: [
                   Text(
                     AppConstants.appName,
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: colors.outline,
-                    ),
+                    style: TextStyle(fontSize: 18, color: colors.outline),
                   ),
                 ],
               ),
@@ -213,11 +207,7 @@ class _CardLine extends StatelessWidget {
             displayed.translation!,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 22,
-              height: 1.3,
-              color: colors.outline,
-            ),
+            style: TextStyle(fontSize: 22, height: 1.3, color: colors.outline),
           ),
       ],
     );

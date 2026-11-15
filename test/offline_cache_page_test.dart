@@ -54,11 +54,7 @@ void main() {
     expect(find.text('缓存概览'), findsOneWidget);
 
     // Bottom controls, in page order, so one downward scroll finds each.
-    for (final label in const [
-      '开始缓存队列',
-      '暂停缓存队列',
-      '立即清理缓存',
-    ]) {
+    for (final label in const ['开始缓存队列', '暂停缓存队列', '立即清理缓存']) {
       await _dragUntilTextVisible(tester, label);
       expect(find.text(label), findsOneWidget);
     }
@@ -74,8 +70,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    const captionText =
-        '缓存中心复用下载队列，批量缓存整张歌单或专辑时会在这里统一管理。';
+    const captionText = '缓存中心复用下载队列，批量缓存整张歌单或专辑时会在这里统一管理。';
     final context = tester.element(find.text('缓存概览'));
     final scheme = Theme.of(context).colorScheme;
 
@@ -112,10 +107,7 @@ void main() {
 
     await _dragUntilTextVisible(tester, '立即清理缓存');
     final tile = tester.widget<ListTile>(
-      find.ancestor(
-        of: find.text('立即清理缓存'),
-        matching: find.byType(ListTile),
-      ),
+      find.ancestor(of: find.text('立即清理缓存'), matching: find.byType(ListTile)),
     );
 
     expect(tile.onTap, isNotNull);

@@ -70,11 +70,7 @@ void main() {
     await tester.pump();
 
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    expect(
-      find.text('重试'),
-      findsNothing,
-      reason: '加载中不是失败，不能给重试',
-    );
+    expect(find.text('重试'), findsNothing, reason: '加载中不是失败，不能给重试');
 
     // Let the load finish so nothing is left pending into teardown.
     pending.complete(const ListeningStatsState());
@@ -104,11 +100,7 @@ void main() {
     await tester.tap(find.text('重试'));
     await tester.pumpAndSettle();
 
-    expect(
-      repository.loads,
-      2,
-      reason: '点重试必须真的再读一次，而不是只把错误清掉',
-    );
+    expect(repository.loads, 2, reason: '点重试必须真的再读一次，而不是只把错误清掉');
   });
 
   widgetTest('no records is a section-level empty state, not an error', (

@@ -9,11 +9,12 @@ import 'package:mconnect/core/widgets/async_state_view.dart';
 /// 2. body copy uses `onSurfaceVariant`, never `outline`;
 /// 3. `error` always offers a way out, `empty` never pretends to be an error.
 void main() {
-  Future<void> pump(WidgetTester tester, Widget view) => tester.pumpWidget(
-    MaterialApp(home: Scaffold(body: view)),
-  );
+  Future<void> pump(WidgetTester tester, Widget view) =>
+      tester.pumpWidget(MaterialApp(home: Scaffold(body: view)));
 
-  testWidgets('loading shows a spinner and no retry affordance', (tester) async {
+  testWidgets('loading shows a spinner and no retry affordance', (
+    tester,
+  ) async {
     await pump(tester, const AsyncStateView.loading());
 
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
@@ -37,46 +38,43 @@ void main() {
     final list = tester.widget<ListView>(
       find.byKey(const Key('async-skeleton-list')),
     );
-    expect(list.semanticChildCount ?? list.childrenDelegate.estimatedChildCount,
-        AsyncStateView.skeletonRows);
+    expect(
+      list.semanticChildCount ?? list.childrenDelegate.estimatedChildCount,
+      AsyncStateView.skeletonRows,
+    );
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
-  testWidgets('error shows the reason and retry is an ElevatedButton that fires', (
-    tester,
-  ) async {
-    var retried = 0;
-    await pump(
-      tester,
-      AsyncStateView.error(
-        title: '加载失败',
-        message: '网络连接超时',
-        onRetry: () => retried++,
-      ),
-    );
+  testWidgets(
+    'error shows the reason and retry is an ElevatedButton that fires',
+    (tester) async {
+      var retried = 0;
+      await pump(
+        tester,
+        AsyncStateView.error(
+          title: '加载失败',
+          message: '网络连接超时',
+          onRetry: () => retried++,
+        ),
+      );
 
-    expect(find.text('加载失败'), findsOneWidget);
-    expect(find.text('网络连接超时'), findsOneWidget);
-    expect(find.text('重试'), findsOneWidget);
+      expect(find.text('加载失败'), findsOneWidget);
+      expect(find.text('网络连接超时'), findsOneWidget);
+      expect(find.text('重试'), findsOneWidget);
 
-    // Rule 1: the retry control must be an ElevatedButton, and it must be the
-    // only button on screen.
-    expect(
-      find.widgetWithText(ElevatedButton, '重试'),
-      findsOneWidget,
-    );
-    expect(find.byType(TextButton), findsNothing);
+      // Rule 1: the retry control must be an ElevatedButton, and it must be the
+      // only button on screen.
+      expect(find.widgetWithText(ElevatedButton, '重试'), findsOneWidget);
+      expect(find.byType(TextButton), findsNothing);
 
-    await tester.tap(find.text('重试'));
-    await tester.pump();
-    expect(retried, 1);
-  });
+      await tester.tap(find.text('重试'));
+      await tester.pump();
+      expect(retried, 1);
+    },
+  );
 
   testWidgets('body copy uses onSurfaceVariant, not outline', (tester) async {
-    await pump(
-      tester,
-      AsyncStateView.error(title: '加载失败', onRetry: () {}),
-    );
+    await pump(tester, AsyncStateView.error(title: '加载失败', onRetry: () {}));
 
     final context = tester.element(find.text('加载失败'));
     final scheme = Theme.of(context).colorScheme;

@@ -23,8 +23,20 @@ void main() {
     final notifier = LocalMusicNotifier(
       scanner: _NoopScanner(),
       trackStore: MemoryLocalTrackStore([
-        _track('D:/Music/rock/01.flac', '摇滚一号', artist: '乐队甲', album: '专辑一', trackNumber: 1),
-        _track('D:/Music/rock/02.flac', '摇滚二号', artist: '乐队甲', album: '专辑一', trackNumber: 2),
+        _track(
+          'D:/Music/rock/01.flac',
+          '摇滚一号',
+          artist: '乐队甲',
+          album: '专辑一',
+          trackNumber: 1,
+        ),
+        _track(
+          'D:/Music/rock/02.flac',
+          '摇滚二号',
+          artist: '乐队甲',
+          album: '专辑一',
+          trackNumber: 2,
+        ),
         _track('D:/Music/jazz/03.flac', '爵士三号', artist: '歌手乙', album: '专辑二'),
       ]),
       lyricsStore: MemoryLocalLyricsStore(),
@@ -111,38 +123,45 @@ void main() {
     }
   }
 
-  testWidgets('the search box narrows the list and the clear action restores it',
-      (tester) async {
-    final notifier = await library([
-      entry('D:/Music/a.flac', 'AAA'),
-      entry('D:/Music/b.flac', 'BBB'),
-    ]);
-    await tester.pumpWidget(app(notifier));
-    await settle(tester);
+  testWidgets(
+    'the search box narrows the list and the clear action restores it',
+    (tester) async {
+      final notifier = await library([
+        entry('D:/Music/a.flac', 'AAA'),
+        entry('D:/Music/b.flac', 'BBB'),
+      ]);
+      await tester.pumpWidget(app(notifier));
+      await settle(tester);
 
-    expect(listedText('AAA'), findsOneWidget);
-    expect(listedText('BBB'), findsOneWidget);
+      expect(listedText('AAA'), findsOneWidget);
+      expect(listedText('BBB'), findsOneWidget);
 
-    await tester.enterText(
-      find.byKey(const Key('local-music-search-field')),
-      'AAA',
-    );
-    await settle(tester);
+      await tester.enterText(
+        find.byKey(const Key('local-music-search-field')),
+        'AAA',
+      );
+      await settle(tester);
 
-    // Scoped to the rows: the search field itself now contains 'AAA' too.
-    expect(listedText('AAA'), findsOneWidget);
-    expect(listedText('BBB'), findsNothing);
-    expect(find.byKey(const Key('local-music-filter-summary')), findsOneWidget);
+      // Scoped to the rows: the search field itself now contains 'AAA' too.
+      expect(listedText('AAA'), findsOneWidget);
+      expect(listedText('BBB'), findsNothing);
+      expect(
+        find.byKey(const Key('local-music-filter-summary')),
+        findsOneWidget,
+      );
 
-    await tester.tap(find.byKey(const Key('local-music-search-clear')));
-    await settle(tester);
+      await tester.tap(find.byKey(const Key('local-music-search-clear')));
+      await settle(tester);
 
-    expect(listedText('BBB'), findsOneWidget);
-    expect(notifier.state.query.hasKeyword, isFalse);
-  }, timeout: const Timeout(Duration(seconds: 30)));
+      expect(listedText('BBB'), findsOneWidget);
+      expect(notifier.state.query.hasKeyword, isFalse);
+    },
+    timeout: const Timeout(Duration(seconds: 30)),
+  );
 
-  testWidgets('the sort control offers every field and reorders by duration',
-      (tester) async {
+  testWidgets('the sort control offers every field and reorders by duration', (
+    tester,
+  ) async {
     final notifier = await library([
       entry('D:/Music/a.flac', 'AAA', durationMs: 5000),
       entry('D:/Music/b.flac', 'BBB', durationMs: 1000),
@@ -154,14 +173,7 @@ void main() {
 
     await tester.tap(find.byKey(const Key('local-music-sort-button')));
     await settle(tester);
-    for (final label in const [
-      '名称',
-      '歌手',
-      '专辑',
-      '时长',
-      '最近添加',
-      '播放次数',
-    ]) {
+    for (final label in const ['名称', '歌手', '专辑', '时长', '最近添加', '播放次数']) {
       expect(find.text(label), findsWidgets, reason: '排序菜单缺少 $label');
     }
 
@@ -176,9 +188,7 @@ void main() {
     final rated = entry('D:/Music/a.flac', 'AAA');
     final notifier = await library(
       [rated, entry('D:/Music/b.flac', 'BBB')],
-      ratings: MemoryTrackRatingsStore(
-        ratings: {localTrackSongKey(rated): 5},
-      ),
+      ratings: MemoryTrackRatingsStore(ratings: {localTrackSongKey(rated): 5}),
     );
     await tester.pumpWidget(app(notifier));
     await settle(tester);
@@ -192,28 +202,28 @@ void main() {
     expect(find.text('AAA'), findsNothing);
   }, timeout: const Timeout(Duration(seconds: 30)));
 
-  testWidgets('a keyword that matches nothing is an empty state, not an error',
-      (tester) async {
-    final notifier = await library([entry('D:/Music/a.flac', 'AAA')]);
-    await tester.pumpWidget(app(notifier));
-    await settle(tester);
+  testWidgets(
+    'a keyword that matches nothing is an empty state, not an error',
+    (tester) async {
+      final notifier = await library([entry('D:/Music/a.flac', 'AAA')]);
+      await tester.pumpWidget(app(notifier));
+      await settle(tester);
 
-    await tester.enterText(
-      find.byKey(const Key('local-music-search-field')),
-      'zzz',
-    );
-    await settle(tester);
+      await tester.enterText(
+        find.byKey(const Key('local-music-search-field')),
+        'zzz',
+      );
+      await settle(tester);
 
-    expect(find.text('没有匹配的歌曲'), findsOneWidget);
-    expect(
-      find.text('重试'),
-      findsNothing,
-      reason: '筛选无结果不是失败态，不该出现重试按钮',
-    );
-  }, timeout: const Timeout(Duration(seconds: 30)));
+      expect(find.text('没有匹配的歌曲'), findsOneWidget);
+      expect(find.text('重试'), findsNothing, reason: '筛选无结果不是失败态，不该出现重试按钮');
+    },
+    timeout: const Timeout(Duration(seconds: 30)),
+  );
 
-  testWidgets('batch 移出曲库 removes the record but never the audio file',
-      (tester) async {
+  testWidgets('batch 移出曲库 removes the record but never the audio file', (
+    tester,
+  ) async {
     // **Synchronous** file I/O on purpose. `testWidgets` runs its body in a
     // fake-async zone, where awaiting a real I/O future (createTemp /
     // writeAsBytes / exists) never settles — that is exactly what turned this
@@ -224,7 +234,8 @@ void main() {
     addTearDown(() {
       if (dir.existsSync()) dir.deleteSync(recursive: true);
     });
-    final file = File(p.join(dir.path, 'keep-me.flac'))..writeAsBytesSync([1, 2, 3, 4]);
+    final file = File(p.join(dir.path, 'keep-me.flac'))
+      ..writeAsBytesSync([1, 2, 3, 4]);
 
     final notifier = await library([
       entry(file.path, 'KEEP'),
@@ -235,7 +246,10 @@ void main() {
 
     await tester.tap(find.byKey(const Key('local-music-select-toggle')));
     await settle(tester);
-    expect(find.byKey(const Key('local-music-selection-count')), findsOneWidget);
+    expect(
+      find.byKey(const Key('local-music-selection-count')),
+      findsOneWidget,
+    );
 
     await tester.tap(find.byKey(Key('local-music-select-${file.path}')));
     await settle(tester);
@@ -272,10 +286,7 @@ void main() {
     expect(find.text('专辑'), findsOneWidget);
     expect(find.text('歌手'), findsOneWidget);
     expect(find.text('文件夹'), findsOneWidget);
-    expect(
-      find.byKey(const Key('local-music-merge-switch')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const Key('local-music-merge-switch')), findsOneWidget);
   });
 
   testWidgets('the songs view lists the persisted tracks', (tester) async {
@@ -310,7 +321,9 @@ void main() {
     expect(find.text('摇滚二号'), findsOneWidget);
   });
 
-  testWidgets('the artist and folder views group by the right key', (tester) async {
+  testWidgets('the artist and folder views group by the right key', (
+    tester,
+  ) async {
     final notifier = await notifierWithLibrary();
 
     await tester.pumpWidget(app(notifier));
@@ -327,7 +340,9 @@ void main() {
     expect(find.text('jazz'), findsOneWidget);
   });
 
-  testWidgets('switching the merge switch loads the online snapshot', (tester) async {
+  testWidgets('switching the merge switch loads the online snapshot', (
+    tester,
+  ) async {
     final notifier = LocalMusicNotifier(
       scanner: _NoopScanner(),
       trackStore: MemoryLocalTrackStore([
@@ -360,7 +375,9 @@ void main() {
     expect(find.textContaining('在线曲库中也有'), findsOneWidget);
   });
 
-  testWidgets('the skipped-files banner shows up when lyrics were rejected', (tester) async {
+  testWidgets('the skipped-files banner shows up when lyrics were rejected', (
+    tester,
+  ) async {
     final notifier = LocalMusicNotifier(
       scanner: _NoopScanner(),
       trackStore: MemoryLocalTrackStore([
@@ -401,46 +418,47 @@ void main() {
     expect(find.text('取消喜欢'), findsNothing);
   });
 
-  testWidgets('a long-press action really runs (clipboard gets the song link)', (
-    tester,
-  ) async {
-    final clipboardWrites = <Object?>[];
-    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-      SystemChannels.platform,
-      (call) async {
-        if (call.method == 'Clipboard.setData') {
-          clipboardWrites.add((call.arguments as Map)['text']);
-        }
-        return null;
-      },
-    );
-    addTearDown(() {
+  testWidgets(
+    'a long-press action really runs (clipboard gets the song link)',
+    (tester) async {
+      final clipboardWrites = <Object?>[];
       tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
         SystemChannels.platform,
-        null,
+        (call) async {
+          if (call.method == 'Clipboard.setData') {
+            clipboardWrites.add((call.arguments as Map)['text']);
+          }
+          return null;
+        },
       );
-    });
+      addTearDown(() {
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        );
+      });
 
-    final notifier = await notifierWithLibrary();
-    await tester.pumpWidget(app(notifier));
-    await settle(tester);
+      final notifier = await notifierWithLibrary();
+      await tester.pumpWidget(app(notifier));
+      await settle(tester);
 
-    await tester.longPress(find.text('爵士三号'));
-    await settle(tester);
-    await tester.tap(find.text('复制链接'));
-    await settle(tester);
+      await tester.longPress(find.text('爵士三号'));
+      await settle(tester);
+      await tester.tap(find.text('复制链接'));
+      await settle(tester);
 
-    expect(clipboardWrites, hasLength(1));
-    final link = Uri.parse(clipboardWrites.single! as String);
-    expect(link.scheme, 'mconnect');
-    expect(link.host, 'song');
-    expect(link.queryParameters['platform'], 'local');
-    expect(link.queryParameters['id'], 'D:/Music/jazz/03.flac');
-    expect(link.queryParameters['name'], '爵士三号');
-    // The sheet is gone and the result was reported.
-    expect(find.text('复制链接'), findsNothing);
-    expect(find.text('已复制歌曲链接'), findsOneWidget);
-  });
+      expect(clipboardWrites, hasLength(1));
+      final link = Uri.parse(clipboardWrites.single! as String);
+      expect(link.scheme, 'mconnect');
+      expect(link.host, 'song');
+      expect(link.queryParameters['platform'], 'local');
+      expect(link.queryParameters['id'], 'D:/Music/jazz/03.flac');
+      expect(link.queryParameters['name'], '爵士三号');
+      // The sheet is gone and the result was reported.
+      expect(find.text('复制链接'), findsNothing);
+      expect(find.text('已复制歌曲链接'), findsOneWidget);
+    },
+  );
 
   testWidgets('long-pressing a track inside a group also opens the menu', (
     tester,

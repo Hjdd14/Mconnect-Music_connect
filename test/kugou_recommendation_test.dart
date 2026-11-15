@@ -88,44 +88,48 @@ void main() {
     expect(result.source!.kind, RecommendationKind.unavailable);
   });
 
-  test('homepage data is de-duplicated and the special module is merged in', () async {
-    final platform = KugouPlatform(api: _RefusedRecommendApi());
+  test(
+    'homepage data is de-duplicated and the special module is merged in',
+    () async {
+      final platform = KugouPlatform(api: _RefusedRecommendApi());
 
-    final songs = await platform.fetchHomepageRecommendations();
+      final songs = await platform.fetchHomepageRecommendations();
 
-    // 2 from `data` + 1 non-duplicate from `special` (the other one repeats a
-    // `data` hash) + 1 without a hash but with a distinct title.
-    expect(songs.map((s) => s.id), [
-      'HASH_HOME_1',
-      'HASH_HOME_2',
-      'HASH_SPECIAL_1',
-      '',
-    ]);
-    expect(songs.map((s) => s.name), [
-      '我们在场',
-      '第二首',
-      '歌单里的歌',
-      '无 hash 的一首',
-    ]);
-  });
+      // 2 from `data` + 1 non-duplicate from `special` (the other one repeats a
+      // `data` hash) + 1 without a hash but with a distinct title.
+      expect(songs.map((s) => s.id), [
+        'HASH_HOME_1',
+        'HASH_HOME_2',
+        'HASH_SPECIAL_1',
+        '',
+      ]);
+      expect(songs.map((s) => s.name), ['我们在场', '第二首', '歌单里的歌', '无 hash 的一首']);
+    },
+  );
 
-  test('legacy getDailyRecommendations returns the same fallback songs', () async {
-    final platform = KugouPlatform(api: _RefusedRecommendApi());
+  test(
+    'legacy getDailyRecommendations returns the same fallback songs',
+    () async {
+      final platform = KugouPlatform(api: _RefusedRecommendApi());
 
-    final songs = await platform.getDailyRecommendations();
+      final songs = await platform.getDailyRecommendations();
 
-    expect(songs, hasLength(4));
-    expect(songs.first.id, 'HASH_HOME_1');
-  });
+      expect(songs, hasLength(4));
+      expect(songs.first.id, 'HASH_HOME_1');
+    },
+  );
 
-  test('a live official endpoint still wins and is labelled personalised', () async {
-    final platform = KugouPlatform(api: _LiveOfficialRecommendApi());
+  test(
+    'a live official endpoint still wins and is labelled personalised',
+    () async {
+      final platform = KugouPlatform(api: _LiveOfficialRecommendApi());
 
-    final result = await platform.getDailyRecommendation();
+      final result = await platform.getDailyRecommendation();
 
-    expect(result.source!.kind, RecommendationKind.personalizedDaily);
-    expect(result.songs.single.id, 'HASH_OFFICIAL');
-  });
+      expect(result.source!.kind, RecommendationKind.personalizedDaily);
+      expect(result.songs.single.id, 'HASH_OFFICIAL');
+    },
+  );
 
   test('capabilities reflect what is actually implemented', () {
     final platform = KugouPlatform(api: _RefusedRecommendApi());
@@ -154,11 +158,7 @@ void main() {
     await expectLater(
       KugouApi(dio: dio).getRecommend(),
       throwsA(
-        isA<ApiException>().having(
-          (e) => e.message,
-          'message',
-          '酷狗接口拒绝访问',
-        ),
+        isA<ApiException>().having((e) => e.message, 'message', '酷狗接口拒绝访问'),
       ),
     );
   });
@@ -214,7 +214,10 @@ final Map<String, dynamic> _homepagePayload = {
 class _RefusedRecommendApi extends KugouApi {
   @override
   Future<Map<String, dynamic>> getRecommend() async {
-    throw ApiException(message: '酷狗接口拒绝访问', details: 'Access Deny ! No Actions ! ');
+    throw ApiException(
+      message: '酷狗接口拒绝访问',
+      details: 'Access Deny ! No Actions ! ',
+    );
   }
 
   @override
@@ -225,7 +228,10 @@ class _RefusedRecommendApi extends KugouApi {
 class _HomepageFailureApi extends _RefusedRecommendApi {
   @override
   Future<Map<String, dynamic>> getHomepage() async {
-    throw ApiException(message: '酷狗接口拒绝访问', details: 'Access Deny ! No Actions ! ');
+    throw ApiException(
+      message: '酷狗接口拒绝访问',
+      details: 'Access Deny ! No Actions ! ',
+    );
   }
 }
 
@@ -234,7 +240,9 @@ class _EmptyHomepageApi extends _RefusedRecommendApi {
   @override
   Future<Map<String, dynamic>> getHomepage() async => {
     'data': <dynamic>[],
-    'special': {'list': {'info': <dynamic>[]}},
+    'special': {
+      'list': {'info': <dynamic>[]},
+    },
   };
 }
 

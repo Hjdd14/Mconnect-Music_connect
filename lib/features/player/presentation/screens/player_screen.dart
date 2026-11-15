@@ -1,4 +1,5 @@
 import 'dart:async';
+
 // Flutter 3.47.5 在 material.dart 中新增了 `RepeatMode`
 // (src/widgets/repeating_animation_builder.dart)，与本项目的
 // `RepeatMode` 枚举（player_provider.dart）命名冲突。此处隐藏 Flutter 的
@@ -8,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+
 import '../../../../core/diagnostics/diagnostics_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../models/platform_type.dart';
@@ -238,11 +240,11 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                       .toggleLike(song);
                   if (!context.mounted) return;
                   showInfoSnackBar(
-                      context,
-                      result
-                          ? context.l10n.playerAddedToLikes
-                          : context.l10n.playerRemovedFromLikes,
-                    );
+                    context,
+                    result
+                        ? context.l10n.playerAddedToLikes
+                        : context.l10n.playerRemovedFromLikes,
+                  );
                 },
               ),
             if (song != null) DownloadButton(song: song),
@@ -253,12 +255,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                 switch (value) {
                   case 'add_to_queue':
                     ref.read(playerProvider.notifier).addToQueue(song);
-                    showSuccessSnackBar(context, context.l10n.playerAddedToQueue);
+                    showSuccessSnackBar(
+                      context,
+                      context.l10n.playerAddedToQueue,
+                    );
                     break;
                   case 'copy_name':
                     final text = '${song.artistNames} - ${song.name}';
                     Clipboard.setData(ClipboardData(text: text));
-                    showSuccessSnackBar(context, context.l10n.playerSongInfoCopied);
+                    showSuccessSnackBar(
+                      context,
+                      context.l10n.playerSongInfoCopied,
+                    );
                     break;
                   case 'add_to_playlist':
                     _showPlaylistPicker(context, song);
@@ -393,8 +401,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                               .colorScheme
                                               .surfaceContainerHighest
                                               .withValues(alpha: 0.42),
-                                          borderRadius:
-                                              BorderRadius.circular(8),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
                                         ),
                                         clipBehavior: Clip.antiAlias,
                                         child: const LyricsDisplay(),
@@ -406,8 +415,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                         width: artworkSize,
                                         height: artworkSize,
                                         child: ClipRRect(
-                                          borderRadius:
-                                              BorderRadius.circular(12),
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
                                           child: song.coverUrl != null
                                               ? CachedNetworkImage(
                                                   imageUrl: song.coverUrl!,
@@ -421,10 +431,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                                         width: artworkSize,
                                                         height: artworkSize,
                                                         color:
-                                                            AppColors
-                                                                .placeholder(
-                                                                  context,
-                                                                ),
+                                                            AppColors.placeholder(
+                                                              context,
+                                                            ),
                                                         child: const Icon(
                                                           Icons.music_note,
                                                           size: 80,
@@ -435,10 +444,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                                         width: artworkSize,
                                                         height: artworkSize,
                                                         color:
-                                                            AppColors
-                                                                .placeholder(
-                                                                  context,
-                                                                ),
+                                                            AppColors.placeholder(
+                                                              context,
+                                                            ),
                                                         child: const Icon(
                                                           Icons.music_note,
                                                           size: 80,
@@ -454,9 +462,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                                   child: Icon(
                                                     Icons.music_note,
                                                     size: 80,
-                                                    color: Theme.of(
-                                                      context,
-                                                    ).colorScheme.outline,
+                                                    color: Theme.of(context)
+                                                        .colorScheme
+                                                        .outline,
                                                   ),
                                                 ),
                                         ),
@@ -519,9 +527,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                     Icon(
                                       Icons.equalizer,
                                       size: 14,
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.primary,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .primary,
                                     ),
                                     const SizedBox(width: 4),
                                     Text(
@@ -531,18 +539,18 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                       style: TextStyle(
                                         fontSize: 12,
                                         fontWeight: FontWeight.w600,
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.primary,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .primary,
                                       ),
                                     ),
                                     const SizedBox(width: 2),
                                     Icon(
                                       Icons.keyboard_arrow_down,
                                       size: 14,
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.primary,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .primary,
                                     ),
                                   ],
                                 ),
@@ -632,9 +640,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                   child: Container(
                                     decoration: BoxDecoration(
                                       shape: BoxShape.circle,
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.primary,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .primary,
                                     ),
                                     child: isTransitioning
                                         ? const SizedBox(
@@ -657,9 +665,9 @@ class _PlayerScreenState extends ConsumerState<PlayerScreen> {
                                                   ? Icons.pause
                                                   : Icons.play_arrow,
                                               size: 36,
-                                              color: Theme.of(
-                                                context,
-                                              ).colorScheme.onPrimary,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .onPrimary,
                                             ),
                                             onPressed: notifier.togglePlay,
                                           ),

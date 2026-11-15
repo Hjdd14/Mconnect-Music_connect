@@ -126,10 +126,7 @@ class DiagnosticsService {
         record(
           'slow_operation',
           name,
-          data: {
-            'elapsed_ms': watch.elapsedMilliseconds,
-            ...?data,
-          },
+          data: {'elapsed_ms': watch.elapsedMilliseconds, ...?data},
         );
       }
     }

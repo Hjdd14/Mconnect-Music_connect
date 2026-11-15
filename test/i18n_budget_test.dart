@@ -198,10 +198,14 @@ void main() {
     // ignore: avoid_print
     print('i18n budget: total=$total files=$files exempt=$exempt');
     // ignore: avoid_print
-    print('  by area: ${Map.fromEntries(perArea.entries.toList()..sort((a, b) => b.value.compareTo(a.value)))}');
+    print(
+      '  by area: ${Map.fromEntries(perArea.entries.toList()..sort((a, b) => b.value.compareTo(a.value)))}',
+    );
     // ignore: avoid_print
-    print('  baseline: total=$baselineTotal files=$baselineFiles'
-        ' (headroom=${baselineTotal - total})');
+    print(
+      '  baseline: total=$baselineTotal files=$baselineFiles'
+      ' (headroom=${baselineTotal - total})',
+    );
 
     expect(
       total,
@@ -215,7 +219,8 @@ void main() {
     expect(
       files,
       lessThanOrEqualTo(baselineFiles),
-      reason: '含硬编码中文的**文件数**变多了（即使总处数没超）：'
+      reason:
+          '含硬编码中文的**文件数**变多了（即使总处数没超）：'
           '说明新增文件在使用硬编码文案，而不是复用已迁移的 widget。',
     );
   });
@@ -230,11 +235,7 @@ void main() {
     // false` makes the analyzer report dead code, which fails the 0-issue gate).
     const gateArmed = bool.fromEnvironment('I18N_EN_GATE');
     if (gateArmed) {
-      expect(
-        baselineTotal,
-        lessThanOrEqualTo(20),
-        reason: '放开 en 时基线应只剩白名单量级',
-      );
+      expect(baselineTotal, lessThanOrEqualTo(20), reason: '放开 en 时基线应只剩白名单量级');
     }
   });
 }

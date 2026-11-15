@@ -43,26 +43,29 @@ void main() {
   });
 
   group('LyricsShareCard', () {
-    test('shows at most the fixed number of lines, centered on the active one', () {
-      final many = List.generate(
-        40,
-        (index) => LyricsLine(
-          timestamp: Duration(seconds: index),
-          text: '第 $index 句',
-        ),
-      );
-      final card = LyricsShareCard(
-        title: '歌名',
-        artists: '歌手',
-        lines: many,
-        activeIndex: 20,
-      );
+    test(
+      'shows at most the fixed number of lines, centered on the active one',
+      () {
+        final many = List.generate(
+          40,
+          (index) => LyricsLine(
+            timestamp: Duration(seconds: index),
+            text: '第 $index 句',
+          ),
+        );
+        final card = LyricsShareCard(
+          title: '歌名',
+          artists: '歌手',
+          lines: many,
+          activeIndex: 20,
+        );
 
-      final window = card.window;
+        final window = card.window;
 
-      expect(window.lines, hasLength(lyricsShareCardLineCount));
-      expect(window.lines[window.activeIndex].text, '第 20 句');
-    });
+        expect(window.lines, hasLength(lyricsShareCardLineCount));
+        expect(window.lines[window.activeIndex].text, '第 20 句');
+      },
+    );
 
     testWidgets('renders title, artists, source and the lyric lines', (
       tester,
@@ -172,11 +175,7 @@ void main() {
       });
 
       expect(bytes, isNotNull);
-      expect(
-        bytes!.sublist(0, 8),
-        pngMagic,
-        reason: '屏幕外的卡片也必须被真实绘制（否则截图是空图）',
-      );
+      expect(bytes!.sublist(0, 8), pngMagic, reason: '屏幕外的卡片也必须被真实绘制（否则截图是空图）');
 
       handle!.remove();
       await tester.pump();
@@ -313,7 +312,11 @@ void main() {
         try {
           await shareLyricsCard(
             tester.element(find.byType(Scaffold)),
-            card: const LyricsShareCard(title: '晚风', artists: '张三', lines: lines),
+            card: const LyricsShareCard(
+              title: '晚风',
+              artists: '张三',
+              lines: lines,
+            ),
             shareService: const ShareService(_ThrowingChannel()),
             directory: () async => tempDir,
             capture: (context, card) => captureBoundaryPng(key, pixelRatio: 1),

@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
+
 import '../../../../core/platform/platform_utils.dart';
 import '../../../../core/utils/snackbar_helper.dart';
 import '../../../../core/widgets/app_scrollbar.dart';
@@ -26,7 +27,10 @@ Future<String?> _pickDirectoryWithPlugin(String? dialogTitle) =>
     FilePicker.getDirectoryPath(dialogTitle: dialogTitle);
 
 class DownloadPage extends ConsumerWidget {
-  const DownloadPage({super.key, this.pickDirectory = _pickDirectoryWithPlugin});
+  const DownloadPage({
+    super.key,
+    this.pickDirectory = _pickDirectoryWithPlugin,
+  });
 
   /// Overridable so the directory flow can be tested without the plugin.
   final DirectoryPicker pickDirectory;
@@ -58,10 +62,7 @@ class DownloadPage extends ConsumerWidget {
       if (isSafDocumentUri(filePath)) {
         final opened = await service.openSafDirectory();
         if (!context.mounted || opened) return;
-        showErrorSnackBar(
-          context,
-          '当前设备没有可以打开该目录的应用，文件已保存到自定义下载目录',
-        );
+        showErrorSnackBar(context, '当前设备没有可以打开该目录的应用，文件已保存到自定义下载目录');
         return;
       }
       await FileOpener.openFolder(p.dirname(filePath));
@@ -82,10 +83,7 @@ class DownloadPage extends ConsumerWidget {
       if (!context.mounted) return;
       final notifier = ref.read(downloadProvider.notifier);
       if (ref.read(downloadProvider).keptSharedFilePath == null) return;
-      showInfoSnackBar(
-        context,
-        '已删除这条记录，但文件仍被另一条记录使用，已保留',
-      );
+      showInfoSnackBar(context, '已删除这条记录，但文件仍被另一条记录使用，已保留');
       // One-shot: clear it, or a later rebuild re-announces it.
       notifier.acknowledgeKeptSharedFile();
     });
@@ -314,9 +312,9 @@ class DownloadPage extends ConsumerWidget {
                           Expanded(
                             child: Text(
                               '下载目录',
-                              style: Theme.of(
-                                sheetContext,
-                              ).textTheme.titleLarge,
+                              style: Theme.of(sheetContext)
+                                  .textTheme
+                                  .titleLarge,
                             ),
                           ),
                           if (isSaving)
@@ -337,9 +335,9 @@ class DownloadPage extends ConsumerWidget {
                             : '只能写入应用可访问的位置；下面两项都无需额外权限。',
                         style: TextStyle(
                           fontSize: 12,
-                          color: Theme.of(
-                            sheetContext,
-                          ).colorScheme.onSurfaceVariant,
+                          color: Theme.of(sheetContext)
+                              .colorScheme
+                              .onSurfaceVariant,
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -456,10 +454,7 @@ class DownloadPage extends ConsumerWidget {
     // that would mean turning this page stateful just for one notice), so the
     // *change* is handled by the listener and a notice that was already pending
     // when the page first built is picked up by the one-shot read below.
-    ref.listen(downloadProvider.select((s) => s.keptSharedFilePath), (
-      _,
-      next,
-    ) {
+    ref.listen(downloadProvider.select((s) => s.keptSharedFilePath), (_, next) {
       if (next == null) return;
       _announceKeptSharedFile(context, ref);
     });
@@ -685,10 +680,7 @@ class _DownloadTile extends StatelessWidget {
         children: [
           Text(
             '${task.song.artistNames} · ${task.qualityLabel}',
-            style: TextStyle(
-              fontSize: 12,
-              color: cs.onSurfaceVariant,
-            ),
+            style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -736,10 +728,7 @@ class _DownloadTile extends StatelessWidget {
             ),
             Text(
               '${formatBytes(task.downloadedBytes)} / ${formatBytes(task.totalBytes ?? 0)}',
-              style: TextStyle(
-                fontSize: 11,
-                color: cs.onSurfaceVariant,
-              ),
+              style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
             ),
           ],
           if (task.status == DownloadStatus.failed && task.error != null)

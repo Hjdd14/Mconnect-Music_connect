@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+
 import '../../models/song.dart';
 import '../../models/artist.dart';
 import '../../models/album.dart';
@@ -321,23 +322,16 @@ class KugouPlatform extends MusicPlatform {
   /// wire in cleartext to a host that cannot be reached over TLS.
   @override
   Future<LoginResult> sendPhoneCode(String phone) async {
-    return const LoginResult(
-      success: false,
-      error: _phoneLoginRetiredMessage,
-    );
+    return const LoginResult(success: false, error: _phoneLoginRetiredMessage);
   }
 
   /// Retired in v1.4.1 — see [sendPhoneCode]. No network request is made.
   @override
   Future<LoginResult> loginByPhone(String phone, String code) async {
-    return const LoginResult(
-      success: false,
-      error: _phoneLoginRetiredMessage,
-    );
+    return const LoginResult(success: false, error: _phoneLoginRetiredMessage);
   }
 
-  static const String _phoneLoginRetiredMessage =
-      '酷狗已不再支持手机号登录，请使用扫码登录';
+  static const String _phoneLoginRetiredMessage = '酷狗已不再支持手机号登录，请使用扫码登录';
 
   @override
   Future<User?> getUserInfo() async => _currentUser;
@@ -1218,7 +1212,8 @@ class KugouPlatform extends MusicPlatform {
             name: (item['rankname'] ?? '酷狗榜单').toString(),
             coverUrl: _normalizeSizeTemplate(item['imgurl']?.toString()),
             updateFrequency: _nonEmpty(item['update_frequency']),
-            songCount: _firstInt(item, const ['songcount']) ??
+            songCount:
+                _firstInt(item, const ['songcount']) ??
                 _rankTotalFromExtra(item['extra']),
             period: _nonEmpty(item['rank_id_publish_date']),
             intro: _nonEmpty(item['intro']),
@@ -1266,7 +1261,8 @@ class KugouPlatform extends MusicPlatform {
         // `sort` is the real chart position when present; otherwise derive it
         // from the page/offset arithmetic.
         final absolute = offset + i;
-        final rank = _firstInt(raw, const ['sort']) ??
+        final rank =
+            _firstInt(raw, const ['sort']) ??
             (absolute < 0 ? i + 1 : absolute + 1);
         songs.add(
           RankedSong(

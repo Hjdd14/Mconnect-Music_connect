@@ -55,9 +55,8 @@ void main() {
         ),
       );
 
-      final lyric = await NeteasePlatform(
-        api: NeteaseApi(dio: dio),
-      ).getLyrics('1');
+      final lyric = await NeteasePlatform(api: NeteaseApi(dio: dio))
+          .getLyrics('1');
 
       expect(lyric, contains('[00:01.00]Hello'));
       expect(lyric, contains('[00:01.00]Ni hao'));

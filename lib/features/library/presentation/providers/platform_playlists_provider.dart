@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../../core/network/api_exception.dart';
 import '../../../../core/network/platform_http.dart';
 import '../../../../models/platform_type.dart';
@@ -72,9 +73,9 @@ class PlatformPlaylistsNotifier extends StateNotifier<PlatformPlaylistsState> {
     MusicPlatform Function(PlatformType)? platformResolver,
     this._operationTimeout = const Duration(seconds: 8),
     this.onSessionExpired,
-  })  : _supportedTypes = (() => supportedTypes ?? PlatformType.musicServices),
-        _platformResolver = platformResolver ?? PlatformRegistry.get,
-        super(const PlatformPlaylistsState());
+  }) : _supportedTypes = (() => supportedTypes ?? PlatformType.musicServices),
+       _platformResolver = platformResolver ?? PlatformRegistry.get,
+       super(const PlatformPlaylistsState());
 
   Future<void> load() async {
     final types = _supportedTypes();
@@ -134,10 +135,7 @@ class PlatformPlaylistsNotifier extends StateNotifier<PlatformPlaylistsState> {
         platformType: playlists,
       },
       errorsByPlatform: nextErrors,
-      loadingByPlatform: {
-        ...state.loadingByPlatform,
-        platformType: false,
-      },
+      loadingByPlatform: {...state.loadingByPlatform, platformType: false},
     );
   }
 
@@ -151,10 +149,9 @@ class PlatformPlaylistsNotifier extends StateNotifier<PlatformPlaylistsState> {
       if (!platform.isLoggedIn) {
         error = '请先登录${platformType.displayName}账号';
       } else {
-        playlist = await platform.createPlaylist(name).timeout(
-          _operationTimeout,
-          onTimeout: () => null,
-        );
+        playlist = await platform
+            .createPlaylist(name)
+            .timeout(_operationTimeout, onTimeout: () => null);
         if (playlist == null) {
           error = '新建歌单失败';
         } else if (playlist.id.trim().isEmpty) {
@@ -189,7 +186,9 @@ class PlatformPlaylistsNotifier extends StateNotifier<PlatformPlaylistsState> {
   }
 
   List<Playlist> _routeablePlaylists(List<Playlist> playlists) {
-    return playlists.where((playlist) => playlist.id.trim().isNotEmpty).toList();
+    return playlists
+        .where((playlist) => playlist.id.trim().isNotEmpty)
+        .toList();
   }
 
   void _setPlatformLoading(PlatformType platformType, bool loading) {
@@ -198,10 +197,7 @@ class PlatformPlaylistsNotifier extends StateNotifier<PlatformPlaylistsState> {
     if (loading) nextErrors.remove(platformType);
     state = state.copyWith(
       errorsByPlatform: nextErrors,
-      loadingByPlatform: {
-        ...state.loadingByPlatform,
-        platformType: loading,
-      },
+      loadingByPlatform: {...state.loadingByPlatform, platformType: loading},
     );
   }
 
@@ -231,19 +227,18 @@ class PlatformPlaylistsNotifier extends StateNotifier<PlatformPlaylistsState> {
     if (!mounted) return;
     state = state.copyWith(
       errorsByPlatform: errors ?? state.errorsByPlatform,
-      creatingByPlatform: {
-        ...state.creatingByPlatform,
-        platformType: creating,
-      },
+      creatingByPlatform: {...state.creatingByPlatform, platformType: creating},
     );
   }
 }
 
 final platformPlaylistsProvider =
-    StateNotifierProvider<PlatformPlaylistsNotifier, PlatformPlaylistsState>((ref) {
-  // NOTE: session expiry is deliberately NOT wired here any more. The network
-  // layer reports it centrally (see `SessionExpiryReporter` and `lib/app.dart`),
-  // and wiring it here as well made a single 401 expire the session twice and
-  // raise the "session expired" toast twice.
-  return PlatformPlaylistsNotifier();
-});
+    StateNotifierProvider<PlatformPlaylistsNotifier, PlatformPlaylistsState>((
+      ref,
+    ) {
+      // NOTE: session expiry is deliberately NOT wired here any more. The network
+      // layer reports it centrally (see `SessionExpiryReporter` and `lib/app.dart`),
+      // and wiring it here as well made a single 401 expire the session twice and
+      // raise the "session expired" toast twice.
+      return PlatformPlaylistsNotifier();
+    });

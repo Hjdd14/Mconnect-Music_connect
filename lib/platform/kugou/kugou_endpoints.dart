@@ -99,6 +99,7 @@ class KugouEndpoints {
       'http://mobilecdnbj.kugou.com/api/v5/special/song';
   static const String userPlaylistSongs =
       'https://gateway.kugou.com/v4/get_list_all_file';
+
   /// Collect / uncollect a song. **Cleartext with the session token in the
   /// query string** — accepted residual risk, not an oversight:
   /// `mobilecdn.kugou.com` has no usable TLS (probe 2026-10-06:

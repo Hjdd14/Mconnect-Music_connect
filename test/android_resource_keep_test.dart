@@ -35,64 +35,65 @@ import 'package:flutter_test/flutter_test.dart';
 /// 字符串引用的资源，都必须在 keep.xml 里出现**。新增一个通知图标却忘了 keep，
 /// 在这里就会红，而不是等到用户装上 release 包闪退。
 void main() {
-  test('every Dart-string-referenced Android resource is kept from shrinking', () {
-    final keepFile = File(
-      'android/app/src/main/res/raw/keep.xml',
-    );
-    expect(
-      keepFile.existsSync(),
-      isTrue,
-      reason:
-          'keep.xml 是资源收缩的护栏本体（isShrinkResources = true）。'
-          '它不存在时，所有 Dart 字符串引用的资源都会被 release 包删掉。',
-    );
-    final keepText = keepFile.readAsStringSync();
+  test(
+    'every Dart-string-referenced Android resource is kept from shrinking',
+    () {
+      final keepFile = File('android/app/src/main/res/raw/keep.xml');
+      expect(
+        keepFile.existsSync(),
+        isTrue,
+        reason:
+            'keep.xml 是资源收缩的护栏本体（isShrinkResources = true）。'
+            '它不存在时，所有 Dart 字符串引用的资源都会被 release 包删掉。',
+      );
+      final keepText = keepFile.readAsStringSync();
 
-    // 与 playback_notification_service.dart 等处的书写形式一致。
-    final ref = RegExp("'((?:drawable|mipmap)/[a-z0-9_]+)'");
+      // 与 playback_notification_service.dart 等处的书写形式一致。
+      final ref = RegExp("'((?:drawable|mipmap)/[a-z0-9_]+)'");
 
-    final referenced = <String>{};
-    for (final entity in Directory('lib').listSync(recursive: true)) {
-      if (entity is! File || !entity.path.endsWith('.dart')) continue;
-      for (final m in ref.allMatches(entity.readAsStringSync())) {
-        referenced.add(m.group(1)!);
+      final referenced = <String>{};
+      for (final entity in Directory('lib').listSync(recursive: true)) {
+        if (entity is! File || !entity.path.endsWith('.dart')) continue;
+        for (final m in ref.allMatches(entity.readAsStringSync())) {
+          referenced.add(m.group(1)!);
+        }
       }
-    }
 
-    expect(
-      referenced,
-      isNotEmpty,
-      reason: '没扫到任何资源引用，说明本用例的扫描口径坏了（而不是真的没有引用）',
-    );
+      expect(
+        referenced,
+        isNotEmpty,
+        reason: '没扫到任何资源引用，说明本用例的扫描口径坏了（而不是真的没有引用）',
+      );
 
-    final missing = referenced
-        .where((name) => !keepText.contains('@$name'))
-        .toList()
-      ..sort();
+      final missing =
+          referenced.where((name) => !keepText.contains('@$name')).toList()
+            ..sort();
 
-    expect(
-      missing,
-      isEmpty,
-      reason:
-          '这些资源只被 Dart 字符串引用，release 的资源收缩器看不到它们，'
-          '必须加进 android/app/src/main/res/raw/keep.xml，否则 release 包会把它删掉。'
-          '媒体通知小图标被删会抛 "Invalid notification (no valid small icon)" '
-          '并直接杀掉进程（v1.5.0 的真实闪退根因）。缺失项：',
-    );
+      expect(
+        missing,
+        isEmpty,
+        reason:
+            '这些资源只被 Dart 字符串引用，release 的资源收缩器看不到它们，'
+            '必须加进 android/app/src/main/res/raw/keep.xml，否则 release 包会把它删掉。'
+            '媒体通知小图标被删会抛 "Invalid notification (no valid small icon)" '
+            '并直接杀掉进程（v1.5.0 的真实闪退根因）。缺失项：',
+      );
 
-    // 反向保护：keep.xml 里不该留下已经不存在的资源名，否则是死配置。
-    for (final m in RegExp(r'@((?:drawable|mipmap)/[a-z0-9_]+)')
-        .allMatches(keepText)) {
-      final name = m.group(1)!;
-      final path = name.startsWith('drawable/')
-          ? 'android/app/src/main/res/${name.replaceFirst('/', '/')}.xml'
-          : null;
-      if (path != null) {
-        // 只在同名文件确实不存在、且该名字也没被 Dart 引用时提示（png 形式单独存在
-        // 也合法，所以这里不做强断言，避免误伤）。
-        // ignore: avoid_print
-        print('keep.xml 声明: $name (dart 引用=${referenced.contains(name)})');
+      // 反向保护：keep.xml 里不该留下已经不存在的资源名，否则是死配置。
+      for (final m in RegExp(
+        r'@((?:drawable|mipmap)/[a-z0-9_]+)',
+      ).allMatches(keepText)) {
+        final name = m.group(1)!;
+        final path = name.startsWith('drawable/')
+            ? 'android/app/src/main/res/${name.replaceFirst('/', '/')}.xml'
+            : null;
+        if (path != null) {
+          // 只在同名文件确实不存在、且该名字也没被 Dart 引用时提示（png 形式单独存在
+          // 也合法，所以这里不做强断言，避免误伤）。
+          // ignore: avoid_print
+          print('keep.xml 声明: $name (dart 引用=${referenced.contains(name)})');
+        }
       }
-    }
-  });
+    },
+  );
 }

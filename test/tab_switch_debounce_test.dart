@@ -101,10 +101,6 @@ void main() {
     await tester.tap(find.byIcon(Icons.library_music));
     await tester.pumpAndSettle();
 
-    expect(
-      navBar().selectedIndex,
-      1,
-      reason: '第二次点击（tab 2）落在 80ms 窗口内，必须被丢弃',
-    );
+    expect(navBar().selectedIndex, 1, reason: '第二次点击（tab 2）落在 80ms 窗口内，必须被丢弃');
   });
 }

@@ -219,10 +219,7 @@ class RankMovementBadge extends StatelessWidget {
           color: color,
           size: 20,
         ),
-        Text(
-          '${change.abs()}',
-          style: TextStyle(fontSize: 11, color: color),
-        ),
+        Text('${change.abs()}', style: TextStyle(fontSize: 11, color: color)),
       ],
     );
   }
@@ -249,7 +246,11 @@ class _Badge extends StatelessWidget {
       ),
       child: Text(
         text,
-        style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.w600),
+        style: TextStyle(
+          fontSize: 10,
+          color: color,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }

@@ -39,8 +39,7 @@ void main() {
     });
 
     test('只有 togglePlayPause/next/previous 算"传输类"', () {
-      WidgetAction parse(String raw) =>
-          WidgetActions.parse(Uri.parse(raw))!;
+      WidgetAction parse(String raw) => WidgetActions.parse(Uri.parse(raw))!;
       expect(parse(WidgetActions.togglePlayPauseUri).isTransport, isTrue);
       expect(parse(WidgetActions.nextUri).isTransport, isTrue);
       expect(parse(WidgetActions.previousUri).isTransport, isTrue);
@@ -53,8 +52,14 @@ void main() {
       // 由 InboundLinkHandler 处理；小组件桥必须原样放过它们。
       expect(WidgetActions.parse(Uri.parse('mconnect://song?id=1')), isNull);
       expect(WidgetActions.parse(Uri.parse('mconnect://share?text=x')), isNull);
-      expect(WidgetActions.parse(Uri.parse('https://example.com/widget/open')), isNull);
-      expect(WidgetActions.parse(Uri.parse('mconnect://widget/unknown')), isNull);
+      expect(
+        WidgetActions.parse(Uri.parse('https://example.com/widget/open')),
+        isNull,
+      );
+      expect(
+        WidgetActions.parse(Uri.parse('mconnect://widget/unknown')),
+        isNull,
+      );
       expect(WidgetActions.parse(Uri.parse('mconnect://widget')), isNull);
       expect(WidgetActions.parse(null), isNull);
     });
@@ -125,7 +130,10 @@ void main() {
     });
 
     test('copyWith 可以显式清掉封面（切歌且新封面落盘失败时用）', () {
-      const withCover = WidgetSnapshot(songName: 'A', coverPath: 'https://x/y.jpg');
+      const withCover = WidgetSnapshot(
+        songName: 'A',
+        coverPath: 'https://x/y.jpg',
+      );
       expect(withCover.copyWith(clearCover: true).coverPath, isNull);
       expect(withCover.copyWith(songName: 'B').coverPath, 'https://x/y.jpg');
     });
@@ -174,7 +182,8 @@ void main() {
       expect(
         WidgetBridge.pluginCallCount,
         0,
-        reason: '非 Android 平台一次都不允许调用 HomeWidget.*，'
+        reason:
+            '非 Android 平台一次都不允许调用 HomeWidget.*，'
             '否则会抛 MissingPluginException 并把启动流程带崩',
       );
       expect(errors, isEmpty, reason: 'no-op 路径不该产生任何错误上报');

@@ -489,7 +489,9 @@ void main() {
       final floating = _source(
         'windows/runner/lyrics/floating_lyrics_window.cpp',
       );
-      final taskbar = _source('windows/runner/lyrics/taskbar_lyrics_window.cpp');
+      final taskbar = _source(
+        'windows/runner/lyrics/taskbar_lyrics_window.cpp',
+      );
 
       expect(header, contains('bool resizing_ = false;'));
       expect(base, contains('WM_ENTERSIZEMOVE'));
@@ -563,7 +565,10 @@ void main() {
       // nothing", which is exactly how long this bug survived.
       expect(source, contains('RunTaskbarGeometrySelfTest'));
       expect(source, contains('geometrySelfTestFailed'));
-      expect(source, isNot(contains('#ifndef NDEBUG\n  // The geometry math is pure')));
+      expect(
+        source,
+        isNot(contains('#ifndef NDEBUG\n  // The geometry math is pure')),
+      );
     });
 
     test('the strip can be dragged and keeps its new offset', () {

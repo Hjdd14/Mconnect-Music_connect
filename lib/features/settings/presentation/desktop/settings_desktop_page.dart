@@ -66,10 +66,7 @@ class SettingsDesktopPage extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const DesktopPageHeader(
-          title: '设置',
-          subtitle: '账号、外观、播放与歌词窗口',
-        ),
+        const DesktopPageHeader(title: '设置', subtitle: '账号、外观、播放与歌词窗口'),
         Expanded(
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -89,9 +86,7 @@ class SettingsDesktopPage extends StatelessWidget {
                         item: item,
                         label: item.labelFor(context),
                         selected: item == section,
-                        onTap: () => context.go(
-                          '/settings?section=${item.id}',
-                        ),
+                        onTap: () => context.go('/settings?section=${item.id}'),
                       ),
                   ],
                 ),
@@ -174,10 +169,7 @@ class SettingsDesktopPage extends StatelessWidget {
         return const DesktopSettingsCard(
           title: '主题与背景',
           subtitle: '主题模式、强调色、界面风格与桌面背景',
-          child: SettingsAppearancePage(
-            embedded: true,
-            showUiStyle: false,
-          ),
+          child: SettingsAppearancePage(embedded: true, showUiStyle: false),
         );
       case _SettingsSection.playback:
         return const DesktopSettingsCard(
@@ -377,9 +369,7 @@ class _RuntimeStatusCard extends ConsumerWidget {
           row(
             icon: Icons.album_outlined,
             title: '系统媒体面板',
-            subtitle: smtc == null
-                ? '尚未收到运行器答复'
-                : (smtc ? '可用' : '不可用（不影响播放）'),
+            subtitle: smtc == null ? '尚未收到运行器答复' : (smtc ? '可用' : '不可用（不影响播放）'),
             ok: smtc,
           ),
           row(

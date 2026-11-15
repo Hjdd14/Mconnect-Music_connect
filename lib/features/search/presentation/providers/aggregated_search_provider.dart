@@ -52,13 +52,11 @@ List<MergedSong> mergeSearchSongs(
   return [
     for (final entry in byKey.entries)
       MergedSong(
-        primary: (List<Song>.from(entry.value)..sort(
-              (a, b) => rank(a.platform).compareTo(rank(b.platform)),
-            ))
-            .first,
-        sources: List<Song>.from(entry.value)..sort(
-          (a, b) => rank(a.platform).compareTo(rank(b.platform)),
-        ),
+        primary: (List<Song>.from(
+          entry.value,
+        )..sort((a, b) => rank(a.platform).compareTo(rank(b.platform)))).first,
+        sources: List<Song>.from(entry.value)
+          ..sort((a, b) => rank(a.platform).compareTo(rank(b.platform))),
       ),
   ];
 }
@@ -131,8 +129,9 @@ class AggregatedSearchState {
       chosenSourceByKey[merged.dedupeKey] ?? merged.primary;
 
   /// The playable list, in display order, using the chosen sources.
-  List<Song> get playableSongs =>
-      [for (final merged in songs) sourceFor(merged)];
+  List<Song> get playableSongs => [
+    for (final merged in songs) sourceFor(merged),
+  ];
 
   bool get hasMore => hasMoreByPlatform.values.any((more) => more);
 
@@ -144,12 +143,14 @@ class AggregatedSearchNotifier extends StateNotifier<AggregatedSearchState> {
   final MusicPlatform Function(PlatformType) _platformResolver;
   final Duration operationTimeout;
   final int _pageSize;
+
   /// Platforms already resolved for the current query (resolved once per
   /// search, so a resolver side effect cannot run per request).
   List<MusicPlatform> _implementations = const [];
 
-  List<PlatformType> get _platforms =>
-      [for (final impl in _implementations) impl.platformType];
+  List<PlatformType> get _platforms => [
+    for (final impl in _implementations) impl.platformType,
+  ];
 
   AggregatedSearchNotifier({
     List<PlatformType>? supportedTypes,

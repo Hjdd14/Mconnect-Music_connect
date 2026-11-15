@@ -59,7 +59,10 @@ void main() {
 
   group('本地优先 / 零账号依赖', () {
     test('没有 DSN：不上报远端，只写本地诊断日志', () async {
-      final reporter = CrashReporter(diagnostics: diagnostics, remote: remoteSink);
+      final reporter = CrashReporter(
+        diagnostics: diagnostics,
+        remote: remoteSink,
+      );
 
       await reporter.report(
         'FlutterError',
@@ -67,16 +70,8 @@ void main() {
         StackTrace.fromString('stack line'),
       );
 
-      expect(
-        reporter.hasRemote,
-        isFalse,
-        reason: '没有 DSN 时连"有远端"都不该成立',
-      );
-      expect(
-        captured,
-        isEmpty,
-        reason: '没有 DSN 时不得有任何远端调用（也就没有任何网络行为）',
-      );
+      expect(reporter.hasRemote, isFalse, reason: '没有 DSN 时连"有远端"都不该成立');
+      expect(captured, isEmpty, reason: '没有 DSN 时不得有任何远端调用（也就没有任何网络行为）');
       final text = await logText();
       expect(text, contains('FlutterError'));
       expect(text, contains('Bad state: boom'));
@@ -147,7 +142,9 @@ void main() {
 
       await reporter.report(
         'FlutterError',
-        Exception('GET https://api.example/player?token=SECRETTOKEN&sign=DEADBEEF'),
+        Exception(
+          'GET https://api.example/player?token=SECRETTOKEN&sign=DEADBEEF',
+        ),
         StackTrace.fromString('at foo (x.dart:1)'),
       );
 
@@ -213,7 +210,9 @@ void main() {
 
     test('接管 FlutterError.onError：先上报，再交回原有呈现逻辑', () async {
       final reporter = CrashReporter(diagnostics: diagnostics);
-      final details = FlutterErrorDetails(exception: StateError('framework boom'));
+      final details = FlutterErrorDetails(
+        exception: StateError('framework boom'),
+      );
 
       var presented = 0;
       installCrashHandling(

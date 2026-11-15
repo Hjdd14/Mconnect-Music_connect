@@ -288,7 +288,9 @@ void main() {
       },
     );
 
-    testWidgets('the Miuix player clears the real glass capsule', (tester) async {
+    testWidgets('the Miuix player clears the real glass capsule', (
+      tester,
+    ) async {
       useTallSurface(tester);
       await tester.pumpWidget(
         host(
@@ -339,8 +341,7 @@ void main() {
         ),
       );
       final playerIndex = stack.children.indexWhere(
-        (child) => child is Positioned &&
-            child.child is MiniPlayerBar,
+        (child) => child is Positioned && child.child is MiniPlayerBar,
       );
       final navIndex = stack.children.indexWhere(
         (child) => child is Positioned && child.child is AppBottomNavBar,
@@ -403,16 +404,15 @@ void main() {
 
       await tester.pumpWidget(
         host(
-          child: MiuixBottomStack(
-            child: SizedBox.expand(key: childKey),
-          ),
+          child: MiuixBottomStack(child: SizedBox.expand(key: childKey)),
         ),
       );
       await tester.pump();
       expect(
         tester.getSize(find.byKey(childKey)).height,
         800 - MiuixBottomLayout.contentInset(hostContext(tester)),
-        reason: 'the default must keep reserving the clearance for direct content',
+        reason:
+            'the default must keep reserving the clearance for direct content',
       );
 
       await tester.pumpWidget(

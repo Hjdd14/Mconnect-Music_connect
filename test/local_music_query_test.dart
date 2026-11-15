@@ -87,29 +87,25 @@ void main() {
         blue,
       });
       expect(LocalLibraryQuery(keyword: '我很忙').apply(tracks), [blue]);
-      expect(
-        LocalLibraryQuery(keyword: 'UNTAGGED').apply(tracks),
-        [plain],
-        reason: 'the match is case-insensitive',
-      );
-      expect(
-        LocalLibraryQuery(keyword: '  稻香  ').apply(tracks),
-        [dawn],
-        reason: 'surrounding whitespace must not defeat the match',
-      );
+      expect(LocalLibraryQuery(keyword: 'UNTAGGED').apply(tracks), [
+        plain,
+      ], reason: 'the match is case-insensitive');
+      expect(LocalLibraryQuery(keyword: '  稻香  ').apply(tracks), [
+        dawn,
+      ], reason: 'surrounding whitespace must not defeat the match');
     });
 
-    test('every token must match, so extra words narrow instead of widening',
-        () {
-      final tracks = [dawn, blue, plain];
+    test(
+      'every token must match, so extra words narrow instead of widening',
+      () {
+        final tracks = [dawn, blue, plain];
 
-      expect(
-        LocalLibraryQuery(keyword: '周杰伦 稻香').apply(tracks),
-        [dawn],
-        reason: 'the second word must narrow the first',
-      );
-      expect(LocalLibraryQuery(keyword: '周杰伦 不存在').apply(tracks), isEmpty);
-    });
+        expect(LocalLibraryQuery(keyword: '周杰伦 稻香').apply(tracks), [
+          dawn,
+        ], reason: 'the second word must narrow the first');
+        expect(LocalLibraryQuery(keyword: '周杰伦 不存在').apply(tracks), isEmpty);
+      },
+    );
 
     test('an unmatched keyword yields nothing rather than everything', () {
       expect(
@@ -125,10 +121,8 @@ void main() {
       final tracks = [dawn, blue, plain];
 
       expect(
-        LocalLibraryQuery(filters: const {LocalTrackFilter.rated}).apply(
-          tracks,
-          ratings: ratings,
-        ),
+        LocalLibraryQuery(filters: const {LocalTrackFilter.rated})
+            .apply(tracks, ratings: ratings),
         [dawn],
       );
       expect(
@@ -139,10 +133,8 @@ void main() {
         reason: 'an absent entry means unrated, not "unknown"',
       );
       expect(
-        LocalLibraryQuery(filters: const {LocalTrackFilter.rated}).apply(
-          tracks,
-          ratings: {localTrackSongKey(dawn): 0},
-        ),
+        LocalLibraryQuery(filters: const {LocalTrackFilter.rated})
+            .apply(tracks, ratings: {localTrackSongKey(dawn): 0}),
         isEmpty,
         reason: 'a stored 0 is still unrated',
       );
@@ -157,9 +149,9 @@ void main() {
       final tracks = [dawn, tagged, plain];
 
       expect(
-        LocalLibraryQuery(
-          filters: const {LocalTrackFilter.missingMetadata},
-        ).apply(tracks).toSet(),
+        LocalLibraryQuery(filters: const {LocalTrackFilter.missingMetadata})
+            .apply(tracks)
+            .toSet(),
         {tagged, plain},
         reason: 'a row missing only the album still needs attention',
       );
@@ -204,9 +196,8 @@ void main() {
       );
       // `blue` shares 周杰伦 with `dawn`: both must survive the sort, and the one
       // with the smaller title has to come first inside that artist.
-      final result = LocalLibraryQuery(
-        sort: LocalSortField.artist,
-      ).apply([dawn, blue, other, plain]);
+      final result = LocalLibraryQuery(sort: LocalSortField.artist)
+          .apply([dawn, blue, other, plain]);
 
       expectOrderedBy(result, (entry) => entry.displayArtist.toLowerCase());
       expect(
@@ -250,9 +241,8 @@ void main() {
         album: '同专辑',
         trackNumber: 2,
       );
-      final result = LocalLibraryQuery(
-        sort: LocalSortField.album,
-      ).apply([second, dawn, first]);
+      final result = LocalLibraryQuery(sort: LocalSortField.album)
+          .apply([second, dawn, first]);
 
       expectOrderedBy(result, (entry) => entry.displayAlbum.toLowerCase());
       expect(
@@ -264,9 +254,8 @@ void main() {
 
     test('duration orders by length', () {
       final tracks = [dawn, blue, plain];
-      final result = LocalLibraryQuery(
-        sort: LocalSortField.duration,
-      ).apply(tracks);
+      final result = LocalLibraryQuery(sort: LocalSortField.duration)
+          .apply(tracks);
 
       expectOrderedBy(result, (entry) => entry.durationMs);
       expect(result.first, plain, reason: '1000 ms is the shortest');
@@ -275,9 +264,8 @@ void main() {
 
     test('recently added uses the scan stamp and falls back to the mtime', () {
       final neverScanned = track(r'C:\music\never.mp3', title: 'Z', mtime: 50);
-      final result = LocalLibraryQuery(
-        sort: LocalSortField.recentlyAdded,
-      ).apply([dawn, blue, neverScanned]);
+      final result = LocalLibraryQuery(sort: LocalSortField.recentlyAdded)
+          .apply([dawn, blue, neverScanned]);
 
       expectOrderedBy(result, (entry) => entry.scannedAt ?? entry.mtime);
       expect(
@@ -291,14 +279,10 @@ void main() {
 
     test('play count comes from the aggregate map', () {
       final counts = {localTrackSongKey(blue): 9};
-      final result = LocalLibraryQuery(
-        sort: LocalSortField.playCount,
-      ).apply([dawn, blue, plain], playCounts: counts);
+      final result = LocalLibraryQuery(sort: LocalSortField.playCount)
+          .apply([dawn, blue, plain], playCounts: counts);
 
-      expectOrderedBy(
-        result,
-        (entry) => counts[localTrackSongKey(entry)] ?? 0,
-      );
+      expectOrderedBy(result, (entry) => counts[localTrackSongKey(entry)] ?? 0);
       expect(result.last, blue, reason: 'the only played song sorts last');
     });
 
@@ -325,8 +309,7 @@ void main() {
       expect(byTitle.last, plain);
     });
 
-    test('rows that tie on the primary field keep a stable, path-based order',
-        () {
+    test('rows that tie on the primary field keep a stable, path-based order', () {
       // Same title, artist, album and duration: without a total order these two
       // would swap places on every rebuild, because `List.sort` is not stable.
       final b = track(r'C:\music\b.mp3', title: '同名', artist: '同人');
@@ -350,17 +333,19 @@ void main() {
   });
 
   group('query object', () {
-    test('withFilter returns a fresh set and drops the filter when disabled',
-        () {
-      const base = LocalLibraryQuery.none;
-      final rated = base.withFilter(LocalTrackFilter.rated, true);
-      expect(rated.filters, {LocalTrackFilter.rated});
-      expect(base.filters, isEmpty, reason: 'the original is untouched');
+    test(
+      'withFilter returns a fresh set and drops the filter when disabled',
+      () {
+        const base = LocalLibraryQuery.none;
+        final rated = base.withFilter(LocalTrackFilter.rated, true);
+        expect(rated.filters, {LocalTrackFilter.rated});
+        expect(base.filters, isEmpty, reason: 'the original is untouched');
 
-      final cleared = rated.withFilter(LocalTrackFilter.rated, false);
-      expect(cleared.filters, isEmpty);
-      expect(cleared.isDefault, isTrue);
-    });
+        final cleared = rated.withFilter(LocalTrackFilter.rated, false);
+        expect(cleared.filters, isEmpty);
+        expect(cleared.isDefault, isTrue);
+      },
+    );
 
     test('a keyword, a filter or a sort makes the query non-default', () {
       expect(const LocalLibraryQuery(keyword: '  ').isDefault, isTrue);

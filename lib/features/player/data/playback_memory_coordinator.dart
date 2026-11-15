@@ -160,5 +160,4 @@ extension PlayerPlaybackMemoryOps on PlayerNotifier {
       debugPrint('$s');
     }
   }
-
 }

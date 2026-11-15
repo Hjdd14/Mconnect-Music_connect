@@ -24,19 +24,16 @@ void main() {
 
   PlaylistRecommendationsState seeded() {
     final netease = <Song>[
-      for (var i = 0; i < 15; i++)
-        _song('n-$i', '歌 $i', PlatformType.netease),
+      for (var i = 0; i < 15; i++) _song('n-$i', '歌 $i', PlatformType.netease),
     ];
     final qq = <Song>[
       // A cross-platform duplicate of the first netease row: the page must
       // collapse the two with Song.dedupeKey exactly like the teaser does.
       _song('q-dup', '歌 0', PlatformType.qq),
-      for (var i = 1; i < 10; i++)
-        _song('q-$i', 'Q 歌 $i', PlatformType.qq),
+      for (var i = 1; i < 10; i++) _song('q-$i', 'Q 歌 $i', PlatformType.qq),
     ];
     final kugou = <Song>[
-      for (var i = 0; i < 5; i++)
-        _song('k-$i', 'K 歌 $i', PlatformType.kugou),
+      for (var i = 0; i < 5; i++) _song('k-$i', 'K 歌 $i', PlatformType.kugou),
     ];
     return PlaylistRecommendationsState(
       songsByPlatform: {
@@ -52,7 +49,9 @@ void main() {
       overrides: [
         playlistRecommendationsProvider.overrideWith((ref) => notifier),
       ],
-      child: const MaterialApp(home: Scaffold(body: RecommendationsDesktopPage())),
+      child: const MaterialApp(
+        home: Scaffold(body: RecommendationsDesktopPage()),
+      ),
     );
   }
 
@@ -98,14 +97,19 @@ void main() {
     expect(find.text('歌 0'), findsOneWidget);
   });
 
-  testWidgets('an empty state explains how to get recommendations', (tester) async {
+  testWidgets('an empty state explains how to get recommendations', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       wrap(_FakeRecommendations(const PlaylistRecommendationsState())),
     );
     await tester.pumpAndSettle();
 
     expect(find.text('暂无每日推荐'), findsOneWidget);
-    expect(find.byKey(const ValueKey('recommendations-play-all')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('recommendations-play-all')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('the discovery teaser opens the full list', (tester) async {
@@ -166,9 +170,15 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(RecommendationsDesktopPage), findsOneWidget);
-    expect(find.byKey(const ValueKey('recommendations-play-all')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('recommendations-play-all')),
+      findsOneWidget,
+    );
     // The full page carries rows the 12-card teaser never showed.
-    expect(find.byKey(const ValueKey('recommendation-row-netease-n-14')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('recommendation-row-netease-n-14')),
+      findsOneWidget,
+    );
   });
 }
 

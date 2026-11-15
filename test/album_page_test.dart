@@ -89,7 +89,10 @@ void main() {
 
     final titles = tester
         .widgetList<Text>(
-          find.descendant(of: find.byType(ListTile), matching: find.byType(Text)),
+          find.descendant(
+            of: find.byType(ListTile),
+            matching: find.byType(Text),
+          ),
         )
         .map((text) => text.data)
         .whereType<String>()

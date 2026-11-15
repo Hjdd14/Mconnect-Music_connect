@@ -55,15 +55,18 @@ class HiveSafTreeStore implements SafTreeStore {
   Future<Box<dynamic>?> _box() async {
     if (Hive.isBoxOpen(boxName)) return Hive.box<dynamic>(boxName);
     Box<dynamic>? box;
-    await runZonedGuarded(() async {
-      try {
-        box = await Hive.openBox<dynamic>(boxName);
-      } catch (_) {
+    await runZonedGuarded(
+      () async {
+        try {
+          box = await Hive.openBox<dynamic>(boxName);
+        } catch (_) {
+          box = null;
+        }
+      },
+      (error, stack) {
         box = null;
-      }
-    }, (error, stack) {
-      box = null;
-    });
+      },
+    );
     return box;
   }
 

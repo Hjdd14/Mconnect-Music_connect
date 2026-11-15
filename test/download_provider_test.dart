@@ -151,8 +151,7 @@ void main() {
 
   // ---- P0-1: the offline cache queue was dead ------------------------------
 
-  test('cacheSongs really starts downloads and respects the concurrency cap',
-      () async {
+  test('cacheSongs really starts downloads and respects the concurrency cap', () async {
     final manager = _FakeDownloadManager();
     final notifier = DownloadNotifier(
       manager: manager,
@@ -188,42 +187,46 @@ void main() {
     );
   });
 
-  test('cacheSongs de-duplicates the same song within the cache queue',
-      () async {
-    final manager = _FakeDownloadManager();
-    final notifier = DownloadNotifier(
-      manager: manager,
-      taskStore: _MemoryDownloadTaskStore([]),
-    );
-    addTearDown(notifier.dispose);
+  test(
+    'cacheSongs de-duplicates the same song within the cache queue',
+    () async {
+      final manager = _FakeDownloadManager();
+      final notifier = DownloadNotifier(
+        manager: manager,
+        taskStore: _MemoryDownloadTaskStore([]),
+      );
+      addTearDown(notifier.dispose);
 
-    await notifier.cacheSongs([_song, _song], quality: AudioLevel.low);
+      await notifier.cacheSongs([_song, _song], quality: AudioLevel.low);
 
-    expect(notifier.state.tasks, hasLength(1));
-  });
+      expect(notifier.state.tasks, hasLength(1));
+    },
+  );
 
   // ---- P0-2: a cached song could never be downloaded by hand ---------------
 
-  test('a song enqueued for offline cache can still be downloaded by hand',
-      () async {
-    final manager = _FakeDownloadManager();
-    final notifier = DownloadNotifier(
-      manager: manager,
-      taskStore: _MemoryDownloadTaskStore([]),
-    );
-    addTearDown(notifier.dispose);
+  test(
+    'a song enqueued for offline cache can still be downloaded by hand',
+    () async {
+      final manager = _FakeDownloadManager();
+      final notifier = DownloadNotifier(
+        manager: manager,
+        taskStore: _MemoryDownloadTaskStore([]),
+      );
+      addTearDown(notifier.dispose);
 
-    await notifier.cacheSongs([_song], quality: AudioLevel.low);
-    await notifier.startDownload(_song, AudioLevel.low);
-    await pumpEventQueue();
+      await notifier.cacheSongs([_song], quality: AudioLevel.low);
+      await notifier.startDownload(_song, AudioLevel.low);
+      await pumpEventQueue();
 
-    expect(
-      notifier.state.tasks.map((task) => task.id),
-      containsAll(<String>['netease_s1_low_cache', 'netease_s1_low']),
-      reason: 'cache and manual downloads are separate entries',
-    );
-    expect(manager.started, contains('netease_s1_low'));
-  });
+      expect(
+        notifier.state.tasks.map((task) => task.id),
+        containsAll(<String>['netease_s1_low_cache', 'netease_s1_low']),
+        reason: 'cache and manual downloads are separate entries',
+      );
+      expect(manager.started, contains('netease_s1_low'));
+    },
+  );
 
   test('an in-flight manual download is not duplicated', () async {
     final manager = _FakeDownloadManager();
@@ -352,32 +355,32 @@ void main() {
   // needs it.
 
   group('two completed rows sharing one file', () {
-    test('both are reported as duplicatePath, and neither path is rewritten',
-        () async {
-      final shared = p.join('D:', 'Music', 'Artist - Song [low].mp3');
-      final manual = _completedTask('netease_s1_low', shared);
-      final cache = _completedTask(
-        'netease_s1_low_cache',
-        shared,
-        isOfflineCache: true,
-      );
+    test(
+      'both are reported as duplicatePath, and neither path is rewritten',
+      () async {
+        final shared = p.join('D:', 'Music', 'Artist - Song [low].mp3');
+        final manual = _completedTask('netease_s1_low', shared);
+        final cache = _completedTask(
+          'netease_s1_low_cache',
+          shared,
+          isOfflineCache: true,
+        );
 
-      final notifier = DownloadNotifier(
-        taskStore: _MemoryDownloadTaskStore([manual, cache]),
-        initialState: DownloadState(tasks: [manual, cache]),
-      );
-      addTearDown(notifier.dispose);
+        final notifier = DownloadNotifier(
+          taskStore: _MemoryDownloadTaskStore([manual, cache]),
+          initialState: DownloadState(tasks: [manual, cache]),
+        );
+        addTearDown(notifier.dispose);
 
-      expect(notifier.state.duplicatePathTaskIds, {
-        'netease_s1_low',
-        'netease_s1_low_cache',
-      });
-      expect(
-        notifier.state.tasks.map((task) => task.filePath).toSet(),
-        {shared},
-        reason: '存量用户的文件名是他们的，应用不得自动改名',
-      );
-    });
+        expect(notifier.state.duplicatePathTaskIds, {
+          'netease_s1_low',
+          'netease_s1_low_cache',
+        });
+        expect(notifier.state.tasks.map((task) => task.filePath).toSet(), {
+          shared,
+        }, reason: '存量用户的文件名是他们的，应用不得自动改名');
+      },
+    );
 
     test('a duplicate is recognised across \\ and / separators', () async {
       final manual = _completedTask('netease_s1_low', r'D:\Music\s.mp3');
@@ -409,51 +412,51 @@ void main() {
       expect(notifier.state.duplicatePathTaskIds, isEmpty);
     });
 
-    test('removing one of two rows keeps the file, removing the last deletes it',
-        () async {
-      final tempDir = await Directory.systemTemp.createTemp('mconnect_shared_');
-      addTearDown(() => tempDir.delete(recursive: true));
-      final file = File(p.join(tempDir.path, 'Artist - Song [low].mp3'));
-      await file.writeAsString('audio bytes');
+    test(
+      'removing one of two rows keeps the file, removing the last deletes it',
+      () async {
+        final tempDir = await Directory.systemTemp.createTemp(
+          'mconnect_shared_',
+        );
+        addTearDown(() => tempDir.delete(recursive: true));
+        final file = File(p.join(tempDir.path, 'Artist - Song [low].mp3'));
+        await file.writeAsString('audio bytes');
 
-      final manual = _completedTask('netease_s1_low', file.path);
-      final cache = _completedTask(
-        'netease_s1_low_cache',
-        file.path,
-        isOfflineCache: true,
-      );
-      final manager = DownloadManager(
-        directoryService: DownloadDirectoryService(
-          store: _MemoryDownloadDirectoryStore(),
-          defaultRootProvider: () async => tempDir,
-        ),
-      );
-      final notifier = DownloadNotifier(
-        manager: manager,
-        taskStore: _MemoryDownloadTaskStore([manual, cache]),
-        initialState: DownloadState(tasks: [manual, cache]),
-      );
-      addTearDown(notifier.dispose);
+        final manual = _completedTask('netease_s1_low', file.path);
+        final cache = _completedTask(
+          'netease_s1_low_cache',
+          file.path,
+          isOfflineCache: true,
+        );
+        final manager = DownloadManager(
+          directoryService: DownloadDirectoryService(
+            store: _MemoryDownloadDirectoryStore(),
+            defaultRootProvider: () async => tempDir,
+          ),
+        );
+        final notifier = DownloadNotifier(
+          manager: manager,
+          taskStore: _MemoryDownloadTaskStore([manual, cache]),
+          initialState: DownloadState(tasks: [manual, cache]),
+        );
+        addTearDown(notifier.dispose);
 
-      expect(await notifier.removeTask('netease_s1_low'), isTrue);
+        expect(await notifier.removeTask('netease_s1_low'), isTrue);
 
-      expect(
-        await file.exists(),
-        isTrue,
-        reason: '另一行还指着这个文件：删记录可以，删文件不行',
-      );
-      expect(notifier.state.keptSharedFilePath, file.path);
-      expect(notifier.state.tasks.single.id, 'netease_s1_low_cache');
-      // Once the second row is gone there is no duplicate left to report.
-      expect(notifier.state.duplicatePathTaskIds, isEmpty);
+        expect(await file.exists(), isTrue, reason: '另一行还指着这个文件：删记录可以，删文件不行');
+        expect(notifier.state.keptSharedFilePath, file.path);
+        expect(notifier.state.tasks.single.id, 'netease_s1_low_cache');
+        // Once the second row is gone there is no duplicate left to report.
+        expect(notifier.state.duplicatePathTaskIds, isEmpty);
 
-      notifier.acknowledgeKeptSharedFile();
-      expect(notifier.state.keptSharedFilePath, isNull);
+        notifier.acknowledgeKeptSharedFile();
+        expect(notifier.state.keptSharedFilePath, isNull);
 
-      // The last row that points at it is an ordinary delete.
-      expect(await notifier.removeTask('netease_s1_low_cache'), isTrue);
-      expect(await file.exists(), isFalse);
-    });
+        // The last row that points at it is an ordinary delete.
+        expect(await notifier.removeTask('netease_s1_low_cache'), isTrue);
+        expect(await file.exists(), isFalse);
+      },
+    );
   });
 
   // ---- W0-C: A-7 progress ticks must not rewrite the whole library ---------
@@ -496,30 +499,32 @@ void main() {
       expect(notifier.state.tasks.single.downloadedBytes, 300);
     });
 
-    test('a status change is written immediately, not on the next flush',
-        () async {
-      final manager = _FakeDownloadManager();
-      final store = _MemoryDownloadTaskStore(const []);
-      final notifier = DownloadNotifier(
-        manager: manager,
-        taskStore: store,
-        // Long enough that only an immediate write can be observed.
-        progressPersistInterval: const Duration(seconds: 30),
-      );
-      addTearDown(notifier.dispose);
+    test(
+      'a status change is written immediately, not on the next flush',
+      () async {
+        final manager = _FakeDownloadManager();
+        final store = _MemoryDownloadTaskStore(const []);
+        final notifier = DownloadNotifier(
+          manager: manager,
+          taskStore: store,
+          // Long enough that only an immediate write can be observed.
+          progressPersistInterval: const Duration(seconds: 30),
+        );
+        addTearDown(notifier.dispose);
 
-      await notifier.startDownload(_song, AudioLevel.low);
-      await pumpEventQueue();
+        await notifier.startDownload(_song, AudioLevel.low);
+        await pumpEventQueue();
 
-      manager.complete('netease_s1_low');
-      await pumpEventQueue();
+        manager.complete('netease_s1_low');
+        await pumpEventQueue();
 
-      expect(
-        store.saved.last.single.status,
-        DownloadStatus.completed,
-        reason: '完成必须立刻落盘：重启后不能把已完成的下载看成半成品',
-      );
-    });
+        expect(
+          store.saved.last.single.status,
+          DownloadStatus.completed,
+          reason: '完成必须立刻落盘：重启后不能把已完成的下载看成半成品',
+        );
+      },
+    );
   });
 
   // ---- W0-C: the Hive row layout that makes the throttle possible ----------
@@ -549,27 +554,25 @@ void main() {
       await box.clear();
     });
 
-    test('save writes one key per row and keeps the legacy list readable',
-        () async {
-      final store = HiveDownloadTaskStore();
-      final task = _completedTask('netease_s1_low', 'D:/Music/a.mp3');
+    test(
+      'save writes one key per row and keeps the legacy list readable',
+      () async {
+        final store = HiveDownloadTaskStore();
+        final task = _completedTask('netease_s1_low', 'D:/Music/a.mp3');
 
-      await store.save([task]);
+        await store.save([task]);
 
-      expect(
-        box.get(HiveDownloadTaskStore.taskKey(task.id)),
-        isA<Map<dynamic, dynamic>>(),
-      );
-      final legacy =
-          box.get(HiveDownloadTaskStore.legacyTasksKey) as List<dynamic>;
-      expect(legacy, hasLength(1));
-      final row = legacy.single as Map<dynamic, dynamic>;
-      expect(
-        row['id'],
-        task.id,
-        reason: '旧版本仍要能读到这份库',
-      );
-    });
+        expect(
+          box.get(HiveDownloadTaskStore.taskKey(task.id)),
+          isA<Map<dynamic, dynamic>>(),
+        );
+        final legacy =
+            box.get(HiveDownloadTaskStore.legacyTasksKey) as List<dynamic>;
+        expect(legacy, hasLength(1));
+        final row = legacy.single as Map<dynamic, dynamic>;
+        expect(row['id'], task.id, reason: '旧版本仍要能读到这份库');
+      },
+    );
 
     test('save prunes the row keys of tasks that no longer exist', () async {
       final store = HiveDownloadTaskStore();
@@ -614,19 +617,17 @@ void main() {
       await store.save([first.copyWith(downloadedBytes: 4096), second]);
       await Future<void>.delayed(const Duration(milliseconds: 30));
 
-      expect(
-        written,
-        [HiveDownloadTaskStore.taskKey(first.id)],
-        reason: '只有变化的那一行可以落盘；整份列表也不得被重写',
-      );
+      expect(written, [
+        HiveDownloadTaskStore.taskKey(first.id),
+      ], reason: '只有变化的那一行可以落盘；整份列表也不得被重写');
       expect(
         box.get(HiveDownloadTaskStore.legacyTasksKey),
         legacyBefore,
         reason: '进度写不得触碰 legacy 列表',
       );
-      final firstRow =
-          box.get(HiveDownloadTaskStore.taskKey(first.id))
-              as Map<dynamic, dynamic>;
+      final firstRow = box.get(
+        HiveDownloadTaskStore.taskKey(first.id),
+      ) as Map<dynamic, dynamic>;
       expect(firstRow['downloadedBytes'], 4096);
     });
 

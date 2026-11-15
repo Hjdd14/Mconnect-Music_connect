@@ -18,7 +18,11 @@ import 'package:mconnect/platform/base/music_platform.dart';
 /// * 本平台没歌词时跨源回退；
 /// * 缓存写失败不得连带丢掉已取回的歌词。
 void main() {
-  final song = _song('netease-1', name: '晚风', duration: const Duration(seconds: 240));
+  final song = _song(
+    'netease-1',
+    name: '晚风',
+    duration: const Duration(seconds: 240),
+  );
 
   test('resolves lyrics from the song owning platform', () async {
     final netease = _FakeLyricsPlatform(
@@ -58,7 +62,9 @@ void main() {
     final qq = _FakeLyricsPlatform(
       PlatformType.qq,
       lyrics: {'qq-9': '[00:02.00]晚风（QQ 版）'},
-      searchResults: [_song('qq-9', name: '晚风', duration: const Duration(seconds: 240))],
+      searchResults: [
+        _song('qq-9', name: '晚风', duration: const Duration(seconds: 240)),
+      ],
     );
 
     final document = await resolveLyricsForSong(
@@ -73,10 +79,7 @@ void main() {
   });
 
   test('surfaces a distinguishable failure when every source errors', () async {
-    final netease = _FakeLyricsPlatform(
-      PlatformType.netease,
-      failing: true,
-    );
+    final netease = _FakeLyricsPlatform(PlatformType.netease, failing: true);
     final qq = _FakeLyricsPlatform(PlatformType.qq, failing: true);
     qq.searchResults = [_song('qq-1', name: '晚风')];
 

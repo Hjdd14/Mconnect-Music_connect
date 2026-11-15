@@ -32,17 +32,14 @@ class SearchHistoryStore {
       if (!completer.isCompleted) completer.completeError(error, stackTrace);
     }
 
-    runZonedGuarded(
-      () async {
-        try {
-          final box = await Hive.openBox<dynamic>(boxName);
-          if (!completer.isCompleted) completer.complete(box);
-        } catch (error, stackTrace) {
-          completeError(error, stackTrace);
-        }
-      },
-      completeError,
-    );
+    runZonedGuarded(() async {
+      try {
+        final box = await Hive.openBox<dynamic>(boxName);
+        if (!completer.isCompleted) completer.complete(box);
+      } catch (error, stackTrace) {
+        completeError(error, stackTrace);
+      }
+    }, completeError);
     return completer.future;
   }
 

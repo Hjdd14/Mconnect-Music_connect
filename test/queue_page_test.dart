@@ -94,10 +94,14 @@ void main() {
       expect(find.text('总时长 9 分'), findsOneWidget);
 
       final current = tester.widget<ListTile>(
-        find.ancestor(of: find.text('B'), matching: find.byType(ListTile)).first,
+        find
+            .ancestor(of: find.text('B'), matching: find.byType(ListTile))
+            .first,
       );
       final other = tester.widget<ListTile>(
-        find.ancestor(of: find.text('A'), matching: find.byType(ListTile)).first,
+        find
+            .ancestor(of: find.text('A'), matching: find.byType(ListTile))
+            .first,
       );
       expect(current.selected, isTrue, reason: '当前播放的那一首必须高亮');
       expect(other.selected, isFalse);
@@ -114,7 +118,8 @@ void main() {
       // 自校准拖动距离：按真实行高算，而不是写死像素。
       final handles = find.byIcon(Icons.drag_handle);
       final rowHeight =
-          tester.getCenter(handles.at(1)).dy - tester.getCenter(handles.first).dy;
+          tester.getCenter(handles.at(1)).dy -
+          tester.getCenter(handles.first).dy;
 
       // 手势只发**一个** move 事件，位移取 0.75 行。这不是随手取的数，
       // 是 `_dragUpdateItems` 的换位窗口 + "空隙下标比目标位置多 1" 两条规则决定的
@@ -132,7 +137,9 @@ void main() {
       //
       // 所以：**一个事件、0.75h**（窗口 [0.5h, 1h) 的正中，两侧各留 0.25h 余量），
       // 而 0.75h 也大于 kTouchSlop(18)，保证拖动真的开始。
-      final gesture = await tester.startGesture(tester.getCenter(handles.first));
+      final gesture = await tester.startGesture(
+        tester.getCenter(handles.first),
+      );
       await gesture.moveBy(Offset(0, rowHeight * 0.75));
       await tester.pump();
       await gesture.up();
@@ -149,11 +156,11 @@ void main() {
       await tester.pumpAndSettle();
 
       // 持久性：新版顺序必须落在 provider 里（页面重建后也只能渲染它）。
-      expect(
-        namesOf(player),
-        ['B', 'A', 'C'],
-        reason: '拖动必须落到 moveInQueue，而不是只改本地 widget 顺序',
-      );
+      expect(namesOf(player), [
+        'B',
+        'A',
+        'C',
+      ], reason: '拖动必须落到 moveInQueue，而不是只改本地 widget 顺序');
       // 当前曲跟着走了：A 从 0 挪到 1，播放本身没有被打断。
       expect(player.state.currentSong?.name, 'A');
       expect(player.state.currentIndex, 1);
@@ -200,11 +207,7 @@ void main() {
       await tester.pump();
 
       expect(namesOf(player), ['B', 'C']);
-      expect(
-        player.state.currentSong?.name,
-        'B',
-        reason: '删掉别的歌不能打断正在播的那一首',
-      );
+      expect(player.state.currentSong?.name, 'B', reason: '删掉别的歌不能打断正在播的那一首');
       expect(player.state.currentIndex, 0, reason: 'currentIndex 跟着当前曲走');
 
       await drainScheduledTimers(tester);

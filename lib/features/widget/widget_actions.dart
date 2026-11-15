@@ -14,13 +14,7 @@ import 'package:flutter/foundation.dart';
 /// 等**分享深链**（`lib/core/share/share_links.dart`，由 ux-parity 持有）。这里只认
 /// `widget` host，`parse` 对其它一切返回 null —— **未识别的链接绝不允许移动用户**
 /// （和 `InboundLinkHandler` 的既有约定一致）。
-enum WidgetActionKind {
-  openPlayer,
-  openQueue,
-  togglePlayPause,
-  next,
-  previous,
-}
+enum WidgetActionKind { openPlayer, openQueue, togglePlayPause, next, previous }
 
 /// 一个解析成功的小组件动作。
 @immutable

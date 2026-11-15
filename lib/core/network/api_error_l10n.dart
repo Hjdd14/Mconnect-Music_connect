@@ -22,9 +22,10 @@ String apiErrorText(BuildContext context, ApiException error) {
     ApiErrorCode.songNotAvailable => l.netSongNotAvailable(
       error.platform ?? l.netCurrentPlatform,
     ),
-    ApiErrorCode.qualityNotAvailable => error.suggestedQuality == null
-        ? l.netQualityNotAvailable
-        : l.netQualityDowngraded(error.suggestedQuality!),
+    ApiErrorCode.qualityNotAvailable =>
+      error.suggestedQuality == null
+          ? l.netQualityNotAvailable
+          : l.netQualityDowngraded(error.suggestedQuality!),
     ApiErrorCode.lyricsNotFound => l.netLyricsNotFound,
     ApiErrorCode.noVipMembership => l.netNoVip(
       error.platform ?? l.netCurrentPlatform,
@@ -42,9 +43,10 @@ String apiErrorText(BuildContext context, ApiException error) {
     // (`test/platform_http_test.dart` pins the non-empty case).
     ApiErrorCode.requestTimeout => l.netRequestTimeout(error.platform ?? ''),
     ApiErrorCode.serverError => l.netServerError(error.platform ?? ''),
-    ApiErrorCode.requestFailed => error.statusCode == null
-        ? l.netRequestFailed
-        : l.netRequestFailedWithCode(error.statusCode!),
+    ApiErrorCode.requestFailed =>
+      error.statusCode == null
+          ? l.netRequestFailed
+          : l.netRequestFailedWithCode(error.statusCode!),
     ApiErrorCode.unknown => error.message,
   };
 }

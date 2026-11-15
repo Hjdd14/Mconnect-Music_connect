@@ -80,42 +80,44 @@ void main() {
       );
     });
 
-    testWidgets('the discovery screen shows exactly three side-by-side entries', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            // An empty platform list means loadRecommendations() iterates over
-            // nothing: the pump touches no network, no database and no platform,
-            // while the entries the screen renders itself are unaffected.
-            playlistRecommendationsProvider.overrideWith(
-              (ref) => PlaylistRecommendationsNotifier(supportedTypes: const []),
-            ),
-          ],
-          child: const MaterialApp(home: Scaffold(body: DiscoveryScreen())),
-        ),
-      );
-      await tester.pump();
+    testWidgets(
+      'the discovery screen shows exactly three side-by-side entries',
+      (tester) async {
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              // An empty platform list means loadRecommendations() iterates over
+              // nothing: the pump touches no network, no database and no platform,
+              // while the entries the screen renders itself are unaffected.
+              playlistRecommendationsProvider.overrideWith(
+                (ref) =>
+                    PlaylistRecommendationsNotifier(supportedTypes: const []),
+              ),
+            ],
+            child: const MaterialApp(home: Scaffold(body: DiscoveryScreen())),
+          ),
+        );
+        await tester.pump();
 
-      // Exactly one of each - this is what pins "no duplicate 榜单中心".
-      expect(find.text('每日推荐'), findsOneWidget);
-      expect(find.text('榜单中心'), findsOneWidget);
-      expect(find.text('新歌速递'), findsOneWidget);
+        // Exactly one of each - this is what pins "no duplicate 榜单中心".
+        expect(find.text('每日推荐'), findsOneWidget);
+        expect(find.text('榜单中心'), findsOneWidget);
+        expect(find.text('新歌速递'), findsOneWidget);
 
-      // The 艺人 / 专辑 hand-off to the search tab was removed.
-      expect(find.text('艺人 / 专辑'), findsNothing);
+        // The 艺人 / 专辑 hand-off to the search tab was removed.
+        expect(find.text('艺人 / 专辑'), findsNothing);
 
-      // ...and they are laid out horizontally, left to right in this order.
-      final daily = tester.getCenter(find.text('每日推荐'));
-      final charts = tester.getCenter(find.text('榜单中心'));
-      final newSongs = tester.getCenter(find.text('新歌速递'));
+        // ...and they are laid out horizontally, left to right in this order.
+        final daily = tester.getCenter(find.text('每日推荐'));
+        final charts = tester.getCenter(find.text('榜单中心'));
+        final newSongs = tester.getCenter(find.text('新歌速递'));
 
-      expect(daily.dy, closeTo(charts.dy, 1));
-      expect(charts.dy, closeTo(newSongs.dy, 1));
-      expect(daily.dx, lessThan(charts.dx));
-      expect(charts.dx, lessThan(newSongs.dx));
-    });
+        expect(daily.dy, closeTo(charts.dy, 1));
+        expect(charts.dy, closeTo(newSongs.dy, 1));
+        expect(daily.dx, lessThan(charts.dx));
+        expect(charts.dx, lessThan(newSongs.dx));
+      },
+    );
   });
 
   /// W0-F: `发现` used to render `recState.error ?? '登录后查看更多'` in one

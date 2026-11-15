@@ -32,7 +32,9 @@ void main() {
     });
 
     test('the Hive store coexists with the legacy plain path', () async {
-      final tempDir = await Directory.systemTemp.createTemp('mconnect_saf_box_');
+      final tempDir = await Directory.systemTemp.createTemp(
+        'mconnect_saf_box_',
+      );
       addTearDown(() async {
         await Hive.close();
         if (await tempDir.exists()) {
@@ -140,57 +142,67 @@ void main() {
       expect(calls.single.arguments, {'uri': 'content://tree/1'});
     });
 
-    test('copyToTree sends the full copy request and parses the result', () async {
-      mock(
-        (call) => {
-          'bytes': 4096,
-          'uri': 'content://tree/1/document/song.mp3',
-          'displayName': 'song.mp3',
-        },
-      );
+    test(
+      'copyToTree sends the full copy request and parses the result',
+      () async {
+        mock(
+          (call) => {
+            'bytes': 4096,
+            'uri': 'content://tree/1/document/song.mp3',
+            'displayName': 'song.mp3',
+          },
+        );
 
-      final result = await MethodChannelSafDocumentTree().copyToTree(
-        treeUri: 'content://tree/1',
-        relativePath: 'netease/mp3',
-        fileName: 'song.mp3',
-        sourcePath: 'C:/tmp/staging/song.mp3',
-      );
-
-      expect(calls.single.method, 'copyToTree');
-      expect(calls.single.arguments, {
-        'uri': 'content://tree/1',
-        'relativePath': 'netease/mp3',
-        'fileName': 'song.mp3',
-        'sourcePath': 'C:/tmp/staging/song.mp3',
-      });
-      expect(result.bytes, 4096);
-      expect(result.uri, 'content://tree/1/document/song.mp3');
-      expect(result.displayName, 'song.mp3');
-    });
-
-    test('a PERMISSION_LOST platform error is classified as re-pickable', () async {
-      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(channel, (call) async {
-            throw PlatformException(
-              code: SafErrorCodes.permissionLost,
-              message: '自定义目录的写入权限已失效，请重新选择目录',
-            );
-          });
-
-      await expectLater(
-        MethodChannelSafDocumentTree().copyToTree(
+        final result = await MethodChannelSafDocumentTree().copyToTree(
           treeUri: 'content://tree/1',
-          relativePath: '',
-          fileName: 'a.mp3',
-          sourcePath: 'C:/tmp/a.mp3',
-        ),
-        throwsA(
-          isA<SafDocumentTreeException>()
-              .having((e) => e.code, 'code', SafErrorCodes.permissionLost)
-              .having((e) => e.isPermissionProblem, 'isPermissionProblem', isTrue),
-        ),
-      );
-    });
+          relativePath: 'netease/mp3',
+          fileName: 'song.mp3',
+          sourcePath: 'C:/tmp/staging/song.mp3',
+        );
+
+        expect(calls.single.method, 'copyToTree');
+        expect(calls.single.arguments, {
+          'uri': 'content://tree/1',
+          'relativePath': 'netease/mp3',
+          'fileName': 'song.mp3',
+          'sourcePath': 'C:/tmp/staging/song.mp3',
+        });
+        expect(result.bytes, 4096);
+        expect(result.uri, 'content://tree/1/document/song.mp3');
+        expect(result.displayName, 'song.mp3');
+      },
+    );
+
+    test(
+      'a PERMISSION_LOST platform error is classified as re-pickable',
+      () async {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, (call) async {
+              throw PlatformException(
+                code: SafErrorCodes.permissionLost,
+                message: '自定义目录的写入权限已失效，请重新选择目录',
+              );
+            });
+
+        await expectLater(
+          MethodChannelSafDocumentTree().copyToTree(
+            treeUri: 'content://tree/1',
+            relativePath: '',
+            fileName: 'a.mp3',
+            sourcePath: 'C:/tmp/a.mp3',
+          ),
+          throwsA(
+            isA<SafDocumentTreeException>()
+                .having((e) => e.code, 'code', SafErrorCodes.permissionLost)
+                .having(
+                  (e) => e.isPermissionProblem,
+                  'isPermissionProblem',
+                  isTrue,
+                ),
+          ),
+        );
+      },
+    );
 
     test('a missing platform implementation is not a crash', () async {
       // No mock handler at all: this is what desktop and unit tests see.
@@ -206,12 +218,18 @@ void main() {
       );
     });
 
-    test('openTree reports whether a file manager accepted the folder', () async {
-      mock((call) => true);
-      expect(await MethodChannelSafDocumentTree().openTree('content://tree/1'), isTrue);
-      expect(calls.single.method, 'openTree');
-      expect(calls.single.arguments, {'uri': 'content://tree/1'});
-    });
+    test(
+      'openTree reports whether a file manager accepted the folder',
+      () async {
+        mock((call) => true);
+        expect(
+          await MethodChannelSafDocumentTree().openTree('content://tree/1'),
+          isTrue,
+        );
+        expect(calls.single.method, 'openTree');
+        expect(calls.single.arguments, {'uri': 'content://tree/1'});
+      },
+    );
   });
 
   test('the platform error codes cover the Kotlin contract', () {
@@ -223,6 +241,9 @@ void main() {
       'TREE_UNAVAILABLE',
     });
     expect(SafErrorCodes.sizeMismatch, 'SIZE_MISMATCH');
-    expect(MethodChannelSafDocumentTree.channelName, 'com.mconnect.mconnect/saf_tree');
+    expect(
+      MethodChannelSafDocumentTree.channelName,
+      'com.mconnect.mconnect/saf_tree',
+    );
   });
 }

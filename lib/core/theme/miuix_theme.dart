@@ -71,9 +71,7 @@ ThemeData miuixTheme({
   );
   final buttonStyle = ButtonStyle(
     shape: const WidgetStatePropertyAll(tileShape),
-    minimumSize: const WidgetStatePropertyAll(
-      Size(0, miuixButtonMinHeight),
-    ),
+    minimumSize: const WidgetStatePropertyAll(Size(0, miuixButtonMinHeight)),
     padding: const WidgetStatePropertyAll(_buttonPadding),
     visualDensity: VisualDensity.standard,
   );
@@ -117,7 +115,8 @@ ThemeData miuixTheme({
 
     // ── Buttons ─────────────────────────────────────────────────────────────
     filledButtonTheme: FilledButtonThemeData(
-      style: resolvedBase.filledButtonTheme.style?.merge(buttonStyle) ??
+      style:
+          resolvedBase.filledButtonTheme.style?.merge(buttonStyle) ??
           buttonStyle,
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(
@@ -135,8 +134,8 @@ ThemeData miuixTheme({
           ),
     ),
     textButtonTheme: TextButtonThemeData(
-      style: resolvedBase.textButtonTheme.style?.merge(buttonStyle) ??
-          buttonStyle,
+      style:
+          resolvedBase.textButtonTheme.style?.merge(buttonStyle) ?? buttonStyle,
     ),
 
     // ── Selection controls ──────────────────────────────────────────────────

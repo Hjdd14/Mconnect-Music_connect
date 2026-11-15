@@ -61,10 +61,11 @@ abstract final class PlaylistExport {
   }) => switch (choice) {
     PlaylistExportChoice.m3u8 => M3u8Codec.encode(name: name, songs: songs),
     PlaylistExportChoice.text => PlaylistTextCodec.encode(songs: songs),
-    PlaylistExportChoice.json =>
-      PlaylistJsonCodec.encode(name: name, songs: songs),
+    PlaylistExportChoice.json => PlaylistJsonCodec.encode(
+      name: name,
+      songs: songs,
+    ),
     // The two link-based choices carry the link itself; `qr` only renders it.
-    PlaylistExportChoice.link ||
-    PlaylistExportChoice.qr => link,
+    PlaylistExportChoice.link || PlaylistExportChoice.qr => link,
   };
 }

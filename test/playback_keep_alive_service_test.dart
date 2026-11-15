@@ -104,9 +104,8 @@ void main() {
 
   test('Android background playback bridge files remain wired', () {
     final main = File('lib/main.dart').readAsStringSync();
-    final manifest = File(
-      'android/app/src/main/AndroidManifest.xml',
-    ).readAsStringSync();
+    final manifest = File('android/app/src/main/AndroidManifest.xml')
+        .readAsStringSync();
     final activity = File(
       'android/app/src/main/kotlin/com/mconnect/mconnect/MainActivity.kt',
     ).readAsStringSync();

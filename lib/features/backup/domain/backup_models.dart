@@ -149,7 +149,8 @@ class BackupSong {
     'trackNumber': trackNumber,
   };
 
-  static BackupSong fromJson(dynamic value) {    if (value is! Map) {
+  static BackupSong fromJson(dynamic value) {
+    if (value is! Map) {
       throw const BackupFormatException('backup.songs 里存在非法条目');
     }
     final id = value['id']?.toString() ?? '';
@@ -370,9 +371,9 @@ class BackupData {
       smartRules: _list(json['smartRules'])
           .map((item) => Map<String, dynamic>.from(_object(item)))
           .toList(),
-      playEvents: _list(
-        json['playEvents'],
-      ).map(BackupPlayEvent.fromJson).toList(),
+      playEvents: _list(json['playEvents'])
+          .map(BackupPlayEvent.fromJson)
+          .toList(),
       settings: Map<String, dynamic>.from(_object(json['settings'])),
     );
   }

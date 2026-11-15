@@ -372,9 +372,7 @@ class TaskbarLyricsStatusNotifier extends StateNotifier<TaskbarLyricsStatus> {
       case 'geometrySelfTestFailed':
         // The native geometry self-test runs in Release too now. A failure is
         // exactly the "the sliders do nothing" class of bug, so surface it.
-        state = state.copyWith(
-          lastError: '几何自检失败：${event.reason ?? "未知"}',
-        );
+        state = state.copyWith(lastError: '几何自检失败：${event.reason ?? "未知"}');
         break;
       case 'closedByUser':
         // The strip hid itself; the geometry it reported is still the truth.

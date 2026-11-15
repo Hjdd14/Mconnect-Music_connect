@@ -115,9 +115,8 @@ void main() {
   );
 
   test('Windows native color parser accepts opaque ARGB values', () {
-    final source = File(
-      'windows/runner/floating_lyrics_channel.cpp',
-    ).readAsStringSync();
+    final source = File('windows/runner/floating_lyrics_channel.cpp')
+        .readAsStringSync();
 
     expect(source, contains('std::uint32_t'));
     expect(source, contains('static_cast<std::uint32_t>'));
@@ -274,9 +273,7 @@ void main() {
     });
     await pumpEventQueue();
 
-    expect(events, [
-      (highlightColor: const Color(0xFF4AA8FF), fontSize: 27.0),
-    ]);
+    expect(events, [(highlightColor: const Color(0xFF4AA8FF), fontSize: 27.0)]);
   });
 
   test('native style changes tolerate signed 32 bit colors', () async {
@@ -293,9 +290,7 @@ void main() {
     });
     await pumpEventQueue();
 
-    expect(events, [
-      (highlightColor: const Color(0xFF4AA8FF), fontSize: 24.0),
-    ]);
+    expect(events, [(highlightColor: const Color(0xFF4AA8FF), fontSize: 24.0)]);
   });
 
   test('native transport taps are exposed as a typed stream', () async {

@@ -306,7 +306,10 @@ class ScrobbleCoordinator {
       backend.id,
       ScrobbleStatus.pending,
     );
-    final failed = await _queue.countByStatus(backend.id, ScrobbleStatus.failed);
+    final failed = await _queue.countByStatus(
+      backend.id,
+      ScrobbleStatus.failed,
+    );
     final sending = await _queue.countByStatus(
       backend.id,
       ScrobbleStatus.sending,

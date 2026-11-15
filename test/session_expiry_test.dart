@@ -11,14 +11,17 @@ import 'package:mconnect/models/platform_type.dart';
 /// the signal (state) and the notice (UI).
 void main() {
   group('AuthState expiry signal', () {
-    test('handleSessionExpired clears the user and raises the notice', () async {
-      final notifier = AuthNotifier();
-      await notifier.handleSessionExpired(PlatformType.netease);
+    test(
+      'handleSessionExpired clears the user and raises the notice',
+      () async {
+        final notifier = AuthNotifier();
+        await notifier.handleSessionExpired(PlatformType.netease);
 
-      expect(notifier.state.isLoggedIn(PlatformType.netease), isFalse);
-      expect(notifier.state.expiredPlatform, PlatformType.netease);
-      expect(notifier.state.expiryNoticeId, 1);
-    });
+        expect(notifier.state.isLoggedIn(PlatformType.netease), isFalse);
+        expect(notifier.state.expiredPlatform, PlatformType.netease);
+        expect(notifier.state.expiryNoticeId, 1);
+      },
+    );
 
     test('a repeated expiry is a new event, not a silent repeat', () async {
       final notifier = AuthNotifier();
@@ -29,16 +32,23 @@ void main() {
       expect(notifier.state.expiredPlatform, PlatformType.qq);
     });
 
-    test('the notice is cleared without touching the logged-out state', () async {
-      final notifier = AuthNotifier();
-      await notifier.handleSessionExpired(PlatformType.kugou);
+    test(
+      'the notice is cleared without touching the logged-out state',
+      () async {
+        final notifier = AuthNotifier();
+        await notifier.handleSessionExpired(PlatformType.kugou);
 
-      notifier.clearExpiryNotice();
+        notifier.clearExpiryNotice();
 
-      expect(notifier.state.expiredPlatform, isNull);
-      expect(notifier.state.expiryNoticeId, 1, reason: 'the event counter stays');
-      expect(notifier.state.isLoggedIn(PlatformType.kugou), isFalse);
-    });
+        expect(notifier.state.expiredPlatform, isNull);
+        expect(
+          notifier.state.expiryNoticeId,
+          1,
+          reason: 'the event counter stays',
+        );
+        expect(notifier.state.isLoggedIn(PlatformType.kugou), isFalse);
+      },
+    );
 
     test('clearing an already-clear notice is a no-op', () async {
       final notifier = AuthNotifier();

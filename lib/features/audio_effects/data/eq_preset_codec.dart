@@ -41,8 +41,7 @@ enum EqPresetError {
 
 /// 导入结果：成功带文档，失败带原因；两者互斥。
 class EqPresetImport {
-  const EqPresetImport.success(EqPresetDocument this.document)
-    : error = null;
+  const EqPresetImport.success(EqPresetDocument this.document) : error = null;
 
   const EqPresetImport.failure(this.error) : document = null;
 

@@ -1,7 +1,9 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
 import '../../../search/presentation/screens/search_screen.dart';
 import '../../../library/presentation/screens/library_screen.dart';
 import '../../../discovery/presentation/screens/discovery_screen.dart';

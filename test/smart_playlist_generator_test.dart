@@ -217,31 +217,34 @@ void main() {
       );
     });
 
-    test('local-only and downloaded-only use the platform and download sets', () {
-      final local = _song('l', PlatformType.local, '本地曲', '歌手A');
-      final streamed = _song('s', PlatformType.netease, '在线曲', '歌手A');
-      final downloaded = _song('d', PlatformType.qq, '已下载', '歌手A');
-      final context = SmartPlaylistSourceContext(
-        songs: [local, streamed, downloaded],
-        downloadedSongKeys: {SmartPlaylistGenerator.songKey(downloaded)},
-        now: now,
-      );
+    test(
+      'local-only and downloaded-only use the platform and download sets',
+      () {
+        final local = _song('l', PlatformType.local, '本地曲', '歌手A');
+        final streamed = _song('s', PlatformType.netease, '在线曲', '歌手A');
+        final downloaded = _song('d', PlatformType.qq, '已下载', '歌手A');
+        final context = SmartPlaylistSourceContext(
+          songs: [local, streamed, downloaded],
+          downloadedSongKeys: {SmartPlaylistGenerator.songKey(downloaded)},
+          now: now,
+        );
 
-      expect(
-        SmartPlaylistGenerator.generate(
-          SmartPlaylistRule.create(name: 'r', localOnly: true),
-          context,
-        ),
-        [local],
-      );
-      expect(
-        SmartPlaylistGenerator.generate(
-          SmartPlaylistRule.create(name: 'r', downloadedOnly: true),
-          context,
-        ),
-        [downloaded],
-      );
-    });
+        expect(
+          SmartPlaylistGenerator.generate(
+            SmartPlaylistRule.create(name: 'r', localOnly: true),
+            context,
+          ),
+          [local],
+        );
+        expect(
+          SmartPlaylistGenerator.generate(
+            SmartPlaylistRule.create(name: 'r', downloadedOnly: true),
+            context,
+          ),
+          [downloaded],
+        );
+      },
+    );
 
     test('excludeLiked is the counterpart of likedOnly', () {
       final liked = _song('l', PlatformType.netease, '红心', '歌手A');
@@ -261,58 +264,60 @@ void main() {
       );
     });
 
-    test('match any is an OR over the condition group but not over platforms', () {
-      final neteaseLiked = _song('nl', PlatformType.netease, '红心', '歌手A');
-      final neteasePlayed = _song('np', PlatformType.netease, '常听', '歌手A');
-      final qqLiked = _song('ql', PlatformType.qq, '红心', '歌手A');
-      final context = SmartPlaylistSourceContext(
-        songs: [neteaseLiked, neteasePlayed, qqLiked],
-        likedSongKeys: {
-          SmartPlaylistGenerator.songKey(neteaseLiked),
-          SmartPlaylistGenerator.songKey(qqLiked),
-        },
-        statsBySongKey: {
-          SmartPlaylistGenerator.songKey(neteasePlayed): _stats(
-            neteasePlayed,
-            playCount: 9,
-            lastListenedAt: now,
+    test(
+      'match any is an OR over the condition group but not over platforms',
+      () {
+        final neteaseLiked = _song('nl', PlatformType.netease, '红心', '歌手A');
+        final neteasePlayed = _song('np', PlatformType.netease, '常听', '歌手A');
+        final qqLiked = _song('ql', PlatformType.qq, '红心', '歌手A');
+        final context = SmartPlaylistSourceContext(
+          songs: [neteaseLiked, neteasePlayed, qqLiked],
+          likedSongKeys: {
+            SmartPlaylistGenerator.songKey(neteaseLiked),
+            SmartPlaylistGenerator.songKey(qqLiked),
+          },
+          statsBySongKey: {
+            SmartPlaylistGenerator.songKey(neteasePlayed): _stats(
+              neteasePlayed,
+              playCount: 9,
+              lastListenedAt: now,
+            ),
+          },
+          now: now,
+        );
+
+        final any = SmartPlaylistGenerator.generate(
+          SmartPlaylistRule.create(
+            name: 'r',
+            platforms: const {PlatformType.netease},
+            likedOnly: true,
+            minPlayCount: 5,
+            match: SmartPlaylistMatch.any,
           ),
-        },
-        now: now,
-      );
+          context,
+        );
+        expect(any.map((song) => song.id).toSet(), {
+          'nl',
+          'np',
+        }, reason: 'either condition may match…');
+        expect(
+          any.any((song) => song.platform == PlatformType.qq),
+          isFalse,
+          reason: '…but the platform scope stays an AND',
+        );
 
-      final any = SmartPlaylistGenerator.generate(
-        SmartPlaylistRule.create(
-          name: 'r',
-          platforms: const {PlatformType.netease},
-          likedOnly: true,
-          minPlayCount: 5,
-          match: SmartPlaylistMatch.any,
-        ),
-        context,
-      );
-      expect(
-        any.map((song) => song.id).toSet(),
-        {'nl', 'np'},
-        reason: 'either condition may match…',
-      );
-      expect(
-        any.any((song) => song.platform == PlatformType.qq),
-        isFalse,
-        reason: '…but the platform scope stays an AND',
-      );
-
-      final all = SmartPlaylistGenerator.generate(
-        SmartPlaylistRule.create(
-          name: 'r',
-          platforms: const {PlatformType.netease},
-          likedOnly: true,
-          minPlayCount: 5,
-        ),
-        context,
-      );
-      expect(all, isEmpty);
-    });
+        final all = SmartPlaylistGenerator.generate(
+          SmartPlaylistRule.create(
+            name: 'r',
+            platforms: const {PlatformType.netease},
+            likedOnly: true,
+            minPlayCount: 5,
+          ),
+          context,
+        );
+        expect(all, isEmpty);
+      },
+    );
 
     test('sort orders are deterministic', () {
       final a = _song('a', PlatformType.netease, 'Zeta', '歌手A');

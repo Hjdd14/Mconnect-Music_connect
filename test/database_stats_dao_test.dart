@@ -64,39 +64,43 @@ void main() {
       );
     });
 
-    test('the SQL aggregate agrees with the in-memory implementation', () async {
-      final drift = DriftListeningStatsRepository(db);
-      final memory = MemoryListeningStatsRepository();
-      final anchor = DateTime(2026, 5, 30, 12);
+    test(
+      'the SQL aggregate agrees with the in-memory implementation',
+      () async {
+        final drift = DriftListeningStatsRepository(db);
+        final memory = MemoryListeningStatsRepository();
+        final anchor = DateTime(2026, 5, 30, 12);
 
-      for (var index = 0; index < 12; index++) {
-        final song = _song('song-$index');
-        final at = anchor.add(Duration(minutes: index));
-        await drift.recordSongStarted(song, at: at);
-        await drift.addListenedDuration(
-          song,
-          Duration(seconds: 30 + index),
-          at: at,
-        );
-        await memory.recordSongStarted(song, at: at);
-        await memory.addListenedDuration(
-          song,
-          Duration(seconds: 30 + index),
-          at: at,
-        );
-      }
+        for (var index = 0; index < 12; index++) {
+          final song = _song('song-$index');
+          final at = anchor.add(Duration(minutes: index));
+          await drift.recordSongStarted(song, at: at);
+          await drift.addListenedDuration(
+            song,
+            Duration(seconds: 30 + index),
+            at: at,
+          );
+          await memory.recordSongStarted(song, at: at);
+          await memory.addListenedDuration(
+            song,
+            Duration(seconds: 30 + index),
+            at: at,
+          );
+        }
 
-      final driftState = await drift.load();
-      final memoryState = await memory.load();
-      expect(driftState.totalPlayCount, memoryState.totalPlayCount);
-      expect(driftState.totalListenDuration, memoryState.totalListenDuration);
-      expect(driftState.totalSongCount, memoryState.totalSongCount);
-      expect(
-        _byKey(driftState),
-        _byKey(memoryState),
-        reason: 'both implementations must produce identical per-song numbers',
-      );
-    });
+        final driftState = await drift.load();
+        final memoryState = await memory.load();
+        expect(driftState.totalPlayCount, memoryState.totalPlayCount);
+        expect(driftState.totalListenDuration, memoryState.totalListenDuration);
+        expect(driftState.totalSongCount, memoryState.totalSongCount);
+        expect(
+          _byKey(driftState),
+          _byKey(memoryState),
+          reason:
+              'both implementations must produce identical per-song numbers',
+        );
+      },
+    );
 
     test('per-song aggregate is computed from the raw events', () async {
       final repository = DriftListeningStatsRepository(db);
@@ -192,32 +196,35 @@ void main() {
       final report = await repository.loadReport();
       expect(report.artists.map((row) => row.label), ['歌手甲', '歌手乙']);
       expect(report.albums.map((row) => row.label), ['专辑一', '专辑二']);
-      expect(
-        report.platforms.map((row) => row.label).toSet(),
-        {'netease', 'qq'},
-      );
+      expect(report.platforms.map((row) => row.label).toSet(), {
+        'netease',
+        'qq',
+      });
       expect(report.days.single.day, '2026-05-30');
       expect(report.hours[9].playCount, 1);
       expect(report.hours[22].playCount, 1);
       expect(report.hours[9].listenDuration, const Duration(minutes: 5));
     });
 
-    test('clearing statistics empties both the detail and the roll-up', () async {
-      final repository = DriftListeningStatsRepository(db);
-      await repository.recordSongStarted(_song('gone'));
-      await repository.addListenedDuration(
-        _song('gone'),
-        const Duration(minutes: 1),
-      );
+    test(
+      'clearing statistics empties both the detail and the roll-up',
+      () async {
+        final repository = DriftListeningStatsRepository(db);
+        await repository.recordSongStarted(_song('gone'));
+        await repository.addListenedDuration(
+          _song('gone'),
+          const Duration(minutes: 1),
+        );
 
-      await repository.clear();
+        await repository.clear();
 
-      expect(await db.statsDao.countPlayEvents(), 0);
-      expect(await db.select(db.dailyStats).get(), isEmpty);
-      final state = await repository.load();
-      expect(state.totalPlayCount, 0);
-      expect(state.totalSongCount, 0);
-    });
+        expect(await db.statsDao.countPlayEvents(), 0);
+        expect(await db.select(db.dailyStats).get(), isEmpty);
+        final state = await repository.load();
+        expect(state.totalPlayCount, 0);
+        expect(state.totalSongCount, 0);
+      },
+    );
 
     test('a duration without a recorded start is kept, not dropped', () async {
       final repository = DriftListeningStatsRepository(db);
@@ -256,15 +263,18 @@ void main() {
       expect(await db.historyDao.countHistory(), 2);
     });
 
-    test('a legacy row with the same millisecond is not needed for dedupe', () async {
-      // The old `uniqueKeys {songId, platform, listenedAt}` could never fire
-      // because `listenedAt` is "now" at insert time. The window is what
-      // enforces it, and it stays independent of the clock resolution.
-      final base = DateTime(2026, 5, 30, 10);
-      await db.historyDao.recordListen('s1', 'netease', at: base);
-      await db.historyDao.recordListen('s1', 'netease', at: base);
-      expect(await db.historyDao.countHistory(), 1);
-    });
+    test(
+      'a legacy row with the same millisecond is not needed for dedupe',
+      () async {
+        // The old `uniqueKeys {songId, platform, listenedAt}` could never fire
+        // because `listenedAt` is "now" at insert time. The window is what
+        // enforces it, and it stays independent of the clock resolution.
+        final base = DateTime(2026, 5, 30, 10);
+        await db.historyDao.recordListen('s1', 'netease', at: base);
+        await db.historyDao.recordListen('s1', 'netease', at: base);
+        expect(await db.historyDao.countHistory(), 1);
+      },
+    );
 
     test('duration backfill adds listened time to the newest row', () async {
       final base = DateTime(2026, 5, 30, 10);
@@ -278,7 +288,10 @@ void main() {
 
       final rows = await db.historyDao.getRecentHistory();
       expect(rows, hasLength(1));
-      expect(rows.single.durationListened, const Duration(minutes: 3).inMilliseconds);
+      expect(
+        rows.single.durationListened,
+        const Duration(minutes: 3).inMilliseconds,
+      );
     });
 
     test('duration backfill outside the window starts a fresh row', () async {
@@ -294,25 +307,28 @@ void main() {
       expect(await db.historyDao.countHistory(), 2);
     });
 
-    test('backfill keeps the largest duration when a listen is merged', () async {
-      final base = DateTime(2026, 5, 30, 10);
-      await db.historyDao.recordListen(
-        's1',
-        'netease',
-        durationMs: 90000,
-        at: base,
-      );
-      await db.historyDao.recordListen(
-        's1',
-        'netease',
-        durationMs: 40000,
-        at: base.add(const Duration(seconds: 3)),
-      );
+    test(
+      'backfill keeps the largest duration when a listen is merged',
+      () async {
+        final base = DateTime(2026, 5, 30, 10);
+        await db.historyDao.recordListen(
+          's1',
+          'netease',
+          durationMs: 90000,
+          at: base,
+        );
+        await db.historyDao.recordListen(
+          's1',
+          'netease',
+          durationMs: 40000,
+          at: base.add(const Duration(seconds: 3)),
+        );
 
-      final rows = await db.historyDao.getRecentHistory();
-      expect(rows, hasLength(1));
-      expect(rows.single.durationListened, 90000);
-    });
+        final rows = await db.historyDao.getRecentHistory();
+        expect(rows, hasLength(1));
+        expect(rows.single.durationListened, 90000);
+      },
+    );
   });
 
   group('v2 table DAOs', () {
@@ -332,17 +348,14 @@ void main() {
       ]);
 
       expect(await db.localTracksDao.count(), 2);
-      expect(
-        (await db.localTracksDao.stamps())['C:/music/a.mp3'],
-        (mtime: 100, size: 1000),
-      );
+      expect((await db.localTracksDao.stamps())['C:/music/a.mp3'], (
+        mtime: 100,
+        size: 1000,
+      ));
       expect((await db.localTracksDao.byPath('C:/music/b.mp3'))!.mtime, 200);
 
       // Unchanged files are skipped by the scanner; deleted ones are dropped.
-      expect(
-        await db.localTracksDao.deleteMissing({'C:/music/a.mp3'}),
-        1,
-      );
+      expect(await db.localTracksDao.deleteMissing({'C:/music/a.mp3'}), 1);
       expect(await db.localTracksDao.allPaths(), ['C:/music/a.mp3']);
 
       await db.localTracksDao.deleteByPath('C:/music/a.mp3');
@@ -368,9 +381,13 @@ void main() {
         ),
       ]);
 
-      expect((await db.toplistsCacheDao.byPlatform('qq')).single.toplistId, '26');
       expect(
-        (await db.toplistsCacheDao.lastFetchedAt('netease'))!.millisecondsSinceEpoch,
+        (await db.toplistsCacheDao.byPlatform('qq')).single.toplistId,
+        '26',
+      );
+      expect(
+        (await db.toplistsCacheDao.lastFetchedAt('netease'))!
+            .millisecondsSinceEpoch,
         2000,
       );
 
@@ -384,7 +401,8 @@ void main() {
         ),
       ]);
       expect(
-        (await db.toplistsCacheDao.byPlatform('qq')).map((row) => row.toplistId),
+        (await db.toplistsCacheDao.byPlatform('qq'))
+            .map((row) => row.toplistId),
         ['27'],
       );
       expect(await db.toplistsCacheDao.byPlatform('netease'), hasLength(1));
@@ -401,14 +419,14 @@ void main() {
       );
 
       final row = await db.smartPlaylistSnapshotsDao.snapshot('rule-1');
-      expect(
-        SmartPlaylistSnapshotsDao.decodeSongKeys(row!.songKeys),
-        ['netease:1', 'qq:2'],
-      );
-      expect(
-        await db.smartPlaylistSnapshotsDao.songKeys('rule-1'),
-        ['netease:1', 'qq:2'],
-      );
+      expect(SmartPlaylistSnapshotsDao.decodeSongKeys(row!.songKeys), [
+        'netease:1',
+        'qq:2',
+      ]);
+      expect(await db.smartPlaylistSnapshotsDao.songKeys('rule-1'), [
+        'netease:1',
+        'qq:2',
+      ]);
 
       // Corrupt payloads degrade to "nothing saved" instead of throwing.
       expect(SmartPlaylistSnapshotsDao.decodeSongKeys('{not json'), isEmpty);
@@ -439,7 +457,11 @@ void main() {
       final existing = await db.statsDao.allPlayEvents();
 
       final inserted = await db.statsDao.restorePlayEvents(existing);
-      expect(inserted, 0, reason: 're-importing the same event must be a no-op');
+      expect(
+        inserted,
+        0,
+        reason: 're-importing the same event must be a no-op',
+      );
       expect(await db.statsDao.countPlayEvents(), 1);
 
       final restored = await db.statsDao.restorePlayEvents([
@@ -457,10 +479,7 @@ void main() {
       expect(restored, 1);
       expect(await db.statsDao.countPlayEvents(), 2);
       // The daily roll-up is rebuilt from the restored events as well.
-      expect(
-        (await db.statsDao.dailySeries()).single.playCount,
-        2,
-      );
+      expect((await db.statsDao.dailySeries()).single.playCount, 2);
     });
   });
 
@@ -499,7 +518,11 @@ void main() {
 
       final histogram = await db.statsDao.hourHistogram();
 
-      expect(histogram, hasLength(24), reason: 'every bucket is always reported');
+      expect(
+        histogram,
+        hasLength(24),
+        reason: 'every bucket is always reported',
+      );
       expect(histogram.map((row) => row.hour), List.generate(24, (i) => i));
 
       final reference = await _dartHourHistogram(db);
@@ -554,7 +577,9 @@ void main() {
             id: 0,
             songId: 'song-${i % 6}',
             platform: i.isEven ? 'netease' : 'qq',
-            startedAt: base.add(Duration(minutes: i * 37)).millisecondsSinceEpoch,
+            startedAt: base
+                .add(Duration(minutes: i * 37))
+                .millisecondsSinceEpoch,
             endedAt: null,
             durationListened: 1000 + i,
             completedRatio: 0.5,
@@ -572,7 +597,8 @@ void main() {
       expect(
         inserted,
         600,
-        reason: 'the existing row and the in-payload duplicate are both skipped',
+        reason:
+            'the existing row and the in-payload duplicate are both skipped',
       );
       expect(await db.statsDao.countPlayEvents(), 601);
 
@@ -747,14 +773,16 @@ Future<void> _insertEvent(
   DateTime startedAt,
   int listenMs,
 ) async {
-  await db.into(db.playEvents).insert(
-    PlayEventsCompanion.insert(
-      songId: songId,
-      platform: 'netease',
-      startedAt: startedAt.millisecondsSinceEpoch,
-      durationListened: Value(listenMs),
-    ),
-  );
+  await db
+      .into(db.playEvents)
+      .insert(
+        PlayEventsCompanion.insert(
+          songId: songId,
+          platform: 'netease',
+          startedAt: startedAt.millisecondsSinceEpoch,
+          durationListened: Value(listenMs),
+        ),
+      );
 }
 
 /// The pre-v3 implementation of `hourHistogram`, kept as the reference the SQL
@@ -766,8 +794,9 @@ Future<List<({int hour, int playCount, int listenMs})>> _dartHourHistogram(
   final plays = List<int>.filled(24, 0);
   final listenMs = List<int>.filled(24, 0);
   for (final event in events) {
-    final hour =
-        DateTime.fromMillisecondsSinceEpoch(event.startedAt).toLocal().hour;
+    final hour = DateTime.fromMillisecondsSinceEpoch(event.startedAt)
+        .toLocal()
+        .hour;
     plays[hour] += 1;
     listenMs[hour] += event.durationListened;
   }

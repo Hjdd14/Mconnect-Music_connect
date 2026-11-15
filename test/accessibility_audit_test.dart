@@ -55,9 +55,7 @@ void main() {
     );
   }
 
-  widgetTest('每日推荐页的刷新按钮有语义标签，而不是光秃秃的"按钮"', (
-    tester,
-  ) async {
+  widgetTest('每日推荐页的刷新按钮有语义标签，而不是光秃秃的"按钮"', (tester) async {
     final handle = tester.ensureSemantics();
     // NOT `addTearDown(handle.dispose)`: teardowns run after the framework's
     // end-of-body verification, so the handle is still active when it checks
@@ -105,11 +103,7 @@ void main() {
     final semantics = tester
         .getSemantics(find.byTooltip('刷新'))
         .getSemanticsData();
-    expect(
-      semantics.tooltip,
-      '刷新',
-      reason: 'TalkBack 必须听到"刷新"，否则它只会念"按钮"',
-    );
+    expect(semantics.tooltip, '刷新', reason: 'TalkBack 必须听到"刷新"，否则它只会念"按钮"');
 
     // **Controlled experiment (W3-B).** Does `Icon(semanticLabel: '刷新')` reach
     // the **label** channel of a node (`IconButton` may or may not absorb its
@@ -211,11 +205,7 @@ void main() {
       // label. A repeated-avatar list would need a parent-scoped finder instead.
       final avatar = tester.getSemantics(find.bySemanticsLabel('歌手头像'));
       final avatarData = avatar.getSemanticsData();
-      expect(
-        avatarData.flagsCollection.isImage,
-        isTrue,
-        reason: '头像是图，不是装饰',
-      );
+      expect(avatarData.flagsCollection.isImage, isTrue, reason: '头像是图，不是装饰');
       expect(avatarData.label, '歌手头像');
       expect(
         avatarData.label,

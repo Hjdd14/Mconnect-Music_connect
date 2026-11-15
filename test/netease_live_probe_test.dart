@@ -196,18 +196,23 @@ void main() {
     final page2 = await platform.getRankedSongs(_hotChartId, offset: 5, num: 5);
 
     for (final r in page1) {
-      _log('  rank=${r.rank} name=${r.song.name} artists=${r.song.artistNames}');
+      _log(
+        '  rank=${r.rank} name=${r.song.name} artists=${r.song.artistNames}',
+      );
     }
-    _log('  page2 -> ${page2.map((r) => '${r.rank}:${r.song.name}').join(', ')}');
+    _log(
+      '  page2 -> ${page2.map((r) => '${r.rank}:${r.song.name}').join(', ')}',
+    );
     expect(page1.map((r) => r.rank), [1, 2, 3, 4, 5]);
     expect(page2.map((r) => r.rank), [6, 7, 8, 9, 10]);
     expect(page1.first.song.name, isNotEmpty);
     expect(page1.first.song.artists, isNotEmpty);
     // 跨页不重复：offset 真的生效。
     expect(
-      page1.map((r) => r.song.id).toSet().intersection(
-            page2.map((r) => r.song.id).toSet(),
-          ),
+      page1
+          .map((r) => r.song.id)
+          .toSet()
+          .intersection(page2.map((r) => r.song.id).toSet()),
       isEmpty,
     );
   }, skip: _live ? false : _skipReason);

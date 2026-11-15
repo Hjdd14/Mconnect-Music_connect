@@ -240,7 +240,8 @@ class LastFmCompatibleBackend implements ScrobbleBackend {
     return <String, String>{
       if (entry.album != null) 'album$suffix': entry.album!,
       if (entry.albumArtist != null) 'albumArtist$suffix': entry.albumArtist!,
-      if (entry.trackNumber != null) 'trackNumber$suffix': '${entry.trackNumber}',
+      if (entry.trackNumber != null)
+        'trackNumber$suffix': '${entry.trackNumber}',
       if (entry.durationSeconds != null)
         'duration$suffix': '${entry.durationSeconds}',
       if (entry.mbid != null) 'mbid$suffix': entry.mbid!,
@@ -260,7 +261,9 @@ class LastFmCompatibleBackend implements ScrobbleBackend {
       return (accepted: 0, ignored: 0, ignoredCodes: const []);
     }
     final attributes = scrobbles['@attr'];
-    final accepted = attributes is Map ? _asInt(attributes['accepted']) ?? 0 : 0;
+    final accepted = attributes is Map
+        ? _asInt(attributes['accepted']) ?? 0
+        : 0;
     final ignored = attributes is Map ? _asInt(attributes['ignored']) ?? 0 : 0;
 
     final codes = <String>{};
@@ -287,9 +290,7 @@ class LastFmCompatibleBackend implements ScrobbleBackend {
 
   static String _networkMessage(DioException error) {
     final status = error.response?.statusCode;
-    return status == null
-        ? '网络请求失败，稍后自动重试'
-        : 'HTTP $status，稍后自动重试';
+    return status == null ? '网络请求失败，稍后自动重试' : 'HTTP $status，稍后自动重试';
   }
 
   static Map<String, dynamic>? _asMap(Object? data) {

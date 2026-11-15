@@ -90,7 +90,14 @@ void main() {
     // '中文歌词' 的标准 GBK 编码：D6D0 CEC4 B8E8 B4CA。
     await File(gbkPath).writeAsBytes([
       ...'[00:01.00]'.codeUnits,
-      0xD6, 0xD0, 0xCE, 0xC4, 0xB8, 0xE8, 0xB4, 0xCA,
+      0xD6,
+      0xD0,
+      0xCE,
+      0xC4,
+      0xB8,
+      0xE8,
+      0xB4,
+      0xCA,
     ]);
 
     final payload = await loader.load(gbkPath);
@@ -107,10 +114,8 @@ void main() {
   test('load() strips a UTF-8 BOM before storing the lyrics', () async {
     final loader = LocalLyricsLoader();
     final bomPath = p.join(root.path, 'bom.lrc');
-    await File(bomPath).writeAsBytes([
-      0xEF, 0xBB, 0xBF,
-      ...utf8Bytes('[00:02.00]带 BOM 的歌词'),
-    ]);
+    await File(bomPath)
+        .writeAsBytes([0xEF, 0xBB, 0xBF, ...utf8Bytes('[00:02.00]带 BOM 的歌词')]);
 
     final payload = await loader.load(bomPath);
 
@@ -141,23 +146,26 @@ void main() {
     expect(await loader.load(p.join(root.path, 'missing.lrc')), isNull);
   });
 
-  test('the drift-backed lyrics store keeps local rows separate per platform', () async {
-    final store = MemoryLocalLyricsStore();
-    await store.save('/music/a.flac', '[00:01.00]甲', 'lrc');
-    await store.save('/music/b.flac', krcFixture(), 'krc');
+  test(
+    'the drift-backed lyrics store keeps local rows separate per platform',
+    () async {
+      final store = MemoryLocalLyricsStore();
+      await store.save('/music/a.flac', '[00:01.00]甲', 'lrc');
+      await store.save('/music/b.flac', krcFixture(), 'krc');
 
-    final all = await store.loadAll();
-    final formats = await store.loadAllWithFormat();
+      final all = await store.loadAll();
+      final formats = await store.loadAllWithFormat();
 
-    expect(all.keys, containsAll(['/music/a.flac', '/music/b.flac']));
-    expect(formats['/music/b.flac'], 'krc');
+      expect(all.keys, containsAll(['/music/a.flac', '/music/b.flac']));
+      expect(formats['/music/b.flac'], 'krc');
 
-    await store.removePaths(['/music/a.flac']);
-    expect((await store.loadAll()).keys, ['/music/b.flac']);
+      await store.removePaths(['/music/a.flac']);
+      expect((await store.loadAll()).keys, ['/music/b.flac']);
 
-    await store.clear();
-    expect(await store.loadAll(), isEmpty);
-  });
+      await store.clear();
+      expect(await store.loadAll(), isEmpty);
+    },
+  );
 }
 
 List<int> utf8Bytes(String text) => utf8.encode(text);

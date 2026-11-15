@@ -154,7 +154,10 @@ void main() {
     expect(notifier.state.integrityLevel, 0x1000);
     // The status card treats anything at or below low as "the shell will refuse
     // this process", which is exactly what a low-integrity launch does.
-    expect(notifier.state.copyWith(integrityLevel: 0x2000).integrityLevel, 0x2000);
+    expect(
+      notifier.state.copyWith(integrityLevel: 0x2000).integrityLevel,
+      0x2000,
+    );
   });
 
   test('elevation is reported so the card can explain a refused tray icon', () {

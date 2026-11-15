@@ -585,9 +585,7 @@ class _PlaylistTargetSheetState extends ConsumerState<_PlaylistTargetSheet> {
                   // 因为这是底部弹窗里的区块空态，不该撑满 70% 的弹窗。
                   const SizedBox(
                     height: 180,
-                    child: AsyncStateView.empty(
-                      title: '暂无可编辑歌单，或当前平台暂不支持',
-                    ),
+                    child: AsyncStateView.empty(title: '暂无可编辑歌单，或当前平台暂不支持'),
                   )
                 else
                   Flexible(

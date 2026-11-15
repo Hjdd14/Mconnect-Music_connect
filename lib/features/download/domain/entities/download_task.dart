@@ -127,7 +127,8 @@ class DownloadTask {
       totalBytes: _intValue(value['totalBytes']),
       filePath: value['filePath']?.toString(),
       error: value['error']?.toString(),
-      createdAt: DateTime.tryParse(value['createdAt']?.toString() ?? '') ??
+      createdAt:
+          DateTime.tryParse(value['createdAt']?.toString() ?? '') ??
           DateTime.fromMillisecondsSinceEpoch(0),
       completedAt: DateTime.tryParse(value['completedAt']?.toString() ?? ''),
       isOfflineCache: value['isOfflineCache'] == true,
@@ -142,8 +143,7 @@ class DownloadTask {
 
   /// The timestamp LRU eviction orders by: last access, falling back to when it
   /// finished, falling back to when it was created.
-  DateTime get cacheRecency =>
-      lastAccessedAt ?? completedAt ?? createdAt;
+  DateTime get cacheRecency => lastAccessedAt ?? completedAt ?? createdAt;
 
   /// The file name this task owns — one name per (song, quality).
   ///

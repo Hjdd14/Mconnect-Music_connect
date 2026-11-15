@@ -72,9 +72,6 @@ void main() {
 
     expect(UiStyleSettings.fromJson(settings.toJson()['style']), settings);
     expect(settings.copyWith().style, UiStyle.miuix);
-    expect(
-      settings.copyWith(style: UiStyle.material).style,
-      UiStyle.material,
-    );
+    expect(settings.copyWith(style: UiStyle.material).style, UiStyle.material);
   });
 }

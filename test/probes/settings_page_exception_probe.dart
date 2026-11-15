@@ -134,7 +134,11 @@ void main() {
   }
 
   testWidgets('V2：无 override（你复跑的形状）—— 应看到 2 个异常', (tester) async {
-    await runVariant(tester, tag: 'V2(no-override)', overrides: const <Override>[]);
+    await runVariant(
+      tester,
+      tag: 'V2(no-override)',
+      overrides: const <Override>[],
+    );
   }, timeout: const Timeout(Duration(seconds: 30)));
 
   testWidgets('V3：两个 store 都换内存 —— 剩下的就是真环（若有）', (tester) async {

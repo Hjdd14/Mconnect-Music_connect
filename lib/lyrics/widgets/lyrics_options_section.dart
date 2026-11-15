@@ -98,7 +98,10 @@ class LyricsOptionsSection extends ConsumerWidget {
                 // 天数由调用方喂进来：`lyricsCacheTtl` 住在播放 feature 里，
                 // 从这里 import 它会让 `lib/lyrics` 反向依赖播放页。
                 '歌词缓存超过 $cacheTtlDays 天后会自动重新获取',
-                style: TextStyle(fontSize: 12, color: theme.colorScheme.outline),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: theme.colorScheme.outline,
+                ),
               ),
             ),
             TextButton(
@@ -176,10 +179,7 @@ class _StepperRow extends StatelessWidget {
           icon: const Icon(Icons.remove),
           tooltip: '$label减小',
         ),
-        SizedBox(
-          width: 40,
-          child: Text(value, textAlign: TextAlign.center),
-        ),
+        SizedBox(width: 40, child: Text(value, textAlign: TextAlign.center)),
         IconButton(
           key: increaseKey,
           onPressed: enabledIncrease ? onIncrease : null,

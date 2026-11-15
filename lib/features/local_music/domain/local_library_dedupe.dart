@@ -41,8 +41,9 @@ class LocalLibraryDedupe {
 
   /// The dedupe key of every song in [songs], for "is this one also online?"
   /// lookups in the UI.
-  static Set<String> keysOf(Iterable<Song> songs) =>
-      {for (final song in songs) song.dedupeKey};
+  static Set<String> keysOf(Iterable<Song> songs) => {
+    for (final song in songs) song.dedupeKey,
+  };
 
   /// Songs in [candidates] that are not already represented in [known].
   static List<Song> onlyMissing(

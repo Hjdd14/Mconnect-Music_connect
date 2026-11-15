@@ -64,106 +64,119 @@ void main() {
     return p.join(dir.path, task.fileName);
   }
 
-  test('a download is validated against the declared size and completes',
-      () async {
-    final body = List<int>.generate(30000, (index) => index % 251);
-    server.body = body;
+  test(
+    'a download is validated against the declared size and completes',
+    () async {
+      final body = List<int>.generate(30000, (index) => index % 251);
+      server.body = body;
 
-    final manager = managerWith();
-    final notifier = DownloadNotifier(
-      manager: manager,
-      taskStore: MemoryDownloadTaskStore([]),
-      fileExists: (path) => File(path).exists(),
-    );
-    addTearDown(notifier.dispose);
+      final manager = managerWith();
+      final notifier = DownloadNotifier(
+        manager: manager,
+        taskStore: MemoryDownloadTaskStore([]),
+        fileExists: (path) => File(path).exists(),
+      );
+      addTearDown(notifier.dispose);
 
-    await notifier.startDownload(_song, AudioLevel.low);
-    await _waitFor(() => notifier.state.tasks.single.status != DownloadStatus.downloading && notifier.state.tasks.single.status != DownloadStatus.waiting);
+      await notifier.startDownload(_song, AudioLevel.low);
+      await _waitFor(
+        () =>
+            notifier.state.tasks.single.status != DownloadStatus.downloading &&
+            notifier.state.tasks.single.status != DownloadStatus.waiting,
+      );
 
-    final task = notifier.state.tasks.single;
-    expect(task.status, DownloadStatus.completed);
-    expect(await File(task.filePath!).length(), body.length);
-  });
+      final task = notifier.state.tasks.single;
+      expect(task.status, DownloadStatus.completed);
+      expect(await File(task.filePath!).length(), body.length);
+    },
+  );
 
-  test('a partial file is resumed with a Range request, not re-downloaded',
-      () async {
-    final body = List<int>.generate(30000, (index) => index % 251);
-    server.body = body;
+  test(
+    'a partial file is resumed with a Range request, not re-downloaded',
+    () async {
+      final body = List<int>.generate(30000, (index) => index % 251);
+      server.body = body;
 
-    final task = DownloadTask(
-      id: 'netease_s1_low',
-      song: _song,
-      quality: AudioLevel.low,
-      totalBytes: body.length,
-      // The task recorded 12000 bytes, and the file on disk is exactly that
-      // long: this is the only shape a resume is allowed to trust (W0-C).
-      downloadedBytes: 12000,
-      createdAt: DateTime(2026, 1, 1),
-    );
-    final path = await expectedPath(task);
-    await File(path).writeAsBytes(body.sublist(0, 12000));
+      final task = DownloadTask(
+        id: 'netease_s1_low',
+        song: _song,
+        quality: AudioLevel.low,
+        totalBytes: body.length,
+        // The task recorded 12000 bytes, and the file on disk is exactly that
+        // long: this is the only shape a resume is allowed to trust (W0-C).
+        downloadedBytes: 12000,
+        createdAt: DateTime(2026, 1, 1),
+      );
+      final path = await expectedPath(task);
+      await File(path).writeAsBytes(body.sublist(0, 12000));
 
-    final manager = managerWith();
-    final notifier = DownloadNotifier(
-      manager: manager,
-      initialState: DownloadState(tasks: [task]),
-      taskStore: MemoryDownloadTaskStore([]),
-    );
-    addTearDown(notifier.dispose);
+      final manager = managerWith();
+      final notifier = DownloadNotifier(
+        manager: manager,
+        initialState: DownloadState(tasks: [task]),
+        taskStore: MemoryDownloadTaskStore([]),
+      );
+      addTearDown(notifier.dispose);
 
-    await notifier.startWaitingTask(task.id);
-    await _waitFor(() => notifier.state.tasks.single.status == DownloadStatus.completed);
+      await notifier.startWaitingTask(task.id);
+      await _waitFor(
+        () => notifier.state.tasks.single.status == DownloadStatus.completed,
+      );
 
-    expect(
-      server.rangeHeaders,
-      contains('bytes=12000-'),
-      reason: 'the manager must ask for the missing part only',
-    );
-    expect(File(path).lengthSync(), body.length);
-    expect(
-      File(path).readAsBytesSync(),
-      body,
-      reason: 'the resumed file must be byte-identical to the source',
-    );
-  });
+      expect(
+        server.rangeHeaders,
+        contains('bytes=12000-'),
+        reason: 'the manager must ask for the missing part only',
+      );
+      expect(File(path).lengthSync(), body.length);
+      expect(
+        File(path).readAsBytesSync(),
+        body,
+        reason: 'the resumed file must be byte-identical to the source',
+      );
+    },
+  );
 
-  test('a server that ignores Range makes the manager start over cleanly',
-      () async {
-    final body = List<int>.generate(20000, (index) => (index * 7) % 253);
-    server.body = body;
-    server.honourRange = false;
+  test(
+    'a server that ignores Range makes the manager start over cleanly',
+    () async {
+      final body = List<int>.generate(20000, (index) => (index * 7) % 253);
+      server.body = body;
+      server.honourRange = false;
 
-    final task = DownloadTask(
-      id: 'netease_s1_low',
-      song: _song,
-      quality: AudioLevel.low,
-      totalBytes: body.length,
-      // The task's own record of what it wrote; a resume is only allowed when
-      // the bytes on disk are exactly this many (see W0-C resume defence).
-      downloadedBytes: 12000,
-      createdAt: DateTime(2026, 1, 1),
-    );
-    final path = await expectedPath(task);
-    // A stale partial file that must NOT be appended to a full 200 response.
-    await File(path).writeAsBytes(List<int>.filled(12000, 9));
+      final task = DownloadTask(
+        id: 'netease_s1_low',
+        song: _song,
+        quality: AudioLevel.low,
+        totalBytes: body.length,
+        // The task's own record of what it wrote; a resume is only allowed when
+        // the bytes on disk are exactly this many (see W0-C resume defence).
+        downloadedBytes: 12000,
+        createdAt: DateTime(2026, 1, 1),
+      );
+      final path = await expectedPath(task);
+      // A stale partial file that must NOT be appended to a full 200 response.
+      await File(path).writeAsBytes(List<int>.filled(12000, 9));
 
-    final manager = managerWith();
-    final notifier = DownloadNotifier(
-      manager: manager,
-      initialState: DownloadState(tasks: [task]),
-      taskStore: MemoryDownloadTaskStore([]),
-    );
-    addTearDown(notifier.dispose);
+      final manager = managerWith();
+      final notifier = DownloadNotifier(
+        manager: manager,
+        initialState: DownloadState(tasks: [task]),
+        taskStore: MemoryDownloadTaskStore([]),
+      );
+      addTearDown(notifier.dispose);
 
-    await notifier.startWaitingTask(task.id);
-    await _waitFor(() => notifier.state.tasks.single.status == DownloadStatus.completed);
+      await notifier.startWaitingTask(task.id);
+      await _waitFor(
+        () => notifier.state.tasks.single.status == DownloadStatus.completed,
+      );
 
-    expect(server.rangeHeaders, contains('bytes=12000-'));
-    expect(File(path).readAsBytesSync(), body);
-  });
+      expect(server.rangeHeaders, contains('bytes=12000-'));
+      expect(File(path).readAsBytesSync(), body);
+    },
+  );
 
-  test('a partial file this task cannot account for is replaced, never resumed',
-      () async {
+  test('a partial file this task cannot account for is replaced, never resumed', () async {
     // W0-C: before the file name carried the quality, three tasks for one song
     // shared `<root>/netease/mp3/歌手 - 歌名.mp3`. The second task found the
     // first task's 12000 bytes and asked for `bytes=12000-`, appending its own
@@ -196,86 +209,90 @@ void main() {
       () => notifier.state.tasks.single.status == DownloadStatus.completed,
     );
 
-    expect(
-      server.rangeHeaders,
-      [null],
-      reason: '记录为 0 字节的任务不得把盘上别人的字节数当作续传 offset',
-    );
+    expect(server.rangeHeaders, [
+      null,
+    ], reason: '记录为 0 字节的任务不得把盘上别人的字节数当作续传 offset');
     expect(File(path).readAsBytesSync(), body);
   });
 
-  test('a row resumes the path it already recorded, not a newly derived name',
-      () async {
-    // 存量用户的文件叫 `歌手 - 歌名.mp3`；只有新下载才会带上音质后缀。任务记录里
-    // 已经有那个路径，续传就必须落在同一个文件上 —— 不能在旁边再造一个同名新文件，
-    // 也不能把已经在盘上的字节丢掉从头下。
-    final body = List<int>.generate(12000, (index) => index % 251);
-    server.body = body;
+  test(
+    'a row resumes the path it already recorded, not a newly derived name',
+    () async {
+      // 存量用户的文件叫 `歌手 - 歌名.mp3`；只有新下载才会带上音质后缀。任务记录里
+      // 已经有那个路径，续传就必须落在同一个文件上 —— 不能在旁边再造一个同名新文件，
+      // 也不能把已经在盘上的字节丢掉从头下。
+      final body = List<int>.generate(12000, (index) => index % 251);
+      server.body = body;
 
-    final legacyDir = Directory(p.join(tempDir.path, 'legacy'));
-    await legacyDir.create(recursive: true);
-    final legacyPath = p.join(legacyDir.path, 'Artist - Song.mp3');
-    await File(legacyPath).writeAsBytes(body.sublist(0, 5000));
+      final legacyDir = Directory(p.join(tempDir.path, 'legacy'));
+      await legacyDir.create(recursive: true);
+      final legacyPath = p.join(legacyDir.path, 'Artist - Song.mp3');
+      await File(legacyPath).writeAsBytes(body.sublist(0, 5000));
 
-    final task = DownloadTask(
-      id: 'netease_s1_low',
-      song: _song,
-      quality: AudioLevel.low,
-      totalBytes: body.length,
-      downloadedBytes: 5000,
-      filePath: legacyPath,
-      createdAt: DateTime(2026, 1, 1),
-    );
+      final task = DownloadTask(
+        id: 'netease_s1_low',
+        song: _song,
+        quality: AudioLevel.low,
+        totalBytes: body.length,
+        downloadedBytes: 5000,
+        filePath: legacyPath,
+        createdAt: DateTime(2026, 1, 1),
+      );
 
-    final manager = managerWith();
-    final notifier = DownloadNotifier(
-      manager: manager,
-      initialState: DownloadState(tasks: [task]),
-      taskStore: MemoryDownloadTaskStore([]),
-    );
-    addTearDown(notifier.dispose);
+      final manager = managerWith();
+      final notifier = DownloadNotifier(
+        manager: manager,
+        initialState: DownloadState(tasks: [task]),
+        taskStore: MemoryDownloadTaskStore([]),
+      );
+      addTearDown(notifier.dispose);
 
-    await notifier.startWaitingTask(task.id);
-    await _waitFor(
-      () => notifier.state.tasks.single.status == DownloadStatus.completed,
-    );
+      await notifier.startWaitingTask(task.id);
+      await _waitFor(
+        () => notifier.state.tasks.single.status == DownloadStatus.completed,
+      );
 
-    expect(server.rangeHeaders, contains('bytes=5000-'));
-    expect(File(legacyPath).readAsBytesSync(), body);
-    expect(notifier.state.tasks.single.filePath, legacyPath);
-    expect(
-      File(await expectedPath(task)).existsSync(),
-      isFalse,
-      reason: '不得在旧文件旁边再生成一个带新后缀的文件',
-    );
-  });
+      expect(server.rangeHeaders, contains('bytes=5000-'));
+      expect(File(legacyPath).readAsBytesSync(), body);
+      expect(notifier.state.tasks.single.filePath, legacyPath);
+      expect(
+        File(await expectedPath(task)).existsSync(),
+        isFalse,
+        reason: '不得在旧文件旁边再生成一个带新后缀的文件',
+      );
+    },
+  );
 
-  test('a truncated body fails with a network failure and keeps the partial file',
-      () async {
-    final body = List<int>.generate(30000, (index) => index % 251);
-    server.body = body;
-    server.declaredLength = body.length;
-    server.sendBytes = 20000;
+  test(
+    'a truncated body fails with a network failure and keeps the partial file',
+    () async {
+      final body = List<int>.generate(30000, (index) => index % 251);
+      server.body = body;
+      server.declaredLength = body.length;
+      server.sendBytes = 20000;
 
-    final manager = managerWith();
-    final notifier = DownloadNotifier(
-      manager: manager,
-      taskStore: MemoryDownloadTaskStore([]),
-    );
-    addTearDown(notifier.dispose);
+      final manager = managerWith();
+      final notifier = DownloadNotifier(
+        manager: manager,
+        taskStore: MemoryDownloadTaskStore([]),
+      );
+      addTearDown(notifier.dispose);
 
-    await notifier.startDownload(_song, AudioLevel.low);
-    await _waitFor(() => notifier.state.tasks.single.status == DownloadStatus.failed);
+      await notifier.startDownload(_song, AudioLevel.low);
+      await _waitFor(
+        () => notifier.state.tasks.single.status == DownloadStatus.failed,
+      );
 
-    final task = notifier.state.tasks.single;
-    expect(task.failureKind, DownloadFailureKind.network);
-    expect(
-      task.downloadedBytes,
-      20000,
-      reason: 'the partial file must be remembered so the retry can resume',
-    );
-    expect(File(task.filePath!).lengthSync(), 20000);
-  });
+      final task = notifier.state.tasks.single;
+      expect(task.failureKind, DownloadFailureKind.network);
+      expect(
+        task.downloadedBytes,
+        20000,
+        reason: 'the partial file must be remembered so the retry can resume',
+      );
+      expect(File(task.filePath!).lengthSync(), 20000);
+    },
+  );
 
   test('a download is refused before writing when the disk is full', () async {
     final body = List<int>.generate(30000, (index) => index % 251);
@@ -289,7 +306,9 @@ void main() {
     addTearDown(notifier.dispose);
 
     await notifier.startDownload(_song, AudioLevel.low);
-    await _waitFor(() => notifier.state.tasks.single.status == DownloadStatus.failed);
+    await _waitFor(
+      () => notifier.state.tasks.single.status == DownloadStatus.failed,
+    );
 
     final task = notifier.state.tasks.single;
     expect(task.failureKind, DownloadFailureKind.disk);
@@ -303,23 +322,27 @@ void main() {
     }
   });
 
-  test('an unknown free space skips the gate instead of blocking the download',
-      () async {
-    final body = List<int>.generate(4096, (index) => index % 251);
-    server.body = body;
+  test(
+    'an unknown free space skips the gate instead of blocking the download',
+    () async {
+      final body = List<int>.generate(4096, (index) => index % 251);
+      server.body = body;
 
-    final manager = managerWith(freeSpaceProbe: (_) async => null);
-    final notifier = DownloadNotifier(
-      manager: manager,
-      taskStore: MemoryDownloadTaskStore([]),
-    );
-    addTearDown(notifier.dispose);
+      final manager = managerWith(freeSpaceProbe: (_) async => null);
+      final notifier = DownloadNotifier(
+        manager: manager,
+        taskStore: MemoryDownloadTaskStore([]),
+      );
+      addTearDown(notifier.dispose);
 
-    await notifier.startDownload(_song, AudioLevel.low);
-    await _waitFor(() => notifier.state.tasks.single.status == DownloadStatus.completed);
+      await notifier.startDownload(_song, AudioLevel.low);
+      await _waitFor(
+        () => notifier.state.tasks.single.status == DownloadStatus.completed,
+      );
 
-    expect(notifier.state.tasks.single.status, DownloadStatus.completed);
-  });
+      expect(notifier.state.tasks.single.status, DownloadStatus.completed);
+    },
+  );
 
   test('cancelling a download deletes the half-written file', () async {
     // Resume keeps partial files; an explicit cancel must not leave the orphan
@@ -349,24 +372,28 @@ void main() {
     expect(notifier.state.tasks, isEmpty);
   });
 
-  test('a snooped URL failure is classified before any request is made',
-      () async {
-    platform.url = 'http://127.0.0.1:1/never';
-    final manager = managerWith();
-    final notifier = DownloadNotifier(
-      manager: manager,
-      taskStore: MemoryDownloadTaskStore([]),
-    );
-    addTearDown(notifier.dispose);
+  test(
+    'a snooped URL failure is classified before any request is made',
+    () async {
+      platform.url = 'http://127.0.0.1:1/never';
+      final manager = managerWith();
+      final notifier = DownloadNotifier(
+        manager: manager,
+        taskStore: MemoryDownloadTaskStore([]),
+      );
+      addTearDown(notifier.dispose);
 
-    await notifier.startDownload(_song, AudioLevel.low);
-    await _waitFor(() => notifier.state.tasks.single.status == DownloadStatus.failed);
+      await notifier.startDownload(_song, AudioLevel.low);
+      await _waitFor(
+        () => notifier.state.tasks.single.status == DownloadStatus.failed,
+      );
 
-    expect(
-      notifier.state.tasks.single.failureKind,
-      DownloadFailureKind.network,
-    );
-  });
+      expect(
+        notifier.state.tasks.single.failureKind,
+        DownloadFailureKind.network,
+      );
+    },
+  );
 
   group('Android permission gate', () {
     test('API level is parsed from the platform version string', () {
@@ -432,45 +459,50 @@ class _RawServer {
 
   Future<void> _handle(Socket socket) async {
     final received = <int>[];
-    socket.listen((data) async {
-      received.addAll(data);
-      final text = String.fromCharCodes(received);
-      if (!text.contains('\r\n\r\n')) return;
+    socket.listen(
+      (data) async {
+        received.addAll(data);
+        final text = String.fromCharCodes(received);
+        if (!text.contains('\r\n\r\n')) return;
 
-      final rangeMatch = RegExp(
-        r'[Rr]ange:\s*bytes=(\d+)-',
-      ).firstMatch(text);
-      final requestedRange = rangeMatch?.group(1);
-      rangeHeaders.add(rangeMatch == null ? null : 'bytes=$requestedRange-');
+        final rangeMatch = RegExp(r'[Rr]ange:\s*bytes=(\d+)-').firstMatch(text);
+        final requestedRange = rangeMatch?.group(1);
+        rangeHeaders.add(rangeMatch == null ? null : 'bytes=$requestedRange-');
 
-      final start = honourRange && requestedRange != null
-          ? int.parse(requestedRange)
-          : 0;
-      final remaining = body.sublist(min(start, body.length));
-      final count = sendBytes == null
-          ? remaining.length
-          : min(sendBytes!, remaining.length);
-      final payload = remaining.sublist(0, count);
-      final declared = declaredLength ?? payload.length;
+        final start = honourRange && requestedRange != null
+            ? int.parse(requestedRange)
+            : 0;
+        final remaining = body.sublist(min(start, body.length));
+        final count = sendBytes == null
+            ? remaining.length
+            : min(sendBytes!, remaining.length);
+        final payload = remaining.sublist(0, count);
+        final declared = declaredLength ?? payload.length;
 
-      final buffer = StringBuffer()
-        ..write(start > 0 ? 'HTTP/1.1 206 Partial Content\r\n' : 'HTTP/1.1 200 OK\r\n')
-        ..write('Content-Type: audio/mpeg\r\n')
-        ..write('Content-Length: $declared\r\n');
-      if (start > 0) {
-        buffer.write(
-          'Content-Range: bytes $start-${body.length - 1}/${body.length}\r\n',
-        );
-      }
-      buffer.write('Connection: close\r\n\r\n');
+        final buffer = StringBuffer()
+          ..write(
+            start > 0
+                ? 'HTTP/1.1 206 Partial Content\r\n'
+                : 'HTTP/1.1 200 OK\r\n',
+          )
+          ..write('Content-Type: audio/mpeg\r\n')
+          ..write('Content-Length: $declared\r\n');
+        if (start > 0) {
+          buffer.write(
+            'Content-Range: bytes $start-${body.length - 1}/${body.length}\r\n',
+          );
+        }
+        buffer.write('Connection: close\r\n\r\n');
 
-      socket.add(buffer.toString().codeUnits);
-      socket.add(payload);
-      await socket.flush();
-      await socket.close();
-    }, onError: (Object error) {
-      // A client that aborted (disk gate / cancel) just closes the socket.
-    });
+        socket.add(buffer.toString().codeUnits);
+        socket.add(payload);
+        await socket.flush();
+        await socket.close();
+      },
+      onError: (Object error) {
+        // A client that aborted (disk gate / cancel) just closes the socket.
+      },
+    );
   }
 
   Future<void> close() => _server.close();

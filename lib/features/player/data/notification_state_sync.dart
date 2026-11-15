@@ -36,8 +36,7 @@ extension PlayerNotificationStateSync on PlayerNotifier {
       playlist: _s.playlist,
       currentIndex: _s.currentIndex,
       isCurrentSongLiked:
-          _s.currentSong != null &&
-          _isCurrentSongLikedNow(_s.currentSong!),
+          _s.currentSong != null && _isCurrentSongLikedNow(_s.currentSong!),
       isFloatingLyricsEnabled: _isFloatingLyricsEnabled(),
       isPlaying: _s.isPlaying,
       position: _s.position,
@@ -98,5 +97,4 @@ extension PlayerNotificationStateSync on PlayerNotifier {
     if (!_s.isPlaying) return;
     await _syncPlaybackKeepAlive(true, force: true);
   }
-
 }

@@ -91,26 +91,29 @@ void main() {
       expect(reported, isEmpty);
     });
 
-    test('a client without a platform does not report (label-only callers)', () async {
-      final reported = <PlatformType>[];
-      // Callers/tests that only pass a label keep working and stay silent.
-      final dio = createPlatformDio(
-        label: '测试平台',
-        baseUrl: 'https://example.invalid',
-        maxRetries: 0,
-        retryBaseDelay: Duration.zero,
-        retryMaxDelay: Duration.zero,
-        onSessionExpired: reported.add,
-      );
-      dio.httpClientAdapter = _ScriptedAdapter(statusCode: 401);
+    test(
+      'a client without a platform does not report (label-only callers)',
+      () async {
+        final reported = <PlatformType>[];
+        // Callers/tests that only pass a label keep working and stay silent.
+        final dio = createPlatformDio(
+          label: '测试平台',
+          baseUrl: 'https://example.invalid',
+          maxRetries: 0,
+          retryBaseDelay: Duration.zero,
+          retryMaxDelay: Duration.zero,
+          onSessionExpired: reported.add,
+        );
+        dio.httpClientAdapter = _ScriptedAdapter(statusCode: 401);
 
-      await captureError(dio.get<dynamic>('/x'));
-      expect(
-        reported,
-        isEmpty,
-        reason: 'without a platform there is nothing to expire',
-      );
-    });
+        await captureError(dio.get<dynamic>('/x'));
+        expect(
+          reported,
+          isEmpty,
+          reason: 'without a platform there is nothing to expire',
+        );
+      },
+    );
 
     test('the injected handler wins over the global sink', () async {
       final injected = <PlatformType>[];
@@ -121,7 +124,11 @@ void main() {
       await captureError(failingDio(injected.add).get<dynamic>('/anything'));
 
       expect(injected, [PlatformType.qq]);
-      expect(global, isEmpty, reason: 'tests must not depend on the global sink');
+      expect(
+        global,
+        isEmpty,
+        reason: 'tests must not depend on the global sink',
+      );
     });
 
     test('the global sink is used when no handler is injected', () async {

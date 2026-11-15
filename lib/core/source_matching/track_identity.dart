@@ -33,9 +33,7 @@ class TrackIdentity {
   final Duration duration;
 
   /// `(...)`、`（...）`、`[...]`、`【...】` 整段（含最内层内容）。
-  static final RegExp _bracketed = RegExp(
-    r'[\(\（\[\【][^\)\）\]\】]*[\)\）\]\】]',
-  );
+  static final RegExp _bracketed = RegExp(r'[\(\（\[\【][^\)\）\]\】]*[\)\）\]\】]');
 
   /// 版本噪声词。词边界按 ASCII 词字符判定，对中文标题无副作用。
   static final RegExp _variantNoise = RegExp(

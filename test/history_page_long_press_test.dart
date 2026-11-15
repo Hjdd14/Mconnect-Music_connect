@@ -157,11 +157,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(likes.toggledSongs.single.id, 'n1');
-    expect(
-      likes.state.songs.map((s) => s.id).toList(),
-      ['n1'],
-      reason: '菜单动作必须真的改喜欢状态',
-    );
+    expect(likes.state.songs.map((s) => s.id).toList(), [
+      'n1',
+    ], reason: '菜单动作必须真的改喜欢状态');
 
     // …and the page now reads that state back.
     await tester.longPress(find.text('晴天'));
@@ -191,8 +189,7 @@ void main() {
     );
     await player.playSong(song('current', PlatformType.netease, name: '正在播放'));
 
-    await pumpPage(tester,
-        history: history, likes: likes, player: player);
+    await pumpPage(tester, history: history, likes: likes, player: player);
 
     await tester.longPress(find.text('晴天'));
     await tester.pumpAndSettle();
@@ -201,10 +198,7 @@ void main() {
     await tester.tap(find.text('下一首播放'));
     await tester.pump();
 
-    expect(player.state.playlist.map((s) => s.name).toList(), [
-      '正在播放',
-      '晴天',
-    ]);
+    expect(player.state.playlist.map((s) => s.name).toList(), ['正在播放', '晴天']);
     expect(
       player.state.playlist[player.state.currentIndex + 1].name,
       '晴天',

@@ -16,9 +16,8 @@ void main() {
   });
 
   test('Android manifest uses scoped audio permissions', () {
-    final manifest = File(
-      'android/app/src/main/AndroidManifest.xml',
-    ).readAsStringSync();
+    final manifest = File('android/app/src/main/AndroidManifest.xml')
+        .readAsStringSync();
 
     expect(manifest, contains('android.permission.READ_MEDIA_AUDIO'));
     expect(manifest, contains('android:maxSdkVersion="32"'));

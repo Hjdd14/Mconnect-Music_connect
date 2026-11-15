@@ -121,9 +121,7 @@ void main() {
   test('a dragged offset is committed once, after the drag settles', () async {
     final events = StreamController<TaskbarLyricsEvent>.broadcast();
     final committed = <double>[];
-    final notifier = TaskbarLyricsStatusNotifier(
-      onDragOffset: committed.add,
-    );
+    final notifier = TaskbarLyricsStatusNotifier(onDragOffset: committed.add);
     addTearDown(notifier.dispose);
     notifier.attach(events.stream);
 

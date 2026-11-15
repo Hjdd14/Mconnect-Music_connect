@@ -45,10 +45,7 @@ class RawLyrics {
   final LyricsBundle bundle;
   final LyricsSource source;
 
-  const RawLyrics({
-    required this.bundle,
-    this.source = LyricsSource.unknown,
-  });
+  const RawLyrics({required this.bundle, this.source = LyricsSource.unknown});
 }
 
 /// How long a cached lyrics row stays trustworthy before it is refetched.
@@ -82,10 +79,13 @@ Future<({String content, String format, int syncedAt})?> readCachedLyrics(
   AppDatabase? db,
 }) async {
   final target = db ?? database;
-  final row = await (target.select(target.lyricsCache)
-        ..where((t) => t.songId.equals(songId) & t.platform.equals(platform))
-        ..limit(1))
-      .getSingleOrNull();
+  final row =
+      await (target.select(target.lyricsCache)
+            ..where(
+              (t) => t.songId.equals(songId) & t.platform.equals(platform),
+            )
+            ..limit(1))
+          .getSingleOrNull();
   if (row == null || row.content.isEmpty) return null;
   return (content: row.content, format: row.format, syncedAt: row.syncedAt);
 }
@@ -138,7 +138,9 @@ final lyricsProvider = FutureProvider.autoDispose<LyricsDocument?>((ref) async {
   final song = ref.watch(playerProvider.select((s) => s.currentSong));
   if (song == null) return null;
 
-  debugPrint('LyricsProvider: fetching for ${song.name} (${song.platform.name}, id=${song.id})');
+  debugPrint(
+    'LyricsProvider: fetching for ${song.name} (${song.platform.name}, id=${song.id})',
+  );
 
   final localRawLyrics = song.platform == PlatformType.local
       ? ref.watch(localMusicProvider.select((s) => s.lyricsFor(song.id)))
@@ -301,13 +303,10 @@ Future<LyricsDocument?> resolveLyricsForSong({
     final translation = track.format == LyricsFormat.lrc
         ? raw.bundle.translation
         : raw.bundle.yrcTranslation;
-    final cachedContent =
-        translation != null && translation.trim().isNotEmpty
-            ? '${track.content}\n$translation'
-            : track.content;
-    unawaited(
-      _writeCacheBestEffort(writeCache, cachedContent, track.format),
-    );
+    final cachedContent = translation != null && translation.trim().isNotEmpty
+        ? '${track.content}\n$translation'
+        : track.content;
+    unawaited(_writeCacheBestEffort(writeCache, cachedContent, track.format));
   }
   return document;
 }
@@ -413,10 +412,7 @@ Future<_LyricsFetchOutcome> _fetchLyricsWithFallback({
   return _LyricsFetchOutcome(errors: errors, answered: answered);
 }
 
-MusicPlatform? _platformFor(
-  PlatformType type,
-  List<MusicPlatform> platforms,
-) {
+MusicPlatform? _platformFor(PlatformType type, List<MusicPlatform> platforms) {
   for (final platform in platforms) {
     if (platform.platformType == type) return platform;
   }
@@ -467,14 +463,18 @@ Future<Song?> _searchEquivalentSong(
     final keyword = '${song.name} ${song.artists.map((a) => a.name).join(' ')}'
         .trim();
     if (keyword.isEmpty) return null;
-    final candidates = await platform.search(keyword, limit: 10).timeout(timeout);
+    final candidates = await platform
+        .search(keyword, limit: 10)
+        .timeout(timeout);
     final key = song.dedupeKey;
     for (final candidate in candidates) {
       if (candidate.dedupeKey == key) return candidate;
     }
     return null;
   } catch (e) {
-    debugPrint('LyricsProvider: ${platform.platformType.name} search failed: $e');
+    debugPrint(
+      'LyricsProvider: ${platform.platformType.name} search failed: $e',
+    );
     errors.add(e);
     return null;
   }

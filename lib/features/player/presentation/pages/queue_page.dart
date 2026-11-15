@@ -75,8 +75,11 @@ class QueuePage extends ConsumerWidget {
               // **不能再做经典的 -1 修正**。
               onReorderItem: (oldIndex, newIndex) =>
                   notifier.moveInQueue(oldIndex, newIndex),
-              proxyDecorator: (child, index, animation) =>
-                  Material(elevation: 4, color: Colors.transparent, child: child),
+              proxyDecorator: (child, index, animation) => Material(
+                elevation: 4,
+                color: Colors.transparent,
+                child: child,
+              ),
               itemBuilder: (context, index) {
                 final song = queue[index];
                 return _QueueRow(

@@ -13,8 +13,10 @@ import 'transfer_report.dart';
 /// for repeatedly — and keeps this file independently testable: a test injects
 /// its own scorer and exercises the ordering / bucketing / request discipline
 /// without standing up a service, a cache or a platform registry.
-typedef SourceMatchScorer =
-    double Function(TrackIdentity identity, Song candidate);
+typedef SourceMatchScorer = double Function(
+  TrackIdentity identity,
+  Song candidate,
+);
 
 /// Finds candidate songs for an imported row, then ranks them with
 /// [SourceMatchScorer].

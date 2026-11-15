@@ -23,9 +23,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [authProvider.overrideWith((ref) => notifier)],
-        child: const MaterialApp(
-          home: LoginPage(platform: PlatformType.kugou),
-        ),
+        child: const MaterialApp(home: LoginPage(platform: PlatformType.kugou)),
       ),
     );
     await tester.pumpAndSettle();
@@ -52,9 +50,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [authProvider.overrideWith((ref) => notifier)],
-        child: const MaterialApp(
-          home: LoginPage(platform: PlatformType.kugou),
-        ),
+        child: const MaterialApp(home: LoginPage(platform: PlatformType.kugou)),
       ),
     );
     await tester.pumpAndSettle();
@@ -96,19 +92,13 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [authProvider.overrideWith((ref) => notifier)],
-        child: const MaterialApp(
-          home: LoginPage(platform: PlatformType.kugou),
-        ),
+        child: const MaterialApp(home: LoginPage(platform: PlatformType.kugou)),
       ),
     );
     await tester.pump();
 
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    expect(
-      find.text('重试'),
-      findsNothing,
-      reason: '加载中不是失败，不能给重试',
-    );
+    expect(find.text('重试'), findsNothing, reason: '加载中不是失败，不能给重试');
 
     // Let the request finish so no future is left hanging into teardown.
     pending.complete(
@@ -125,9 +115,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [authProvider.overrideWith((ref) => notifier)],
-        child: const MaterialApp(
-          home: LoginPage(platform: PlatformType.kugou),
-        ),
+        child: const MaterialApp(home: LoginPage(platform: PlatformType.kugou)),
       ),
     );
     await tester.pumpAndSettle();
@@ -168,10 +156,7 @@ class _FakeAuthNotifier extends AuthNotifier {
     if (failure != null) throw failure;
     final pending = qrPending;
     if (pending != null) return pending.future;
-    return const QrLoginResult(
-      key: 'key-1',
-      qrUrl: 'https://example.test/qr',
-    );
+    return const QrLoginResult(key: 'key-1', qrUrl: 'https://example.test/qr');
   }
 
   @override

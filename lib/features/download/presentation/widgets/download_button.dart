@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:collection/collection.dart';
+
 import 'dart:async';
+
 import '../../../../models/audio_quality.dart';
 import '../../../../models/song.dart';
 import '../../../../models/user.dart';
@@ -306,4 +308,5 @@ class DownloadButton extends ConsumerWidget {
         duration: const Duration(seconds: 2),
       );
     }
-  }}
+  }
+}

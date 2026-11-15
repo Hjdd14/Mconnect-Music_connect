@@ -261,11 +261,8 @@ class LocalMusicState {
   ///
   /// Every view below derives from this one getter, so a filter cannot apply to
   /// the song list but silently not to the album list.
-  List<LocalTrackEntry> get queriedTracks => query.apply(
-    tracks,
-    ratings: ratings,
-    playCounts: playCounts,
-  );
+  List<LocalTrackEntry> get queriedTracks =>
+      query.apply(tracks, ratings: ratings, playCounts: playCounts);
 
   /// The local songs after the query.
   ///
@@ -299,8 +296,7 @@ class LocalMusicState {
   ];
 
   /// The rating of one track, `0` when it was never rated.
-  int ratingOf(LocalTrackEntry track) =>
-      ratings[localTrackSongKey(track)] ?? 0;
+  int ratingOf(LocalTrackEntry track) => ratings[localTrackSongKey(track)] ?? 0;
 
   /// The song list actually rendered: with [mergeWithOnline] the (queried) local
   /// library is merged with the cached online library on [Song.dedupeKey], local
@@ -459,9 +455,7 @@ class LocalMusicNotifier extends StateNotifier<LocalMusicState> {
   }
 
   void setSortDescending(bool descending) {
-    state = state.copyWith(
-      query: state.query.copyWith(descending: descending),
-    );
+    state = state.copyWith(query: state.query.copyWith(descending: descending));
   }
 
   void toggleSortDirection() {
@@ -469,9 +463,7 @@ class LocalMusicNotifier extends StateNotifier<LocalMusicState> {
   }
 
   void toggleFilter(LocalTrackFilter filter, bool enabled) {
-    state = state.copyWith(
-      query: state.query.withFilter(filter, enabled),
-    );
+    state = state.copyWith(query: state.query.withFilter(filter, enabled));
   }
 
   void clearQuery() {
@@ -526,7 +518,8 @@ class LocalMusicNotifier extends StateNotifier<LocalMusicState> {
   /// Enters or leaves multi-select. Leaving always drops the ticks, so the next
   /// entry starts clean instead of acting on a stale selection.
   void setSelectionMode(bool enabled) {
-    if (enabled == state.selectionMode && (enabled || state.selectedPaths.isEmpty)) {
+    if (enabled == state.selectionMode &&
+        (enabled || state.selectedPaths.isEmpty)) {
       return;
     }
     state = state.copyWith(
@@ -635,10 +628,7 @@ class LocalMusicNotifier extends StateNotifier<LocalMusicState> {
       if (!PlatformUtils.isAndroid) {
         await _rootStore.write(result.selectedDirectory);
       }
-      _applyScanResult(
-        result.scanResult,
-        directory: result.selectedDirectory,
-      );
+      _applyScanResult(result.scanResult, directory: result.selectedDirectory);
     } catch (e) {
       if (!mounted) return;
       state = state.copyWith(isScanning: false, error: () => '本地音乐扫描失败：$e');
@@ -717,9 +707,7 @@ final localMusicProvider =
       final isAndroid = PlatformUtils.isAndroid;
       if (isAndroid) androidService.attachMediaStoreListener();
       final notifier = LocalMusicNotifier(
-        mediaStoreChanges: isAndroid
-            ? androidService.mediaStoreChanged
-            : null,
+        mediaStoreChanges: isAndroid ? androidService.mediaStoreChanged : null,
       );
       unawaited(notifier.initialize());
       return notifier;

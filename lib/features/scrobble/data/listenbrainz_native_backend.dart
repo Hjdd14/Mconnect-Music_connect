@@ -108,7 +108,9 @@ class ListenBrainzNativeBackend implements ScrobbleBackend {
   @override
   Future<ScrobbleResult> scrobble(List<ScrobbleEntry> entries) async {
     if (entries.isEmpty) return ScrobbleResult.ok(accepted: 0);
-    if (!isConfigured) return ScrobbleResult.failed('尚未填写 $displayName 的用户 token');
+    if (!isConfigured) {
+      return ScrobbleResult.failed('尚未填写 $displayName 的用户 token');
+    }
     if (entries.length > kListenBrainzMaxListensPerRequest) {
       return ScrobbleResult.failed(
         '$displayName 单次最多提交 $kListenBrainzMaxListensPerRequest 条，收到 ${entries.length} 条',
@@ -170,7 +172,8 @@ class ListenBrainzNativeBackend implements ScrobbleBackend {
   }) {
     final playingNow = listenType == 'playing_now';
     final payload = [
-      for (final entry in entries) _listenPayload(entry, playingNow: playingNow),
+      for (final entry in entries)
+        _listenPayload(entry, playingNow: playingNow),
     ];
     return _dio.post<Object?>(
       '$baseUrl/1/submit-listens',

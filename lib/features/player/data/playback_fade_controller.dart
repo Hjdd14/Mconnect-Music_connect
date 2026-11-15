@@ -141,9 +141,7 @@ extension PlayerFadeAndVolumeOps on PlayerNotifier {
     if (position < end) return;
     if (_isSeekingAbLoop) return;
     _isSeekingAbLoop = true;
-    unawaited(
-      _safeSeek(start).whenComplete(() => _isSeekingAbLoop = false),
-    );
+    unawaited(_safeSeek(start).whenComplete(() => _isSeekingAbLoop = false));
   }
 
   Future<void> _safeSetVolume(double volume) async {
@@ -319,5 +317,4 @@ extension PlayerFadeAndVolumeOps on PlayerNotifier {
       unawaited(_safeSetVolume(1));
     });
   }
-
 }

@@ -234,10 +234,7 @@ class _SmartPlaylistEditorPageState
             SegmentedButton<SmartPlaylistMatch>(
               segments: [
                 for (final mode in SmartPlaylistMatch.values)
-                  ButtonSegment(
-                    value: mode,
-                    label: Text(mode.displayName),
-                  ),
+                  ButtonSegment(value: mode, label: Text(mode.displayName)),
               ],
               selected: {_match},
               onSelectionChanged: (selection) =>
@@ -337,8 +334,7 @@ class _SmartPlaylistEditorPageState
               min: 0,
               max: 365,
               suffix: _notPlayedSinceDays == 0 ? '不限' : '天未听',
-              onChanged: (value) =>
-                  setState(() => _notPlayedSinceDays = value),
+              onChanged: (value) => setState(() => _notPlayedSinceDays = value),
             ),
             _DurationRangeTile(
               minMs: _minDurationMs,
@@ -407,10 +403,8 @@ class _DurationRangeTile extends StatelessWidget {
           '${(start / 60).toStringAsFixed(1)}分',
           '${(end / 60).toStringAsFixed(1)}分',
         ),
-        onChanged: (values) => onChanged(
-          values.start.round() * 1000,
-          values.end.round() * 1000,
-        ),
+        onChanged: (values) =>
+            onChanged(values.start.round() * 1000, values.end.round() * 1000),
       ),
       trailing: SizedBox(
         width: 84,

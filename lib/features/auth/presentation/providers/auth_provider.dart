@@ -1,6 +1,8 @@
 import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../../models/platform_type.dart';
 import '../../../../models/user.dart';
 import '../../../../platform/base/music_platform.dart';

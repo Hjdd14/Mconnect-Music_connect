@@ -231,51 +231,47 @@ void main() {
     expect(find.text('已停靠：底部 · 宽 980×56 · 位置 1200,1392'), findsOneWidget);
   });
 
-  testWidgets('a native geometry self-test failure is visible in the status bar', (
-    tester,
-  ) async {
-    await _pumpStudio(
-      tester,
-      wrap(
-        taskbarStatus: const TaskbarLyricsStatus(
-          found: true,
-          edge: 'bottom',
-          lastError: '几何自检失败：a full-width bar at the bottom is a bottom bar',
+  testWidgets(
+    'a native geometry self-test failure is visible in the status bar',
+    (tester) async {
+      await _pumpStudio(
+        tester,
+        wrap(
+          taskbarStatus: const TaskbarLyricsStatus(
+            found: true,
+            edge: 'bottom',
+            lastError: '几何自检失败：a full-width bar at the bottom is a bottom bar',
+          ),
         ),
-      ),
-    );
-    await tester.tap(find.text('任务栏歌词'));
-    await tester.pumpAndSettle();
+      );
+      await tester.tap(find.text('任务栏歌词'));
+      await tester.pumpAndSettle();
 
-    // The whole point of moving the self-test into Release: a wrong edge used to
-    // be invisible except as "the sliders do nothing".
-    expect(
-      find.textContaining('几何自检失败'),
-      findsOneWidget,
-    );
-  });
+      // The whole point of moving the self-test into Release: a wrong edge used to
+      // be invisible except as "the sliders do nothing".
+      expect(find.textContaining('几何自检失败'), findsOneWidget);
+    },
+  );
 
-  testWidgets('an insufficient taskbar space is reported as a full-width strip', (
-    tester,
-  ) async {
-    await _pumpStudio(
-      tester,
-      wrap(
-        taskbarStatus: const TaskbarLyricsStatus(
-          found: true,
-          edge: 'bottom',
-          spaceInsufficient: true,
+  testWidgets(
+    'an insufficient taskbar space is reported as a full-width strip',
+    (tester) async {
+      await _pumpStudio(
+        tester,
+        wrap(
+          taskbarStatus: const TaskbarLyricsStatus(
+            found: true,
+            edge: 'bottom',
+            spaceInsufficient: true,
+          ),
         ),
-      ),
-    );
-    await tester.tap(find.text('任务栏歌词'));
-    await tester.pumpAndSettle();
+      );
+      await tester.tap(find.text('任务栏歌词'));
+      await tester.pumpAndSettle();
 
-    expect(
-      find.text('任务栏应用区已被系统占满，歌词条铺满整条任务栏'),
-      findsOneWidget,
-    );
-  });
+      expect(find.text('任务栏应用区已被系统占满，歌词条铺满整条任务栏'), findsOneWidget);
+    },
+  );
 
   testWidgets('the taskbar anchor, width and offset write through', (
     tester,

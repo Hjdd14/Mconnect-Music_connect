@@ -21,7 +21,10 @@ void main() {
   const imagePath = 'C:/mconnect-test/background-that-does-not-exist.jpg';
   const settings = AppBackgroundSettings(imagePath: imagePath);
 
-  Future<int> pumpAndRebuild(WidgetTester tester, {required int rebuilds}) async {
+  Future<int> pumpAndRebuild(
+    WidgetTester tester, {
+    required int rebuilds,
+  }) async {
     var probeCalls = 0;
     bool probe(String path) {
       probeCalls++;

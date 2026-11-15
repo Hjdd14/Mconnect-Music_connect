@@ -1,6 +1,8 @@
 import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
 import '../../models/user.dart';
 import '../../models/platform_type.dart';
 
@@ -16,7 +18,7 @@ class SessionStorage {
   /// [storage] is injectable so tests can simulate a Keystore that is
   /// unavailable, without touching the real plugin.
   SessionStorage({FlutterSecureStorage? storage})
-      : _storage = storage ?? const FlutterSecureStorage();
+    : _storage = storage ?? const FlutterSecureStorage();
 
   final FlutterSecureStorage _storage;
 

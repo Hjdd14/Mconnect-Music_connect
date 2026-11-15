@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
+
 import 'core/desktop/desktop_behavior_settings.dart';
 import 'core/desktop/desktop_integration_service.dart';
 import 'core/diagnostics/diagnostics_service.dart';
@@ -143,9 +144,7 @@ class MconnectApp extends ConsumerStatefulWidget {
       );
     }
 
-    final content = AppBackgroundShell(
-      child: child ?? const SizedBox.shrink(),
-    );
+    final content = AppBackgroundShell(child: child ?? const SizedBox.shrink());
 
     if (uiStyle != UiStyle.miuix) return content;
 
@@ -365,9 +364,7 @@ class _MconnectAppState extends ConsumerState<MconnectApp>
       // The runner answers false when another application owns the chord; that
       // answer used to be thrown away, so a dead hotkey looked identical to a
       // working one.
-      status.setHotkeysRegistered(
-        registered: result.hotkeysRegistered,
-      );
+      status.setHotkeysRegistered(registered: result.hotkeysRegistered);
       // Pull once more after the push: `getRuntimeStatus.hotkeysEnabled` reads
       // the runner's actual registration list, which only now reflects what was
       // just applied (the setHotkeys answer alone is true even when disabled).
@@ -413,13 +410,13 @@ class _MconnectAppState extends ConsumerState<MconnectApp>
       case 'windowCloseRequested':
         unawaited(_persistBeforeClose());
       case 'trayReady':
-        ref.read(desktopRuntimeStatusProvider.notifier).setTrayReady(
-          ready: true,
-        );
+        ref
+            .read(desktopRuntimeStatusProvider.notifier)
+            .setTrayReady(ready: true);
       case 'smtcUnavailable':
-        ref.read(desktopRuntimeStatusProvider.notifier).setSmtcAvailable(
-          available: false,
-        );
+        ref
+            .read(desktopRuntimeStatusProvider.notifier)
+            .setSmtcAvailable(available: false);
       case 'trayUnavailableKeptOpen':
         final keptReason = event['reason'];
         final keptError = keptReason is int
@@ -469,13 +466,13 @@ class _MconnectAppState extends ConsumerState<MconnectApp>
           },
         );
       case 'hiddenToTray':
-        ref.read(desktopRuntimeStatusProvider.notifier).recordClose(
-          hiddenToTray: true,
-        );
+        ref
+            .read(desktopRuntimeStatusProvider.notifier)
+            .recordClose(hiddenToTray: true);
       case 'closeFellBackToExit':
-        ref.read(desktopRuntimeStatusProvider.notifier).recordClose(
-          hiddenToTray: false,
-        );
+        ref
+            .read(desktopRuntimeStatusProvider.notifier)
+            .recordClose(hiddenToTray: false);
       case 'trayFailed':
         final error = event['error'];
         ref
@@ -594,7 +591,9 @@ class _MconnectAppState extends ConsumerState<MconnectApp>
             seedColor: themeSettings.seedColor,
           )
         : switch (uiStyle) {
-            UiStyle.material => AppTheme.light(seedColor: themeSettings.seedColor),
+            UiStyle.material => AppTheme.light(
+              seedColor: themeSettings.seedColor,
+            ),
             UiStyle.miuix => miuixTheme(
               brightness: Brightness.light,
               seedColor: themeSettings.seedColor,
@@ -606,7 +605,9 @@ class _MconnectAppState extends ConsumerState<MconnectApp>
             seedColor: themeSettings.seedColor,
           )
         : switch (uiStyle) {
-            UiStyle.material => AppTheme.dark(seedColor: themeSettings.seedColor),
+            UiStyle.material => AppTheme.dark(
+              seedColor: themeSettings.seedColor,
+            ),
             UiStyle.miuix => miuixTheme(
               brightness: Brightness.dark,
               seedColor: themeSettings.seedColor,

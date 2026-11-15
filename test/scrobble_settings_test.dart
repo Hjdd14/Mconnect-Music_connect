@@ -81,7 +81,9 @@ class _FakeScrobbleController implements ScrobbleSettingsController {
   int drainCalls = 0;
   bool drainResult = true;
   final List<String> authorizeUrlCalls = <String>[];
-  Uri? authorizeUrlResult = Uri.parse('https://example.test/authorize?api_key=x');
+  Uri? authorizeUrlResult = Uri.parse(
+    'https://example.test/authorize?api_key=x',
+  );
 
   /// 补交后要切换到的快照（用来验证"计数刷新"）。
   ScrobbleSettingsView? viewAfterDrain;
@@ -264,7 +266,10 @@ void main() {
       final fake = _FakeScrobbleController(_view(enabled: false));
       await _pump(tester, fake);
 
-      expect(tester.widget<SwitchListTile>(find.byKey(_switchKey)).value, isFalse);
+      expect(
+        tester.widget<SwitchListTile>(find.byKey(_switchKey)).value,
+        isFalse,
+      );
       expect(find.byKey(_serviceKey), findsNothing);
       expect(find.byKey(_apiKeyKey), findsNothing);
       expect(find.byKey(_apiSecretKey), findsNothing);
@@ -305,20 +310,27 @@ void main() {
   });
 
   group('服务与凭据输入', () {
-    testWidgets('lastfm（usesApiKey）：显示 API Key / Secret / Session Key 与授权页按钮，不显示 token', (tester) async {
-      final fake = _FakeScrobbleController(_view(service: ScrobbleService.lastfm));
-      await _pump(tester, fake);
+    testWidgets(
+      'lastfm（usesApiKey）：显示 API Key / Secret / Session Key 与授权页按钮，不显示 token',
+      (tester) async {
+        final fake = _FakeScrobbleController(
+          _view(service: ScrobbleService.lastfm),
+        );
+        await _pump(tester, fake);
 
-      expect(find.byKey(_apiKeyKey), findsOneWidget);
-      expect(find.byKey(_apiSecretKey), findsOneWidget);
-      expect(find.byKey(_sessionKeyKey), findsOneWidget);
-      expect(find.byKey(_authKey), findsOneWidget);
-      expect(find.byKey(_tokenKey), findsNothing);
-      expect(find.byKey(_baseUrlKey), findsNothing);
-    });
+        expect(find.byKey(_apiKeyKey), findsOneWidget);
+        expect(find.byKey(_apiSecretKey), findsOneWidget);
+        expect(find.byKey(_sessionKeyKey), findsOneWidget);
+        expect(find.byKey(_authKey), findsOneWidget);
+        expect(find.byKey(_tokenKey), findsNothing);
+        expect(find.byKey(_baseUrlKey), findsNothing);
+      },
+    );
 
     testWidgets('librefm：与 lastfm 同一套输入（同属 api_sig 家族）', (tester) async {
-      final fake = _FakeScrobbleController(_view(service: ScrobbleService.librefm));
+      final fake = _FakeScrobbleController(
+        _view(service: ScrobbleService.librefm),
+      );
       await _pump(tester, fake);
 
       expect(find.byKey(_apiKeyKey), findsOneWidget);
@@ -327,7 +339,9 @@ void main() {
       expect(find.byKey(_tokenKey), findsNothing);
     });
 
-    testWidgets('listenbrainz（usesToken）：只显示 token，不显示 API Key 与授权页按钮', (tester) async {
+    testWidgets('listenbrainz（usesToken）：只显示 token，不显示 API Key 与授权页按钮', (
+      tester,
+    ) async {
       final fake = _FakeScrobbleController(
         _view(service: ScrobbleService.listenbrainz),
       );
@@ -341,8 +355,12 @@ void main() {
       expect(find.byKey(_baseUrlKey), findsNothing);
     });
 
-    testWidgets('maloja（usesCustomBaseUrl）：token 之外额外显示自定义 Base URL', (tester) async {
-      final fake = _FakeScrobbleController(_view(service: ScrobbleService.maloja));
+    testWidgets('maloja（usesCustomBaseUrl）：token 之外额外显示自定义 Base URL', (
+      tester,
+    ) async {
+      final fake = _FakeScrobbleController(
+        _view(service: ScrobbleService.maloja),
+      );
       await _pump(tester, fake);
 
       expect(find.byKey(_tokenKey), findsOneWidget);
@@ -395,7 +413,9 @@ void main() {
       );
     });
 
-    testWidgets('切换服务后输入框换成新服务的已存凭据（listenbrainz → 显示它的 token）', (tester) async {
+    testWidgets('切换服务后输入框换成新服务的已存凭据（listenbrainz → 显示它的 token）', (
+      tester,
+    ) async {
       final fake = _FakeScrobbleController(
         _view(service: ScrobbleService.lastfm, apiKey: 'saved-lastfm-key'),
       );
@@ -479,7 +499,10 @@ void main() {
       );
       await _pump(tester, fake);
 
-      await tester.enterText(find.byKey(_baseUrlKey), 'ftp://maloja.example.com');
+      await tester.enterText(
+        find.byKey(_baseUrlKey),
+        'ftp://maloja.example.com',
+      );
       await tester.pump();
       expect(find.text('地址必须以 http:// 或 https:// 开头'), findsOneWidget);
 
@@ -526,9 +549,7 @@ void main() {
     });
 
     testWidgets('失败 → 失败 SnackBar 且带上 lastError 文案', (tester) async {
-      final fake = _FakeScrobbleController(
-        _view(lastError: '凭据无效（错误码 9）'),
-      );
+      final fake = _FakeScrobbleController(_view(lastError: '凭据无效（错误码 9）'));
       fake.testConnectionResult = false;
       await _pump(tester, fake);
 
@@ -546,7 +567,10 @@ void main() {
       await _pump(tester, fake);
 
       expect(find.text('待补交 3 条'), findsOneWidget);
-      expect(tester.widget<FilledButton>(find.byKey(_drainKey)).onPressed, isNotNull);
+      expect(
+        tester.widget<FilledButton>(find.byKey(_drainKey)).onPressed,
+        isNotNull,
+      );
 
       await tester.tap(find.byKey(_drainKey));
       await tester.pumpAndSettle();
@@ -560,7 +584,10 @@ void main() {
       await _pump(tester, fake);
 
       expect(find.text('待补交 0 条'), findsOneWidget);
-      expect(tester.widget<FilledButton>(find.byKey(_drainKey)).onPressed, isNull);
+      expect(
+        tester.widget<FilledButton>(find.byKey(_drainKey)).onPressed,
+        isNull,
+      );
     });
 
     testWidgets('needsReauth：显示"需要重新登录"、按钮禁用、点击不发请求', (tester) async {
@@ -571,7 +598,10 @@ void main() {
 
       expect(find.byKey(_reauthKey), findsOneWidget);
       expect(find.text('需要重新登录后才能继续提交'), findsOneWidget);
-      expect(tester.widget<FilledButton>(find.byKey(_drainKey)).onPressed, isNull);
+      expect(
+        tester.widget<FilledButton>(find.byKey(_drainKey)).onPressed,
+        isNull,
+      );
 
       await tester.tap(find.byKey(_drainKey), warnIfMissed: false);
       await tester.pump();
@@ -634,7 +664,9 @@ void main() {
         ),
       );
 
-      final fake = _FakeScrobbleController(_view(service: ScrobbleService.lastfm));
+      final fake = _FakeScrobbleController(
+        _view(service: ScrobbleService.lastfm),
+      );
       Uri? opened;
       await _pump(
         tester,
@@ -650,7 +682,10 @@ void main() {
 
       expect(opened, fake.authorizeUrlResult);
       expect(find.text('授权链接已复制'), findsNothing);
-      expect(calls.where((call) => call.method == 'Clipboard.setData'), isEmpty);
+      expect(
+        calls.where((call) => call.method == 'Clipboard.setData'),
+        isEmpty,
+      );
     });
   });
 }

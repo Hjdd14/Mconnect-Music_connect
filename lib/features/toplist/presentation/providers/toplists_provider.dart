@@ -63,8 +63,7 @@ class ToplistsState {
   List<Toplist> toplistsForPlatform(PlatformType platform) =>
       toplistsByPlatform[platform] ?? const [];
 
-  String? errorForPlatform(PlatformType platform) =>
-      errorsByPlatform[platform];
+  String? errorForPlatform(PlatformType platform) => errorsByPlatform[platform];
 
   bool isOffline(PlatformType platform) => offlineByPlatform[platform] ?? false;
 
@@ -137,7 +136,8 @@ class ToplistsNotifier extends StateNotifier<ToplistsState> {
         // Keep whatever the cache produced; label it as offline instead of
         // dropping the platform.
         errors[result.platform] = result.error!;
-        offline[result.platform] = toplists[result.platform]?.isNotEmpty ?? false;
+        offline[result.platform] =
+            toplists[result.platform]?.isNotEmpty ?? false;
       }
     }
 

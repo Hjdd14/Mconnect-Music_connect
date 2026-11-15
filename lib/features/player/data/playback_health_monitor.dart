@@ -213,10 +213,7 @@ extension PlayerPlaybackHealthOps on PlayerNotifier {
       _restoredSourceNeedsLoad = false;
       _cancelTransitionWatchdog();
       _setState(
-        _s.copyWith(
-          isTransitioning: false,
-          error: () => '播放未能恢复，已重置播放器，请重试',
-        ),
+        _s.copyWith(isTransitioning: false, error: () => '播放未能恢复，已重置播放器，请重试'),
       );
       _resetPlaybackHealthWindow(applyGrace: true);
       await _recreatePlayer();
@@ -250,7 +247,8 @@ extension PlayerPlaybackHealthOps on PlayerNotifier {
         ? song.duration
         : _s.duration;
     if (effectiveDuration == Duration.zero) return false;
-    return _s.position + PlayerNotifier._playbackEndTolerance >= effectiveDuration;
+    return _s.position + PlayerNotifier._playbackEndTolerance >=
+        effectiveDuration;
   }
 
   bool _isStalledProcessingState(ProcessingState processingState) {
@@ -306,7 +304,8 @@ extension PlayerPlaybackHealthOps on PlayerNotifier {
       return;
     }
     if (position >=
-        _lastPlaybackHealthPosition + PlayerNotifier._playbackPositionAdvanceTolerance) {
+        _lastPlaybackHealthPosition +
+            PlayerNotifier._playbackPositionAdvanceTolerance) {
       _lastPlaybackHealthPosition = position;
       _lastPlaybackHealthPositionChangedAt = _now();
       _healthSongKey = _songKey(_s.currentSong);
@@ -417,7 +416,8 @@ extension PlayerPlaybackHealthOps on PlayerNotifier {
         now.difference(lastRecoveryAt) < _playbackRecoveryCooldown) {
       return;
     }
-    if (_recoveryAttemptsForSong >= PlayerNotifier._maxPlaybackRecoveryAttemptsPerSong) {
+    if (_recoveryAttemptsForSong >=
+        PlayerNotifier._maxPlaybackRecoveryAttemptsPerSong) {
       if (_recoveryLimitReportedSongKey != songKey) {
         _recoveryLimitReportedSongKey = songKey;
         DiagnosticsService.instance.record(
@@ -466,7 +466,8 @@ extension PlayerPlaybackHealthOps on PlayerNotifier {
       await _mutex.run(() async {
         // 等锁期间播放可能已经换曲/换音质，重新确认后立即放弃。
         if (!mounted) return;
-        if (requestId != _playRequestId || qualityRequestId != _qualityRequestId) {
+        if (requestId != _playRequestId ||
+            qualityRequestId != _qualityRequestId) {
           return;
         }
         final platform = _platformResolver(song.platform);
@@ -534,12 +535,9 @@ extension PlayerPlaybackHealthOps on PlayerNotifier {
           'attempt': _recoveryAttemptsForSong,
         },
       );
-      _setState(
-        _s.copyWith(error: () => '播放恢复失败：${_userFacingError(error)}'),
-      );
+      _setState(_s.copyWith(error: () => '播放恢复失败：${_userFacingError(error)}'));
     } finally {
       _isRecoveringPlayback = false;
     }
   }
-
 }

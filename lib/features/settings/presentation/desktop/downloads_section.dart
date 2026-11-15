@@ -55,9 +55,7 @@ class _DesktopDownloadsSectionState
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.maybeOf(context);
     try {
-      final picked = await FilePicker.getDirectoryPath(
-        dialogTitle: '选择下载目录',
-      );
+      final picked = await FilePicker.getDirectoryPath(dialogTitle: '选择下载目录');
       if (picked == null || picked.trim().isEmpty) return;
       final result = await ref
           .read(downloadProvider.notifier)
@@ -222,9 +220,8 @@ class _DesktopDownloadsSectionState
         const SizedBox(height: 8),
         Text(
           '下载中的任务、失败重试与队列进度在侧栏「下载」里。',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: scheme.onSurfaceVariant,
-          ),
+          style: Theme.of(context).textTheme.bodySmall
+              ?.copyWith(color: scheme.onSurfaceVariant),
         ),
       ],
     );

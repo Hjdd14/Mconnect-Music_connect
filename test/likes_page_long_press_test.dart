@@ -183,10 +183,7 @@ void main() {
     await tester.tap(find.text('下一首播放'));
     await tester.pump();
 
-    expect(player.state.playlist.map((s) => s.name).toList(), [
-      '正在播放',
-      '晴天',
-    ]);
+    expect(player.state.playlist.map((s) => s.name).toList(), ['正在播放', '晴天']);
     expect(
       player.state.playlist[player.state.currentIndex + 1].name,
       '晴天',

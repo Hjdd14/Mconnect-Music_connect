@@ -13,7 +13,8 @@ import '../../../models/toplist.dart';
 /// reads and writes through, and it is deliberately thin so tests can point it
 /// at an in-memory database.
 class ToplistsCacheStore {
-  ToplistsCacheStore({AppDatabase? database}) : _db = database ?? _appDatabase();
+  ToplistsCacheStore({AppDatabase? database})
+    : _db = database ?? _appDatabase();
 
   final AppDatabase _db;
 
@@ -29,24 +30,21 @@ class ToplistsCacheStore {
     DateTime? fetchedAt,
   }) async {
     final at = fetchedAt ?? DateTime.now();
-    await _db.toplistsCacheDao.replaceForPlatform(
-      platform.name,
-      [
-        for (final toplist in toplists)
-          ToplistsCacheCompanion.insert(
-            platform: platform.name,
-            toplistId: toplist.id,
-            name: toplist.name,
-            coverUrl: Value(toplist.coverUrl),
-            updateFrequency: Value(toplist.updateFrequency),
-            period: Value(toplist.period),
-            songCount: Value(toplist.songCount),
-            groupName: Value(toplist.groupName),
-            intro: Value(toplist.intro),
-            fetchedAt: at.millisecondsSinceEpoch,
-          ),
-      ],
-    );
+    await _db.toplistsCacheDao.replaceForPlatform(platform.name, [
+      for (final toplist in toplists)
+        ToplistsCacheCompanion.insert(
+          platform: platform.name,
+          toplistId: toplist.id,
+          name: toplist.name,
+          coverUrl: Value(toplist.coverUrl),
+          updateFrequency: Value(toplist.updateFrequency),
+          period: Value(toplist.period),
+          songCount: Value(toplist.songCount),
+          groupName: Value(toplist.groupName),
+          intro: Value(toplist.intro),
+          fetchedAt: at.millisecondsSinceEpoch,
+        ),
+    ]);
   }
 
   /// Cached charts for one platform, in the order they were written.

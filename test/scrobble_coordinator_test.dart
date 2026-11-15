@@ -163,42 +163,45 @@ void main() {
   });
 
   group('ScrobbleCoordinator pump', () {
-    test('claims at most the batch size and drains the rest next round', () async {
-      final backend = _FakeBackend(
-        result: const ScrobbleResult(accepted: 3),
-        maxBatchSize: 3,
-      );
-      final coordinator = coordinatorFor(backend);
-      for (var i = 0; i < 5; i++) {
-        await enqueue(
-          coordinator,
-          eventId: i,
-          playedAt: DateTime(2026, 5, 30, 10).add(Duration(minutes: i)),
+    test(
+      'claims at most the batch size and drains the rest next round',
+      () async {
+        final backend = _FakeBackend(
+          result: const ScrobbleResult(accepted: 3),
+          maxBatchSize: 3,
         );
-      }
+        final coordinator = coordinatorFor(backend);
+        for (var i = 0; i < 5; i++) {
+          await enqueue(
+            coordinator,
+            eventId: i,
+            playedAt: DateTime(2026, 5, 30, 10).add(Duration(minutes: i)),
+          );
+        }
 
-      final first = await coordinator.drainOnce();
+        final first = await coordinator.drainOnce();
 
-      expect(first.claimed, 3, reason: '一次只在飞一批');
-      expect(backend.batches.single, hasLength(3));
-      // Oldest first, so a backlog is replayed in listening order.
-      expect(
-        backend.batches.single.map((entry) => entry.playedAt),
-        [
+        expect(first.claimed, 3, reason: '一次只在飞一批');
+        expect(backend.batches.single, hasLength(3));
+        // Oldest first, so a backlog is replayed in listening order.
+        expect(backend.batches.single.map((entry) => entry.playedAt), [
           DateTime(2026, 5, 30, 10),
           DateTime(2026, 5, 30, 10, 1),
           DateTime(2026, 5, 30, 10, 2),
-        ],
-      );
+        ]);
 
-      await coordinator.drainOnce();
+        await coordinator.drainOnce();
 
-      expect(backend.scrobbleCalls, 2);
-      expect(
-        await db.scrobbleQueueDao.countByStatus('lastfm', ScrobbleStatus.sent),
-        5,
-      );
-    });
+        expect(backend.scrobbleCalls, 2);
+        expect(
+          await db.scrobbleQueueDao.countByStatus(
+            'lastfm',
+            ScrobbleStatus.sent,
+          ),
+          5,
+        );
+      },
+    );
 
     test('a rate-limit answer delays the retry by the server hint', () async {
       final now = DateTime(2026, 5, 30, 12);
@@ -257,7 +260,10 @@ void main() {
         0,
       );
       expect(
-        await db.scrobbleQueueDao.countByStatus('lastfm', ScrobbleStatus.failed),
+        await db.scrobbleQueueDao.countByStatus(
+          'lastfm',
+          ScrobbleStatus.failed,
+        ),
         1,
       );
 
@@ -282,7 +288,10 @@ void main() {
 
       expect(outcome.retryable, 1);
       expect(
-        await db.scrobbleQueueDao.countByStatus('lastfm', ScrobbleStatus.failed),
+        await db.scrobbleQueueDao.countByStatus(
+          'lastfm',
+          ScrobbleStatus.failed,
+        ),
         1,
       );
       expect(
@@ -335,7 +344,10 @@ void main() {
         1,
       );
       expect(
-        await db.scrobbleQueueDao.countByStatus('lastfm', ScrobbleStatus.pending),
+        await db.scrobbleQueueDao.countByStatus(
+          'lastfm',
+          ScrobbleStatus.pending,
+        ),
         1,
       );
     });
@@ -389,28 +401,34 @@ void main() {
       // Transient state: it is not queued and its failure is not the user's
       // problem, so it must not reach the caller or the outbox.
       expect(
-        await db.scrobbleQueueDao.countByStatus('lastfm', ScrobbleStatus.pending),
+        await db.scrobbleQueueDao.countByStatus(
+          'lastfm',
+          ScrobbleStatus.pending,
+        ),
         0,
       );
       expect(coordinator.needsReauth, isFalse);
     });
 
-    test('now-playing is sent in play order metadata when configured', () async {
-      final backend = _FakeBackend();
-      final coordinator = coordinatorFor(backend);
+    test(
+      'now-playing is sent in play order metadata when configured',
+      () async {
+        final backend = _FakeBackend();
+        final coordinator = coordinatorFor(backend);
 
-      await coordinator.nowPlaying(
-        title: 'Karma Police',
-        artist: 'Radiohead',
-        album: 'OK Computer',
-        duration: const Duration(minutes: 4),
-      );
+        await coordinator.nowPlaying(
+          title: 'Karma Police',
+          artist: 'Radiohead',
+          album: 'OK Computer',
+          duration: const Duration(minutes: 4),
+        );
 
-      expect(backend.nowPlayingCalls.single.track, 'Karma Police');
-      expect(backend.nowPlayingCalls.single.artist, 'Radiohead');
-      expect(backend.nowPlayingCalls.single.album, 'OK Computer');
-      expect(backend.nowPlayingCalls.single.durationSeconds, 240);
-    });
+        expect(backend.nowPlayingCalls.single.track, 'Karma Police');
+        expect(backend.nowPlayingCalls.single.artist, 'Radiohead');
+        expect(backend.nowPlayingCalls.single.album, 'OK Computer');
+        expect(backend.nowPlayingCalls.single.durationSeconds, 240);
+      },
+    );
   });
 }
 

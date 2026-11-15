@@ -87,7 +87,8 @@ class LocalLibraryReconciler {
       // when there is nothing to compare against at all: a sidecar that was
       // deleted keeps the stored row, which is the pre-v3 behaviour and never
       // loses lyrics.
-      final stampMatches = hasStoredLyrics &&
+      final stampMatches =
+          hasStoredLyrics &&
           recordedMtime != null &&
           sidecarStamps.any(
             (stamp) =>
@@ -222,24 +223,26 @@ class LocalLibraryReconciler {
         );
       } else {
         reusedCount++;
-        entry = (knownEntry ??
-                LocalTrackEntry(
-                  path: file.path,
-                  mtime: file.mtime,
-                  size: file.size,
-                  scannedAt: scannedAt,
-                ))
-            .copyWith(
-              lyricsMtime: () => stampMtime,
-              lyricsSize: () => stampSize,
-            );
+        entry =
+            (knownEntry ??
+                    LocalTrackEntry(
+                      path: file.path,
+                      mtime: file.mtime,
+                      size: file.size,
+                      scannedAt: scannedAt,
+                    ))
+                .copyWith(
+                  lyricsMtime: () => stampMtime,
+                  lyricsSize: () => stampSize,
+                );
       }
       entries.add(entry);
 
       // Write only the rows whose *content* changed: a track that was already in
       // the index and whose lyric stamp did not move is left untouched instead
       // of being re-serialised on every scan.
-      final stampChanged = knownEntry == null ||
+      final stampChanged =
+          knownEntry == null ||
           knownEntry.lyricsMtime != entry.lyricsMtime ||
           knownEntry.lyricsSize != entry.lyricsSize;
       if (file.changed || stampChanged) {

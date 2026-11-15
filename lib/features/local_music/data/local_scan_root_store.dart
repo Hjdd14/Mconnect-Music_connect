@@ -22,7 +22,10 @@ abstract class LocalScanRootStore {
 /// wipe the library root, and degrades to "no root remembered" when Hive is not
 /// available (unit tests, desktop headless runs) rather than throwing.
 class HiveLocalScanRootStore implements LocalScanRootStore {
-  HiveLocalScanRootStore({this.boxName = 'local_music', this.key = 'scan_root'});
+  HiveLocalScanRootStore({
+    this.boxName = 'local_music',
+    this.key = 'scan_root',
+  });
 
   final String boxName;
   final String key;

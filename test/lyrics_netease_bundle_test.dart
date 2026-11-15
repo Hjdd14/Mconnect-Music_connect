@@ -24,7 +24,10 @@ void main() {
         },
       ),
     );
-    return (platform: NeteasePlatform(api: NeteaseApi(dio: dio)), requests: requests);
+    return (
+      platform: NeteasePlatform(api: NeteaseApi(dio: dio)),
+      requests: requests,
+    );
   }
 
   test('requests every lyric track the endpoint can return', () async {

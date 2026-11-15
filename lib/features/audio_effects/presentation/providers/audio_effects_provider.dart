@@ -337,7 +337,10 @@ class AudioEffectsSettingsNotifier extends StateNotifier<AudioEffectsSettings> {
     required Duration remaining,
   }) {
     final clamped = Duration(
-      seconds: remaining.inSeconds.clamp(0, const Duration(minutes: 120).inSeconds),
+      seconds: remaining.inSeconds.clamp(
+        0,
+        const Duration(minutes: 120).inSeconds,
+      ),
     );
     return _save(
       state.copyWith(sleepTimerEnabled: enabled, sleepTimerRemaining: clamped),

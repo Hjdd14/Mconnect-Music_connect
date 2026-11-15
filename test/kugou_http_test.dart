@@ -15,33 +15,39 @@ import 'package:mconnect/platform/kugou/kugou_api.dart';
 ///   * a WAF refusal (`HTTP 200` + `Access Deny ! No Actions !`) must become an
 ///     [ApiException], never an empty-but-successful payload.
 void main() {
-  test('createPlatformDio retries idempotent GET but never replays POST', () async {
-    final adapter = _RecordingAdapter();
-    final dio = createPlatformDio(label: '酷狗音乐', maxRetries: 1)
-      ..httpClientAdapter = adapter;
+  test(
+    'createPlatformDio retries idempotent GET but never replays POST',
+    () async {
+      final adapter = _RecordingAdapter();
+      final dio = createPlatformDio(label: '酷狗音乐', maxRetries: 1)
+        ..httpClientAdapter = adapter;
 
-    Object? getError;
-    try {
-      await dio.get<String>('http://example.test/rank/list');
-    } catch (e) {
-      getError = e;
-    }
-    expect(adapter.calls['GET'], 2, reason: '1 attempt + 1 retry');
-    expect(apiExceptionOf(getError!).statusCode, 503);
+      Object? getError;
+      try {
+        await dio.get<String>('http://example.test/rank/list');
+      } catch (e) {
+        getError = e;
+      }
+      expect(adapter.calls['GET'], 2, reason: '1 attempt + 1 retry');
+      expect(apiExceptionOf(getError!).statusCode, 503);
 
-    Object? postError;
-    try {
-      await dio.post<String>('http://example.test/song/collect', data: {'a': 1});
-    } catch (e) {
-      postError = e;
-    }
-    expect(
-      adapter.calls['POST'],
-      1,
-      reason: 'a failed write must not be replayed',
-    );
-    expect(apiExceptionOf(postError!), isA<ApiException>());
-  });
+      Object? postError;
+      try {
+        await dio.post<String>(
+          'http://example.test/song/collect',
+          data: {'a': 1},
+        );
+      } catch (e) {
+        postError = e;
+      }
+      expect(
+        adapter.calls['POST'],
+        1,
+        reason: 'a failed write must not be replayed',
+      );
+      expect(apiExceptionOf(postError!), isA<ApiException>());
+    },
+  );
 
   test('a WAF refusal is an ApiException, not an empty result', () async {
     final dio = Dio();
@@ -60,11 +66,7 @@ void main() {
     await expectLater(
       KugouApi(dio: dio).getToplists(),
       throwsA(
-        isA<ApiException>().having(
-          (e) => e.message,
-          'message',
-          '酷狗接口拒绝访问',
-        ),
+        isA<ApiException>().having((e) => e.message, 'message', '酷狗接口拒绝访问'),
       ),
     );
   });
@@ -123,7 +125,10 @@ void main() {
 
     expect(dio.options.sendTimeout, isNotNull);
     expect(dio.interceptors.whereType<IdempotentRetryGuard>(), hasLength(1));
-    expect(dio.interceptors.whereType<PlatformErrorInterceptor>(), hasLength(1));
+    expect(
+      dio.interceptors.whereType<PlatformErrorInterceptor>(),
+      hasLength(1),
+    );
   });
 }
 

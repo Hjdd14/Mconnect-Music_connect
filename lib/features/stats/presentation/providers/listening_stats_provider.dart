@@ -176,7 +176,8 @@ class ListeningPlaybackSnapshot {
 }
 
 /// Turns `PlayerState` transitions into play events.
-class ListeningStatsTracker {  ListeningStatsTracker({
+class ListeningStatsTracker {
+  ListeningStatsTracker({
     required this.notifier,
     this.flushInterval = const Duration(seconds: 10),
   });

@@ -316,6 +316,7 @@ class MconnectAudioHandler extends BaseAudioHandler
   List<Song>? _publishedPlaylist;
   Song? _publishedSong;
   int _publishedQueueIndex = -1;
+
   /// The raw `currentIndex` argument that produced the published structure.
   ///
   /// `_normalizeCurrentIndex` returns the caller's index only when it already
@@ -462,7 +463,9 @@ class MconnectAudioHandler extends BaseAudioHandler
     if (structural) {
       queue.add(buildPlaybackNotificationQueue(effectivePlaylist));
       mediaItem.add(
-        song == null ? null : createPlaybackMediaItem(song, duration: _duration),
+        song == null
+            ? null
+            : createPlaybackMediaItem(song, duration: _duration),
       );
       _publishedPlaylist = effectivePlaylist;
       _publishedSong = song;
@@ -480,7 +483,9 @@ class MconnectAudioHandler extends BaseAudioHandler
       // published (just_audio reports it asynchronously). Refresh the item and
       // nothing else — a duration tick must not rebuild the queue.
       mediaItem.add(
-        song == null ? null : createPlaybackMediaItem(song, duration: _duration),
+        song == null
+            ? null
+            : createPlaybackMediaItem(song, duration: _duration),
       );
       _publishedItemDuration = itemDuration;
     }
@@ -784,7 +789,7 @@ Uri? _parseOptionalUri(String? value) {
 class WindowsPlaybackNotificationController
     implements PlaybackNotificationController {
   WindowsPlaybackNotificationController({DesktopIntegrationService? service})
-      : _service = service ?? DesktopIntegrationService.instance;
+    : _service = service ?? DesktopIntegrationService.instance;
 
   /// Position deltas smaller than this do not re-publish the timeline. A seek
   /// backwards is always published, or the progress would run backwards on the
@@ -866,9 +871,7 @@ class WindowsPlaybackNotificationController
     required Duration duration,
   }) {
     final song = currentSong;
-    final songKey = song == null
-        ? ''
-        : '${song.platform.name}:${song.id}';
+    final songKey = song == null ? '' : '${song.platform.name}:${song.id}';
     final durationMs = duration.inMilliseconds;
     final positionMs = position.inMilliseconds;
     final songChanged = songKey != _publishedSongKey;
@@ -905,10 +908,7 @@ class WindowsPlaybackNotificationController
     if (songChanged || _shouldPublishTimeline(positionMs, position)) {
       _publishedPositionMs = positionMs;
       unawaited(
-        _service.setTimeline(
-          positionMs: positionMs,
-          durationMs: durationMs,
-        ),
+        _service.setTimeline(positionMs: positionMs, durationMs: durationMs),
       );
     }
 
@@ -968,7 +968,9 @@ class WindowsPlaybackNotificationController
         unawaited(actions.skipToPrevious());
       case "seek":
         final raw = event["positionMs"];
-        final positionMs = raw is int ? raw : int.tryParse(raw?.toString() ?? "");
+        final positionMs = raw is int
+            ? raw
+            : int.tryParse(raw?.toString() ?? "");
         if (positionMs != null) {
           unawaited(actions.seek(Duration(milliseconds: positionMs)));
         }

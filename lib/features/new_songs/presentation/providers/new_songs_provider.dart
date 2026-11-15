@@ -201,7 +201,8 @@ class _PlatformNewSongs {
   });
 }
 
-final newSongsProvider =
-    StateNotifierProvider<NewSongsNotifier, NewSongsState>((ref) {
-      return NewSongsNotifier();
-    });
+final newSongsProvider = StateNotifierProvider<NewSongsNotifier, NewSongsState>(
+  (ref) {
+    return NewSongsNotifier();
+  },
+);

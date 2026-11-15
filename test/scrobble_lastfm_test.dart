@@ -152,7 +152,10 @@ void main() {
     };
 
     test('matches the published algorithm on a real parameter set', () {
-      expect(lastFmApiSig(params, 'SECRET'), '67ddd48cac139cb9274762043f76e12b');
+      expect(
+        lastFmApiSig(params, 'SECRET'),
+        '67ddd48cac139cb9274762043f76e12b',
+      );
     });
 
     test('excludes format, callback and api_sig from the signature', () {
@@ -181,10 +184,11 @@ void main() {
         'artist[2]': 'A2',
         'artist[10]': 'A10',
       };
-      final sorted = batch.keys
-          .where((k) => k != 'format' && k != 'callback' && k != 'api_sig')
-          .toList()
-        ..sort();
+      final sorted =
+          batch.keys
+              .where((k) => k != 'format' && k != 'callback' && k != 'api_sig')
+              .toList()
+            ..sort();
       expect(sorted, [
         'api_key',
         'artist[0]',
@@ -275,13 +279,16 @@ void main() {
   group('LastFmCompatibleBackend', () {
     test('submits a batch as one signed form with array notation', () async {
       final env = _build(
-        body:
-            '{"scrobbles":{"@attr":{"accepted":"2","ignored":"0"}}}',
+        body: '{"scrobbles":{"@attr":{"accepted":"2","ignored":"0"}}}',
       );
 
       final result = await env.backend.scrobble([
         _entry(album: 'OK Computer', trackNumber: 8, durationSeconds: 264),
-        _entry(artist: 'Portishead', track: 'Roads', playedAtSeconds: 1718150500),
+        _entry(
+          artist: 'Portishead',
+          track: 'Roads',
+          playedAtSeconds: 1718150500,
+        ),
       ]);
 
       expect(env.adapter.requests, hasLength(1));
@@ -343,45 +350,50 @@ void main() {
       expect(env.adapter.requests, isEmpty);
     });
 
-    test('maps Last.fm error codes onto fatal, retryable and dropped', () async {
-      // 13: invalid method signature — our bug, retrying cannot help.
-      var env = _build(body: '{"error":13,"message":"Invalid method signature"}');
-      var result = await env.backend.scrobble([_entry()]);
-      expect(result.fatal, isTrue);
-      expect(result.retryable, isFalse);
-      expect(env.backend.lastError, contains('签名'));
+    test(
+      'maps Last.fm error codes onto fatal, retryable and dropped',
+      () async {
+        // 13: invalid method signature — our bug, retrying cannot help.
+        var env = _build(
+          body: '{"error":13,"message":"Invalid method signature"}',
+        );
+        var result = await env.backend.scrobble([_entry()]);
+        expect(result.fatal, isTrue);
+        expect(result.retryable, isFalse);
+        expect(env.backend.lastError, contains('签名'));
 
-      // 9: the user revoked or the session expired.
-      env = _build(body: '{"error":9,"message":"Invalid session key"}');
-      result = await env.backend.scrobble([_entry()]);
-      expect(result.fatal, isTrue);
-      expect(env.backend.lastError, contains('重新登录'));
+        // 9: the user revoked or the session expired.
+        env = _build(body: '{"error":9,"message":"Invalid session key"}');
+        result = await env.backend.scrobble([_entry()]);
+        expect(result.fatal, isTrue);
+        expect(env.backend.lastError, contains('重新登录'));
 
-      // 26: the application itself is suspended.
-      env = _build(body: '{"error":26}');
-      result = await env.backend.scrobble([_entry()]);
-      expect(result.fatal, isTrue);
+        // 26: the application itself is suspended.
+        env = _build(body: '{"error":26}');
+        result = await env.backend.scrobble([_entry()]);
+        expect(result.fatal, isTrue);
 
-      // 29: rate limited — retryable, and never sooner than the 30s floor.
-      env = _build(body: '{"error":29,"message":"Rate limit exceeded"}');
-      result = await env.backend.scrobble([_entry()]);
-      expect(result.retryable, isTrue);
-      expect(result.fatal, isFalse);
-      expect(result.retryAfter, kRateLimitFloor);
+        // 29: rate limited — retryable, and never sooner than the 30s floor.
+        env = _build(body: '{"error":29,"message":"Rate limit exceeded"}');
+        result = await env.backend.scrobble([_entry()]);
+        expect(result.retryable, isTrue);
+        expect(result.fatal, isFalse);
+        expect(result.retryAfter, kRateLimitFloor);
 
-      // 16: temporary outage — retryable on the outbox's own backoff.
-      env = _build(body: '{"error":16}');
-      result = await env.backend.scrobble([_entry()]);
-      expect(result.retryable, isTrue);
-      expect(result.retryAfter, isNull);
+        // 16: temporary outage — retryable on the outbox's own backoff.
+        env = _build(body: '{"error":16}');
+        result = await env.backend.scrobble([_entry()]);
+        expect(result.retryable, isTrue);
+        expect(result.retryAfter, isNull);
 
-      // 6: bad parameters — settle this entry instead of wedging the queue.
-      env = _build(body: '{"error":6}');
-      result = await env.backend.scrobble([_entry()]);
-      expect(result.retryable, isFalse);
-      expect(result.fatal, isFalse);
-      expect(result.ignored, 1);
-    });
+        // 6: bad parameters — settle this entry instead of wedging the queue.
+        env = _build(body: '{"error":6}');
+        result = await env.backend.scrobble([_entry()]);
+        expect(result.retryable, isFalse);
+        expect(result.fatal, isFalse);
+        expect(result.ignored, 1);
+      },
+    );
 
     test('reports HTTP 200 with ignored entries instead of success', () async {
       final env = _build(
@@ -405,7 +417,9 @@ void main() {
       final env = _build(
         statusCode: 429,
         body: '{}',
-        headers: {'retry-after': const ['45']},
+        headers: {
+          'retry-after': const ['45'],
+        },
       );
 
       final result = await env.backend.scrobble([_entry()]);

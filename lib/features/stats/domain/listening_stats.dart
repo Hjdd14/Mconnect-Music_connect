@@ -66,7 +66,8 @@ class ListeningStatsSongEntry {
     if (value is! Map) return null;
     final songId = value['songId']?.toString() ?? '';
     if (songId.isEmpty) return null;
-    final platform = PlatformType.tryParse(value['platform']?.toString()) ??
+    final platform =
+        PlatformType.tryParse(value['platform']?.toString()) ??
         PlatformType.netease;
     return ListeningStatsSongEntry(
       songId: songId,

@@ -215,26 +215,29 @@ void main() {
     );
   }
 
-  testWidgets('?section=accounts lands on the account rows, not the lyrics studio', (
+  testWidgets(
+    '?section=accounts lands on the account rows, not the lyrics studio',
+    (tester) async {
+      tester.view.physicalSize = const Size(1400, 1200);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final router = settingsRouter('/settings?section=accounts');
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(wrapRouter(router));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SettingsAccountsPage), findsOneWidget);
+      // The old page showed one 「打开账号管理」 card and pushed a second screen;
+      // the rows themselves are here now.
+      expect(find.text('打开账号管理'), findsNothing);
+      expect(find.byType(LyricsStudio), findsNothing);
+    },
+  );
+
+  testWidgets('settings without a section defaults to accounts', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(1400, 1200);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    final router = settingsRouter('/settings?section=accounts');
-    addTearDown(router.dispose);
-
-    await tester.pumpWidget(wrapRouter(router));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(SettingsAccountsPage), findsOneWidget);
-    // The old page showed one 「打开账号管理」 card and pushed a second screen;
-    // the rows themselves are here now.
-    expect(find.text('打开账号管理'), findsNothing);
-    expect(find.byType(LyricsStudio), findsNothing);
-  });
-
-  testWidgets('settings without a section defaults to accounts', (tester) async {
     tester.view.physicalSize = const Size(1400, 1200);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);

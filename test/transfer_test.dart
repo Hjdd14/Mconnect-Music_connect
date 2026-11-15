@@ -253,9 +253,7 @@ void main() {
     });
 
     test('导入：跳过空行与 # 注释行', () {
-      final doc = PlaylistTextCodec.decode(
-        '\n# 我的清单\n夜曲 - 周杰伦\n\n   \n',
-      )!;
+      final doc = PlaylistTextCodec.decode('\n# 我的清单\n夜曲 - 周杰伦\n\n   \n')!;
 
       expect(doc.entries, hasLength(1));
       expect(doc.entries.single.title, '夜曲');
@@ -330,9 +328,8 @@ void main() {
   group('格式探测', () {
     test('m3u8 / JSON / 纯文本各自命中', () {
       expect(
-        decodePlaylistTransfer(
-          M3u8Codec.encode(name: 'x', songs: _playlist),
-        )!.format,
+        decodePlaylistTransfer(M3u8Codec.encode(name: 'x', songs: _playlist))!
+            .format,
         PlaylistTransferFormat.m3u8,
       );
       expect(
@@ -364,10 +361,7 @@ void main() {
 
     test('深链预判：只有真像歌单的文本才被路由到导入页', () {
       expect(looksLikePlaylistTransfer('夜曲 - 周杰伦\n富士山下 - 陈奕迅'), isTrue);
-      expect(
-        looksLikePlaylistTransfer('#EXTM3U\n#EXTINF:1,A - B'),
-        isTrue,
-      );
+      expect(looksLikePlaylistTransfer('#EXTM3U\n#EXTINF:1,A - B'), isTrue);
       expect(
         looksLikePlaylistTransfer(
           '{"format":"${PlaylistJsonCodec.formatTag}"}',
@@ -452,17 +446,18 @@ void main() {
         ];
       });
 
-      final report = await TransferMatcher(
-        matcher: matcher,
-        sleep: (duration) async {},
-      ).match(
-        playlistName: 'p',
-        entries: const <TransferEntry>[
-          TransferEntry(title: '好'),
-          TransferEntry(title: '炸'),
-          TransferEntry(title: '也好'),
-        ],
-      );
+      final report =
+          await TransferMatcher(
+            matcher: matcher,
+            sleep: (duration) async {},
+          ).match(
+            playlistName: 'p',
+            entries: const <TransferEntry>[
+              TransferEntry(title: '好'),
+              TransferEntry(title: '炸'),
+              TransferEntry(title: '也好'),
+            ],
+          );
 
       expect(report.missingCount, 1);
       expect(report.missing.single.entry.title, '炸');
@@ -494,17 +489,18 @@ void main() {
         (entry) async => throw StateError('always fails'),
       );
 
-      final report = await TransferMatcher(
-        matcher: matcher,
-        baseBackoff: const Duration(milliseconds: 10),
-        maxAttempts: 3,
-        sleep: (duration) async {
-          sleeps.add(duration);
-        },
-      ).match(
-        playlistName: 'p',
-        entries: const <TransferEntry>[TransferEntry(title: 'a')],
-      );
+      final report =
+          await TransferMatcher(
+            matcher: matcher,
+            baseBackoff: const Duration(milliseconds: 10),
+            maxAttempts: 3,
+            sleep: (duration) async {
+              sleeps.add(duration);
+            },
+          ).match(
+            playlistName: 'p',
+            entries: const <TransferEntry>[TransferEntry(title: 'a')],
+          );
 
       expect(matcher.calls, 3);
       expect(sleeps, const <Duration>[
@@ -522,9 +518,8 @@ void main() {
         ],
       );
 
-      final report = await TransferMatcher(
-        matcher: matcher,
-      ).match(playlistName: 'p', entries: entries);
+      final report = await TransferMatcher(matcher: matcher)
+          .match(playlistName: 'p', entries: entries);
 
       expect(matcher.calls, 1);
       expect(report.exactCount, 1);
@@ -541,9 +536,8 @@ void main() {
         return const <SourceMatchCandidate>[];
       });
 
-      final report = await TransferMatcher(
-        matcher: matcher,
-      ).match(playlistName: 'p', entries: entries);
+      final report = await TransferMatcher(matcher: matcher)
+          .match(playlistName: 'p', entries: entries);
 
       expect(matcher.asked, <String>['周杰伦 - 夜曲', '夜曲 - 周杰伦']);
       expect(report.exactCount, 1);
@@ -551,18 +545,15 @@ void main() {
     });
 
     test('断点续传：已完成的行不重复请求', () async {
-      final entries = _entriesOf(
-        '夜曲 - 周杰伦\n富士山下 - 陈奕迅\n海阔天空 - Beyond',
-      );
+      final entries = _entriesOf('夜曲 - 周杰伦\n富士山下 - 陈奕迅\n海阔天空 - Beyond');
 
       final first = _FakeMatcher(
         (entry) async => const <SourceMatchCandidate>[
           SourceMatchCandidate(song: _zhou, confident: true),
         ],
       );
-      final partial = await TransferMatcher(
-        matcher: first,
-      ).match(playlistName: 'p', entries: entries);
+      final partial = await TransferMatcher(matcher: first)
+          .match(playlistName: 'p', entries: entries);
       expect(first.calls, 3);
 
       final second = _FakeMatcher(
@@ -609,7 +600,9 @@ void main() {
       final qq = FakeContentPlatform(
         type: PlatformType.qq,
         loggedIn: true,
-        searchPages: {1: const <Song>[_candidateLow, _candidateHigh]},
+        searchPages: {
+          1: const <Song>[_candidateLow, _candidateHigh],
+        },
       );
       final finder = SourceMatchCandidateFinder(
         // W1-A 的 `scoreCandidate` 就是这样以 tear-off 注入的；这里用替身，
@@ -636,7 +629,9 @@ void main() {
     test('未登录的平台一个请求都不发', () async {
       final qq = FakeContentPlatform(
         type: PlatformType.qq,
-        searchPages: {1: const <Song>[_candidateHigh]},
+        searchPages: {
+          1: const <Song>[_candidateHigh],
+        },
       );
       final finder = SourceMatchCandidateFinder(
         score: (identity, candidate) => 1.0,
@@ -660,7 +655,9 @@ void main() {
       final working = FakeContentPlatform(
         type: PlatformType.qq,
         loggedIn: true,
-        searchPages: {1: const <Song>[_candidateHigh]},
+        searchPages: {
+          1: const <Song>[_candidateHigh],
+        },
       );
       final finder = SourceMatchCandidateFinder(
         score: (identity, candidate) => 1.0,
@@ -679,7 +676,9 @@ void main() {
       final qq = FakeContentPlatform(
         type: PlatformType.qq,
         loggedIn: true,
-        searchPages: {1: const <Song>[_candidateHigh, _candidateLow]},
+        searchPages: {
+          1: const <Song>[_candidateHigh, _candidateLow],
+        },
       );
       final finder = SourceMatchCandidateFinder(
         score: (identity, candidate) => 0.0,
@@ -698,7 +697,9 @@ void main() {
       final qq = FakeContentPlatform(
         type: PlatformType.qq,
         loggedIn: true,
-        searchPages: {1: const <Song>[_candidateHigh, _candidateLow, _songD]},
+        searchPages: {
+          1: const <Song>[_candidateHigh, _candidateLow, _songD],
+        },
       );
       final finder = SourceMatchCandidateFinder(
         score: (identity, candidate) => 0.9,
@@ -803,9 +804,8 @@ void main() {
 
     test('空歌单导出后再导入得到空文档而不是崩', () {
       expect(
-        M3u8Codec.decode(
-          M3u8Codec.encode(name: 'x', songs: const <Song>[]),
-        )!.isEmpty,
+        M3u8Codec.decode(M3u8Codec.encode(name: 'x', songs: const <Song>[]))!
+            .isEmpty,
         isTrue,
       );
       expect(PlaylistTextCodec.encode(songs: const <Song>[]), '');
@@ -822,8 +822,9 @@ void main() {
 
 /// How a fake matcher answers for one entry. A typedef rather than an inline
 /// function type so the field declaration stays readable.
-typedef _MatchAnswer =
-    Future<List<SourceMatchCandidate>> Function(TransferEntry entry);
+typedef _MatchAnswer = Future<List<SourceMatchCandidate>> Function(
+  TransferEntry entry,
+);
 
 /// Drives matching from the test: answers per entry, and records how the runner
 /// called it (order, count, concurrency peak).

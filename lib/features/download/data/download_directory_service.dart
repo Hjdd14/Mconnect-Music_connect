@@ -205,8 +205,7 @@ class DownloadDirectoryGuard {
 
   Future<bool> exists(Directory directory) => directory.exists();
 
-  Future<void> create(Directory directory) =>
-      directory.create(recursive: true);
+  Future<void> create(Directory directory) => directory.create(recursive: true);
 
   /// True when the path is a directory (not a file that merely exists there).
   Future<bool> isDirectory(Directory directory) =>
@@ -382,9 +381,7 @@ class DownloadDirectoryService {
   Future<DownloadRootResult> applyCustomRootDirectory(String path) async {
     final trimmed = path.trim();
     if (trimmed.isEmpty) {
-      return const DownloadRootResult.failure(
-        DownloadRootRejection.blankPath,
-      );
+      return const DownloadRootResult.failure(DownloadRootRejection.blankPath);
     }
     final normalized = _validRootPathOrNull(trimmed);
     if (normalized == null) {
@@ -445,7 +442,8 @@ class DownloadDirectoryService {
   // --- SAF custom folder ------------------------------------------------------
 
   /// The folder the user granted through SAF, or null when none is configured.
-  Future<SafTreeSelection?> currentTreeSelection() => safWriter.currentSelection();
+  Future<SafTreeSelection?> currentTreeSelection() =>
+      safWriter.currentSelection();
 
   /// Whether downloads currently target a SAF folder (as opposed to a plain
   /// filesystem path).
@@ -513,7 +511,10 @@ class DownloadDirectoryService {
           DownloadRootRejection.cancelled,
         );
       }
-      return DownloadRootResult.success(selection.uri, displayName: selection.name);
+      return DownloadRootResult.success(
+        selection.uri,
+        displayName: selection.name,
+      );
     } on SafDownloadException catch (error) {
       return DownloadRootResult.failure(
         DownloadRootRejection.notWritable,
@@ -535,7 +536,6 @@ class DownloadDirectoryService {
 
   /// Opens the configured SAF folder in a file manager, if one accepts it.
   Future<bool> openSafDirectory() => safWriter.openDirectory();
-
 
   /// Whether the legacy `Permission.storage` request is both **needed** and
   /// **meaningful** for [target].

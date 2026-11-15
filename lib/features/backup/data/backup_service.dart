@@ -38,10 +38,8 @@ class BackupService {
       appVersion: appVersion,
       schemaVersion: store.schemaVersion,
     );
-    return const JsonEncoder.withIndent('  ').convert({
-      'manifest': manifest.toJson(),
-      ...data.toJson(),
-    });
+    return const JsonEncoder.withIndent('  ')
+        .convert({'manifest': manifest.toJson(), ...data.toJson()});
   }
 
   /// Writes the backup next to the app documents (or [directory] in tests).
@@ -107,7 +105,8 @@ class BackupService {
 }
 
 /// Public view of a decoded backup file.
-class BackupFileSummary {  final BackupManifest manifest;
+class BackupFileSummary {
+  final BackupManifest manifest;
   final int songCount;
   final int likeCount;
   final int playlistCount;

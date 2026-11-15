@@ -56,8 +56,7 @@ class _Style extends UiStyleNotifier {
 /// full-viewport canvas a stale viewport could hide inside the numbers; with this
 /// one the vertical offset differs by the inset, so a broken pinning cannot pass.
 class _Bg extends AppBackgroundSettingsNotifier {
-  _Bg({String? path})
-    : super() {
+  _Bg({String? path}) : super() {
     state = AppBackgroundSettings(
       imagePath: path,
       imageWidth: path == null ? 0 : 800,

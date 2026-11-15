@@ -30,7 +30,12 @@ abstract class LocalLyricsStore {
   /// `songId -> stored format` (`lrc` / `qrc` / `krc`), for diagnostics/tests.
   Future<Map<String, String>> loadAllWithFormat();
 
-  Future<void> save(String songId, String content, String format, {int? syncedAt});
+  Future<void> save(
+    String songId,
+    String content,
+    String format, {
+    int? syncedAt,
+  });
 
   Future<void> removePaths(Iterable<String> songIds);
 
@@ -92,27 +97,26 @@ class DriftLocalLyricsStore extends LocalLyricsStore {
         i,
         i + chunkSize > list.length ? list.length : i + chunkSize,
       );
-      await (_db.delete(_db.lyricsCache)
-            ..where(
-              (t) =>
-                  t.platform.equals(LocalLyricsStore.platform) &
-                  t.songId.isIn(chunk),
-            ))
+      await (_db.delete(_db.lyricsCache)..where(
+            (t) =>
+                t.platform.equals(LocalLyricsStore.platform) &
+                t.songId.isIn(chunk),
+          ))
           .go();
     }
   }
 
   @override
   Future<void> clear() async {
-    await (_db.delete(_db.lyricsCache)
-          ..where((t) => t.platform.equals(LocalLyricsStore.platform)))
-        .go();
+    await (_db.delete(
+      _db.lyricsCache,
+    )..where((t) => t.platform.equals(LocalLyricsStore.platform))).go();
   }
 
   Future<List<LyricsCacheData>> _localRows() {
-    return (_db.select(_db.lyricsCache)
-          ..where((t) => t.platform.equals(LocalLyricsStore.platform)))
-        .get();
+    return (_db.select(
+      _db.lyricsCache,
+    )..where((t) => t.platform.equals(LocalLyricsStore.platform))).get();
   }
 }
 

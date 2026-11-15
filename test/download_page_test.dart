@@ -333,10 +333,7 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(
-      find.text('已删除这条记录，但文件仍被另一条记录使用，已保留'),
-      findsOneWidget,
-    );
+    expect(find.text('已删除这条记录，但文件仍被另一条记录使用，已保留'), findsOneWidget);
     expect(find.byType(SnackBar), findsOneWidget);
 
     // Acknowledgement is observable: the one-shot flag is back to null, which is
@@ -507,7 +504,9 @@ void main() {
     expect(tile.enabled, isTrue);
   });
 
-  testWidgets('a picker that throws is reported, not swallowed', (tester) async {
+  testWidgets('a picker that throws is reported, not swallowed', (
+    tester,
+  ) async {
     final store = _MemoryDownloadDirectoryStore();
     final manager = DownloadManager(
       directoryService: _directoryService(store: store),
@@ -699,12 +698,12 @@ class _DeleteOkDownloadManager extends DownloadManager {
   int deleteCalls = 0;
 
   _DeleteOkDownloadManager()
-      : super(
-          directoryService: DownloadDirectoryService(
-            store: _MemoryDownloadDirectoryStore(),
-            defaultRootProvider: () async => throw UnimplementedError(),
-          ),
-        );
+    : super(
+        directoryService: DownloadDirectoryService(
+          store: _MemoryDownloadDirectoryStore(),
+          defaultRootProvider: () async => throw UnimplementedError(),
+        ),
+      );
 
   @override
   Future<bool> deleteDownloadedFile(DownloadTask task) async {

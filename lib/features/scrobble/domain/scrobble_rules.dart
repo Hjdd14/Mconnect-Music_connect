@@ -55,10 +55,11 @@ const Duration kRateLimitFloor = Duration(seconds: 30);
 ///    (Dart's `String.compareTo` compares code units, which is exactly what the
 ///    server re-computes — do not "fix" the order).
 String lastFmApiSig(Map<String, String> params, String sharedSecret) {
-  final keys = params.keys
-      .where((k) => k != 'format' && k != 'callback' && k != 'api_sig')
-      .toList()
-    ..sort();
+  final keys =
+      params.keys
+          .where((k) => k != 'format' && k != 'callback' && k != 'api_sig')
+          .toList()
+        ..sort();
   final buffer = StringBuffer();
   for (final key in keys) {
     buffer.write(key);
@@ -136,5 +137,4 @@ String lastFmErrorMessage(int code) => switch (code) {
 };
 
 /// Server-requested wait for [code], or null to use the outbox's own backoff.
-Duration? lastFmRetryAfter(int code) =>
-    code == 29 ? kRateLimitFloor : null;
+Duration? lastFmRetryAfter(int code) => code == 29 ? kRateLimitFloor : null;

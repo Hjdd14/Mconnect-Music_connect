@@ -33,19 +33,21 @@ void main() {
     defaultRootProvider: () async => Directory(tempDir.path),
   );
 
-  test('a path that cannot be created is rejected without throwing (P0)',
-      () async {
-    // `Directory.create(recursive: true)` cannot build a directory under a file.
-    final blocker = File(p.join(tempDir.path, 'not_a_directory'));
-    await blocker.writeAsString('x');
+  test(
+    'a path that cannot be created is rejected without throwing (P0)',
+    () async {
+      // `Directory.create(recursive: true)` cannot build a directory under a file.
+      final blocker = File(p.join(tempDir.path, 'not_a_directory'));
+      await blocker.writeAsString('x');
 
-    await expectLater(
-      service().setCustomRootDirectory(p.join(blocker.path, 'sub')),
-      completion(isFalse),
-      reason: 'the service must report the failure, never throw it',
-    );
-    expect(store.customRootPath, isNull);
-  });
+      await expectLater(
+        service().setCustomRootDirectory(p.join(blocker.path, 'sub')),
+        completion(isFalse),
+        reason: 'the service must report the failure, never throw it',
+      );
+      expect(store.customRootPath, isNull);
+    },
+  );
 
   test('nothing is persisted when the directory is rejected', () async {
     final blocker = File(p.join(tempDir.path, 'blocker'));

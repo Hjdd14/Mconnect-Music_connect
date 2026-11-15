@@ -250,103 +250,118 @@ void main() {
   // Constraint 2: a revoked grant fails BEFORE the transfer, with an actionable
   // reason — and never quietly writes into another folder.
   // ---------------------------------------------------------------------------
-  test('permissionLost: fails before any network request, and writes nowhere', () async {
-    final service = serviceWith(selection: selection());
-    tree.granted = false;
-    final manager = managerWith(service);
-    platform.urlRequests = 0;
+  test(
+    'permissionLost: fails before any network request, and writes nowhere',
+    () async {
+      final service = serviceWith(selection: selection());
+      tree.granted = false;
+      final manager = managerWith(service);
+      platform.urlRequests = 0;
 
-    final events = await run(manager, task());
-    final terminal = events.last;
+      final events = await run(manager, task());
+      final terminal = events.last;
 
-    expect(terminal.completed, isFalse);
-    final failure = terminal.failure;
-    expect(failure, isNotNull);
-    expect(failure!.kind, DownloadFailureKind.storagePermission);
-    expect(failure.message, contains('重新选择目录'));
+      expect(terminal.completed, isFalse);
+      final failure = terminal.failure;
+      expect(failure, isNotNull);
+      expect(failure!.kind, DownloadFailureKind.storagePermission);
+      expect(failure.message, contains('重新选择目录'));
 
-    expect(platform.urlRequests, 0, reason: '权限失效必须在取流地址之前就失败');
-    expect(adapter.requests, isEmpty, reason: '不得发起任何 HTTP 请求');
-    expect(tree.copyCalls, isEmpty);
+      expect(platform.urlRequests, 0, reason: '权限失效必须在取流地址之前就失败');
+      expect(adapter.requests, isEmpty, reason: '不得发起任何 HTTP 请求');
+      expect(tree.copyCalls, isEmpty);
 
-    // Nothing may have been written into the default directory instead.
-    final defaultDir = Directory(
-      p.join(tempDir.path, 'downloads', 'netease', 'mp3'),
-    );
-    expect(
-      defaultDir.existsSync() && defaultDir.listSync().isNotEmpty,
-      isFalse,
-      reason: '禁止静默回退到默认目录',
-    );
-    expect(stagingDir.existsSync() && stagingDir.listSync().isNotEmpty, isFalse);
-  });
+      // Nothing may have been written into the default directory instead.
+      final defaultDir = Directory(
+        p.join(tempDir.path, 'downloads', 'netease', 'mp3'),
+      );
+      expect(
+        defaultDir.existsSync() && defaultDir.listSync().isNotEmpty,
+        isFalse,
+        reason: '禁止静默回退到默认目录',
+      );
+      expect(
+        stagingDir.existsSync() && stagingDir.listSync().isNotEmpty,
+        isFalse,
+      );
+    },
+  );
 
   // ---------------------------------------------------------------------------
   // Constraint 3: the completed task records what the provider actually created,
   // not the name the app asked for.
   // ---------------------------------------------------------------------------
-  test('ready: the bytes are staged, then published under the provider identity', () async {
-    final service = serviceWith(selection: selection());
-    tree.displayName = 'Artist - Song (1).mp3';
-    tree.documentUriOverride = '$_treeUri/document/renamed-id';
-    final manager = managerWith(service);
+  test(
+    'ready: the bytes are staged, then published under the provider identity',
+    () async {
+      final service = serviceWith(selection: selection());
+      tree.displayName = 'Artist - Song (1).mp3';
+      tree.documentUriOverride = '$_treeUri/document/renamed-id';
+      final manager = managerWith(service);
 
-    final events = await run(manager, task());
-    final completed = events.last;
+      final events = await run(manager, task());
+      final completed = events.last;
 
-    expect(completed.completed, isTrue);
-    // The persisted identity is the document URI, not a filesystem path: only it
-    // can be deleted or revealed later.
-    expect(completed.filePath, '$_treeUri/document/renamed-id');
-    expect(completed.downloadedBytes, body.length);
+      expect(completed.completed, isTrue);
+      // The persisted identity is the document URI, not a filesystem path: only it
+      // can be deleted or revealed later.
+      expect(completed.filePath, '$_treeUri/document/renamed-id');
+      expect(completed.downloadedBytes, body.length);
 
-    expect(tree.copyCalls, hasLength(1));
-    expect(tree.copyCalls.single['treeUri'], _treeUri);
-    expect(tree.copyCalls.single['relativePath'], 'netease/mp3');
-    expect(tree.copyCalls.single['fileName'], task().fileName);
-    // The transfer happened in staging, and the staged copy was removed only
-    // after the publish succeeded.
-    expect(
-      p.normalize(tree.copyCalls.single['sourcePath']! as String),
-      p.normalize(p.join(stagingDir.path, task().fileName)),
-    );
-    expect(
-      File(p.join(stagingDir.path, task().fileName)).existsSync(),
-      isFalse,
-      reason: '发布成功后必须删掉 staging 临时文件',
-    );
-    // The default directory was not used at all.
-    expect(Directory(p.join(tempDir.path, 'downloads')).existsSync(), isFalse);
-  });
+      expect(tree.copyCalls, hasLength(1));
+      expect(tree.copyCalls.single['treeUri'], _treeUri);
+      expect(tree.copyCalls.single['relativePath'], 'netease/mp3');
+      expect(tree.copyCalls.single['fileName'], task().fileName);
+      // The transfer happened in staging, and the staged copy was removed only
+      // after the publish succeeded.
+      expect(
+        p.normalize(tree.copyCalls.single['sourcePath']! as String),
+        p.normalize(p.join(stagingDir.path, task().fileName)),
+      );
+      expect(
+        File(p.join(stagingDir.path, task().fileName)).existsSync(),
+        isFalse,
+        reason: '发布成功后必须删掉 staging 临时文件',
+      );
+      // The default directory was not used at all.
+      expect(
+        Directory(p.join(tempDir.path, 'downloads')).existsSync(),
+        isFalse,
+      );
+    },
+  );
 
   // ---------------------------------------------------------------------------
   // Constraint 6: a failed publish keeps the staged bytes so a retry resumes
   // instead of re-downloading.
   // ---------------------------------------------------------------------------
-  test('a failed publish keeps the staging file and classifies the failure', () async {
-    final service = serviceWith(selection: selection());
-    tree.copyError = const SafDocumentTreeException(
-      SafErrorCodes.sizeMismatch,
-      '写入自定义目录的字节数不符',
-    );
-    final manager = managerWith(service);
+  test(
+    'a failed publish keeps the staging file and classifies the failure',
+    () async {
+      final service = serviceWith(selection: selection());
+      tree.copyError = const SafDocumentTreeException(
+        SafErrorCodes.sizeMismatch,
+        '写入自定义目录的字节数不符',
+      );
+      final manager = managerWith(service);
 
-    final events = await run(manager, task());
-    final terminal = events.last;
+      final events = await run(manager, task());
+      final terminal = events.last;
 
-    final failure = terminal.failure;
-    expect(failure, isNotNull);
-    expect(failure!.kind, DownloadFailureKind.disk);
-    expect(failure.isRetryable, isTrue);
-    // The failure points at the staging file, which is what a retry resumes.
-    expect(
-      p.normalize(terminal.filePath!),
-      p.normalize(p.join(stagingDir.path, task().fileName)),
-    );
-    final staged = File(p.join(stagingDir.path, task().fileName));
-    expect(staged.existsSync(), isTrue, reason: '发布失败必须保留临时文件');
-    expect(await staged.length(), body.length);
-  });
+      final failure = terminal.failure;
+      expect(failure, isNotNull);
+      expect(failure!.kind, DownloadFailureKind.disk);
+      expect(failure.isRetryable, isTrue);
+      // The failure points at the staging file, which is what a retry resumes.
+      expect(
+        p.normalize(terminal.filePath!),
+        p.normalize(p.join(stagingDir.path, task().fileName)),
+      );
+      final staged = File(p.join(stagingDir.path, task().fileName));
+      expect(staged.existsSync(), isTrue, reason: '发布失败必须保留临时文件');
+      expect(await staged.length(), body.length);
+    },
+  );
 
   test('a resumed SAF download continues from the staged bytes', () async {
     final service = serviceWith(selection: selection());
@@ -356,9 +371,8 @@ void main() {
     // to trust (W0-C).
     final resumable = task().copyWith(downloadedBytes: 1024);
     Directory(stagingDir.path).createSync(recursive: true);
-    await File(
-      p.join(stagingDir.path, resumable.fileName),
-    ).writeAsBytes(body.sublist(0, 1024));
+    await File(p.join(stagingDir.path, resumable.fileName))
+        .writeAsBytes(body.sublist(0, 1024));
 
     final events = await run(manager, resumable);
 
@@ -384,32 +398,39 @@ void main() {
     expect(tree.deletedUris, ['$_treeUri/document/song-id']);
   });
 
-  test('deleteDownloadedFile still deletes a plain path with the filesystem', () async {
-    final manager = managerWith(serviceWith());
-    final file = File(p.join(tempDir.path, 'plain.mp3'));
-    await file.writeAsBytes(body);
-    final downloadTask = task().copyWith(filePath: () => file.path);
+  test(
+    'deleteDownloadedFile still deletes a plain path with the filesystem',
+    () async {
+      final manager = managerWith(serviceWith());
+      final file = File(p.join(tempDir.path, 'plain.mp3'));
+      await file.writeAsBytes(body);
+      final downloadTask = task().copyWith(filePath: () => file.path);
 
-    expect(await manager.deleteDownloadedFile(downloadTask), isTrue);
-    expect(file.existsSync(), isFalse);
-    expect(tree.deletedUris, isEmpty);
-  });
+      expect(await manager.deleteDownloadedFile(downloadTask), isTrue);
+      expect(file.existsSync(), isFalse);
+      expect(tree.deletedUris, isEmpty);
+    },
+  );
 
-  test('a refused SAF delete is reported as a failure, not as success', () async {
-    final manager = managerWith(serviceWith());
-    tree.deleteResult = false;
-    final downloadTask = task().copyWith(filePath: () => '$_treeUri/document/x');
+  test(
+    'a refused SAF delete is reported as a failure, not as success',
+    () async {
+      final manager = managerWith(serviceWith());
+      tree.deleteResult = false;
+      final downloadTask = task().copyWith(
+        filePath: () => '$_treeUri/document/x',
+      );
 
-    expect(await manager.deleteDownloadedFile(downloadTask), isFalse);
-  });
+      expect(await manager.deleteDownloadedFile(downloadTask), isFalse);
+    },
+  );
 
   test('partialBytesOf reports the staged bytes of a SAF task', () async {
     final service = serviceWith(selection: selection());
     final manager = managerWith(service);
     Directory(stagingDir.path).createSync(recursive: true);
-    await File(
-      p.join(stagingDir.path, task().fileName),
-    ).writeAsBytes(body.sublist(0, 700));
+    await File(p.join(stagingDir.path, task().fileName))
+        .writeAsBytes(body.sublist(0, 700));
 
     expect(await manager.partialBytesOf(task()), 700);
 
@@ -435,11 +456,7 @@ void main() {
     // `discardPartialFile` is the "user cancelled / clean up" path: it must
     // touch only the staging file, never the document in the user's folder.
     await manager.discardPartialFile(completed);
-    expect(
-      tree.deletedUris,
-      isEmpty,
-      reason: '清理部分文件不得删除用户目录里已发布的文件',
-    );
+    expect(tree.deletedUris, isEmpty, reason: '清理部分文件不得删除用户目录里已发布的文件');
 
     // The real delete goes through SAF, and a refusal is reported (so the UI
     // cannot claim "deleted" while the file is still there).
@@ -470,20 +487,23 @@ void main() {
       );
     });
 
-    test('is a staging target with the tree sub-path when SAF is ready', () async {
-      final service = serviceWith(selection: selection());
+    test(
+      'is a staging target with the tree sub-path when SAF is ready',
+      () async {
+        final service = serviceWith(selection: selection());
 
-      final destination = await service.resolveDownloadDestination(
-        PlatformType.qq,
-        AudioLevel.lossless,
-      );
+        final destination = await service.resolveDownloadDestination(
+          PlatformType.qq,
+          AudioLevel.lossless,
+        );
 
-      expect(destination, isA<SafDownloadDestination>());
-      final saf = destination as SafDownloadDestination;
-      expect(saf.stagingDirectory.path, stagingDir.path);
-      expect(saf.relativePath, 'qq/flac');
-      expect(saf.treeName, 'Music');
-    });
+        expect(destination, isA<SafDownloadDestination>());
+        final saf = destination as SafDownloadDestination;
+        expect(saf.stagingDirectory.path, stagingDir.path);
+        expect(saf.relativePath, 'qq/flac');
+        expect(saf.treeName, 'Music');
+      },
+    );
 
     test('is unusable (never a fallback) when the grant is gone', () async {
       final service = serviceWith(selection: selection());
@@ -557,7 +577,9 @@ void main() {
   // Constraint 5: "open download folder" for a SAF target.
   // ---------------------------------------------------------------------------
   group('download page open-folder', () {
-    const fileOpenerChannel = MethodChannel('com.mconnect.mconnect/file_opener');
+    const fileOpenerChannel = MethodChannel(
+      'com.mconnect.mconnect/file_opener',
+    );
     final fileOpenerCalls = <MethodCall>[];
 
     setUp(() {
@@ -620,22 +642,23 @@ void main() {
       );
     });
 
-    testWidgets('when no app can open the tree the user is told, not left in silence', (
-      tester,
-    ) async {
-      final service = serviceWith(selection: selection());
-      tree.openResult = false;
-      final completed = task().copyWith(
-        status: DownloadStatus.completed,
-        filePath: () => '$_treeUri/document/song-id',
-      );
+    testWidgets(
+      'when no app can open the tree the user is told, not left in silence',
+      (tester) async {
+        final service = serviceWith(selection: selection());
+        tree.openResult = false;
+        final completed = task().copyWith(
+          status: DownloadStatus.completed,
+          filePath: () => '$_treeUri/document/song-id',
+        );
 
-      await pumpCompletedTask(tester, service, completed);
-      await tester.tap(find.byIcon(Icons.folder_open));
-      await tester.pumpAndSettle();
+        await pumpCompletedTask(tester, service, completed);
+        await tester.tap(find.byIcon(Icons.folder_open));
+        await tester.pumpAndSettle();
 
-      expect(find.textContaining('没有可以打开该目录的应用'), findsOneWidget);
-    });
+        expect(find.textContaining('没有可以打开该目录的应用'), findsOneWidget);
+      },
+    );
 
     testWidgets('a plain path keeps using FileOpener', (tester) async {
       final service = serviceWith();

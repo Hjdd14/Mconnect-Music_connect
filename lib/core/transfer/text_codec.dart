@@ -20,9 +20,7 @@ abstract final class PlaylistTextCodec {
       // A song with no title has nothing to write and nothing to match on.
       if (title.isEmpty) continue;
       final artists = song.artistNames.trim();
-      lines.add(
-        artists.isEmpty ? title : '$title$transferSeparator$artists',
-      );
+      lines.add(artists.isEmpty ? title : '$title$transferSeparator$artists');
     }
     return lines.join('\n');
   }

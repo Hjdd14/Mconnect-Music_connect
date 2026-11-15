@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
-typedef ScrollableControllerBuilder =
-    Widget Function(ScrollController controller);
+typedef ScrollableControllerBuilder = Widget Function(
+  ScrollController controller,
+);
 
 class AppScrollbar extends StatefulWidget {
   final ScrollableControllerBuilder builder;

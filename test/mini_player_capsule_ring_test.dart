@@ -27,10 +27,7 @@ class _Player extends PlayerNotifier {
     Duration position = Duration.zero,
     Duration duration = const Duration(seconds: 200),
     bool playing = false,
-  }) : super(
-         audioController: _Idle(),
-         audioControllerFactory: _Idle.new,
-       ) {
+  }) : super(audioController: _Idle(), audioControllerFactory: _Idle.new) {
     state = state.copyWith(
       currentSong: _song,
       playlist: const [_song],
@@ -94,17 +91,13 @@ void main() {
       overrides: [
         uiStyleProvider.overrideWith((ref) => _UiStyle()),
         playerProvider.overrideWith(
-          (ref) =>
-              player ?? _Player(position: position, duration: duration),
+          (ref) => player ?? _Player(position: position, duration: duration),
         ),
       ],
       child: MaterialApp(
         home: Scaffold(
           body: Center(
-            child: SizedBox(
-              width: 360,
-              child: MiniPlayerBar(floating: true),
-            ),
+            child: SizedBox(width: 360, child: MiniPlayerBar(floating: true)),
           ),
         ),
       ),
@@ -155,7 +148,10 @@ void main() {
         CapsuleProgressGeometry.perimeterFor(width, height),
         closeTo(expected, 0.001),
       );
-      expect(CapsuleProgressGeometry.perimeterFor(width, height), closeTo(454.8, 1.0));
+      expect(
+        CapsuleProgressGeometry.perimeterFor(width, height),
+        closeTo(454.8, 1.0),
+      );
     });
 
     testWidgets('the start offset lands on the top centre of the real path', (
@@ -224,14 +220,15 @@ void main() {
       expect((painter as dynamic).progress, closeTo(0.25, 0.02));
     });
 
-    testWidgets('a zero duration draws no progress instead of dividing by zero', (
-      tester,
-    ) async {
-      await tester.pumpWidget(host(duration: Duration.zero));
-      await tester.pump();
+    testWidgets(
+      'a zero duration draws no progress instead of dividing by zero',
+      (tester) async {
+        await tester.pumpWidget(host(duration: Duration.zero));
+        await tester.pump();
 
-      expect((ringPainter(tester) as dynamic).progress, 0.0);
-    });
+        expect((ringPainter(tester) as dynamic).progress, 0.0);
+      },
+    );
 
     testWidgets('progress past the end is clamped', (tester) async {
       await tester.pumpWidget(

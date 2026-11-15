@@ -71,7 +71,9 @@ Uint8List buildFlacFixture({
     commentBytes.add(entry);
   });
   final comment = commentBytes.takeBytes();
-  blocks.add(_blockHeader(type: 4, length: comment.length, isLast: !hasPicture));
+  blocks.add(
+    _blockHeader(type: 4, length: comment.length, isLast: !hasPicture),
+  );
   blocks.add(comment);
 
   // --- PICTURE (block type 6), last ---
@@ -89,7 +91,9 @@ Uint8List buildFlacFixture({
     picture.add(_uint32(coverBytes.length));
     picture.add(coverBytes);
     final pictureBytes = picture.takeBytes();
-    blocks.add(_blockHeader(type: 6, length: pictureBytes.length, isLast: true));
+    blocks.add(
+      _blockHeader(type: 6, length: pictureBytes.length, isLast: true),
+    );
     blocks.add(pictureBytes);
   }
 
@@ -160,24 +164,17 @@ class CountingMetadataReader implements LocalMetadataReader {
 
 /// Deterministic lyrics payload "encrypted" with the KRC container, so the
 /// decoder can be checked against a known plaintext.
-String krcFixture({
-  int lines = 3,
-  String textPrefix = '词',
-}) {
+String krcFixture({int lines = 3, String textPrefix = '词'}) {
   final buffer = StringBuffer();
   for (var i = 0; i < lines; i++) {
     final start = 1000 * (i + 1);
-    buffer.write(
-      '[$start,400]<0,200,0>$textPrefix$i<200,200,0>第二段\n',
-    );
+    buffer.write('[$start,400]<0,200,0>$textPrefix$i<200,200,0>第二段\n');
   }
   return buffer.toString();
 }
 
-Uint8List _uint16(int value) => Uint8List.fromList([
-  (value >> 8) & 0xFF,
-  value & 0xFF,
-]);
+Uint8List _uint16(int value) =>
+    Uint8List.fromList([(value >> 8) & 0xFF, value & 0xFF]);
 
 Uint8List _uint24(int value) => Uint8List.fromList([
   (value >> 16) & 0xFF,

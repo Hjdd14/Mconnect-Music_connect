@@ -1,10 +1,14 @@
 import 'dart:async';
 import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:mconnect/core/theme/app_colors.dart';
+
 import '../../../../core/theme/platform_accent.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+
 import '../../../../models/platform_type.dart';
 import '../../../../platform/base/music_platform.dart';
 import '../providers/auth_provider.dart';

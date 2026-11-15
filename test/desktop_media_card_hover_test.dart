@@ -26,11 +26,7 @@ void main() {
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(vertical: 6),
               children: const [
-                DesktopMediaCard(
-                  title: '一首歌',
-                  subtitle: '歌手',
-                  width: 164,
-                ),
+                DesktopMediaCard(title: '一首歌', subtitle: '歌手', width: 164),
               ],
             ),
           ),
@@ -61,7 +57,10 @@ void main() {
 
     // At rest the cover already sits exactly one lift below the card's top
     // edge: that reserved band is what the hover animation spends.
-    expect(coverBefore.top, closeTo(cardBefore.top + DesktopMediaCard.hoverLift, 0.01));
+    expect(
+      coverBefore.top,
+      closeTo(cardBefore.top + DesktopMediaCard.hoverLift, 0.01),
+    );
     expect(coverBefore.height, cardBefore.width);
 
     final titleBefore = tester.getTopLeft(find.text('一首歌'));

@@ -52,10 +52,8 @@ final smartPlaylistsProvider =
     });
 
 class SmartPlaylistsNotifier extends StateNotifier<SmartPlaylistsState> {
-  SmartPlaylistsNotifier({
-    required this.repository,
-    this.snapshotRepository,
-  }) : super(const SmartPlaylistsState(isLoading: true)) {
+  SmartPlaylistsNotifier({required this.repository, this.snapshotRepository})
+    : super(const SmartPlaylistsState(isLoading: true)) {
     ready = load();
   }
 
@@ -167,7 +165,10 @@ class SmartPlaylistsNotifier extends StateNotifier<SmartPlaylistsState> {
   /// Returns the saved record, or null when the snapshot repository is not
   /// configured or saving failed (the failure is surfaced in [state.error]
   /// instead of being swallowed, which was the old behaviour for every save).
-  Future<SavedSmartPlaylist?> saveSnapshot(String ruleId, List<Song> songs) async {
+  Future<SavedSmartPlaylist?> saveSnapshot(
+    String ruleId,
+    List<Song> songs,
+  ) async {
     final repository = snapshotRepository;
     if (repository == null) return null;
     state = state.copyWith(isSaving: true, error: () => null);
@@ -208,10 +209,9 @@ class SmartPlaylistsNotifier extends StateNotifier<SmartPlaylistsState> {
         debugPrint('SmartPlaylistsNotifier snapshot prune failed: $e');
       }
       if (mounted) {
-        final snapshots = Map<String, SavedSmartPlaylist>.from(state.snapshots)
-          ..removeWhere(
-            (ruleId, _) => !sorted.any((rule) => rule.id == ruleId),
-          );
+        final snapshots = Map<String, SavedSmartPlaylist>.from(
+          state.snapshots,
+        )..removeWhere((ruleId, _) => !sorted.any((rule) => rule.id == ruleId));
         state = state.copyWith(
           rules: sorted,
           snapshots: snapshots,

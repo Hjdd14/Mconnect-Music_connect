@@ -134,22 +134,25 @@ void main() {
   });
 
   group('desktop behaviour commands (protocol §4.3)', () {
-    test('close behaviour carries every switch, including window memory', () async {
-      await service.setCloseBehavior(
-        minimizeToTray: true,
-        firstRunHint: false,
-        rememberWindowState: false,
-      );
+    test(
+      'close behaviour carries every switch, including window memory',
+      () async {
+        await service.setCloseBehavior(
+          minimizeToTray: true,
+          firstRunHint: false,
+          rememberWindowState: false,
+        );
 
-      expect(calls.single.method, 'setCloseBehavior');
-      expect(calls.single.arguments, {
-        'minimizeToTray': true,
-        'firstRunHint': false,
-        // The runner owns the save points, so the remember switch has to
-        // travel with the close behaviour instead of staying Dart-only.
-        'rememberWindowState': false,
-      });
-    });
+        expect(calls.single.method, 'setCloseBehavior');
+        expect(calls.single.arguments, {
+          'minimizeToTray': true,
+          'firstRunHint': false,
+          // The runner owns the save points, so the remember switch has to
+          // travel with the close behaviour instead of staying Dart-only.
+          'rememberWindowState': false,
+        });
+      },
+    );
 
     test('hotkeys ship the enabled flag and both chords', () async {
       await service.setHotkeys(

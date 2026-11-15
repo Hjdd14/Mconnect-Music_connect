@@ -57,11 +57,9 @@ enum ScrobbleService {
   /// Whether the credential fields are the Last.fm-family trio (api key, api
   /// secret, session key) rather than a single token. Derived from [transport] so
   /// a new service only has to declare its transport.
-  bool get usesApiKey =>
-      transport == ScrobbleTransport.lastFmCompatible;
+  bool get usesApiKey => transport == ScrobbleTransport.lastFmCompatible;
 
-  bool get usesToken =>
-      transport == ScrobbleTransport.listenBrainzNative;
+  bool get usesToken => transport == ScrobbleTransport.listenBrainzNative;
 
   /// Only a self-hosted instance has a base URL worth asking the user for.
   bool get usesCustomBaseUrl => this == ScrobbleService.maloja;
@@ -109,7 +107,9 @@ class ScrobblePreferences {
     return ScrobblePreferences(
       enabled: enabled ?? this.enabled,
       service: service ?? this.service,
-      customBaseUrl: customBaseUrl != null ? customBaseUrl() : this.customBaseUrl,
+      customBaseUrl: customBaseUrl != null
+          ? customBaseUrl()
+          : this.customBaseUrl,
     );
   }
 
@@ -186,7 +186,9 @@ abstract class ScrobbleSecretStore {
 }
 
 class SecureScrobbleSecretStore implements ScrobbleSecretStore {
-  const SecureScrobbleSecretStore([this._storage = const FlutterSecureStorage()]);
+  const SecureScrobbleSecretStore([
+    this._storage = const FlutterSecureStorage(),
+  ]);
 
   final FlutterSecureStorage _storage;
 
@@ -202,8 +204,7 @@ class SecureScrobbleSecretStore implements ScrobbleSecretStore {
 }
 
 class MemoryScrobbleSecretStore implements ScrobbleSecretStore {
-  MemoryScrobbleSecretStore([Map<String, String>? seed])
-    : _values = {...?seed};
+  MemoryScrobbleSecretStore([Map<String, String>? seed]) : _values = {...?seed};
 
   final Map<String, String> _values;
 
@@ -245,7 +246,9 @@ class HiveScrobblePreferenceStore implements ScrobblePreferenceStore {
 }
 
 class MemoryScrobblePreferenceStore implements ScrobblePreferenceStore {
-  MemoryScrobblePreferenceStore([this._preferences = const ScrobblePreferences()]);
+  MemoryScrobblePreferenceStore([
+    this._preferences = const ScrobblePreferences(),
+  ]);
 
   ScrobblePreferences _preferences;
 
@@ -354,10 +357,8 @@ const String kUserAgentContact = 'https://github.com/mconnect-music';
 
 /// `AppConstants.appVersion` is `v1.4.4`; the UA and ListenBrainz's
 /// `additional_info` want `1.4.4`.
-String _normalizedVersion() => AppConstants.appVersion.replaceFirst(
-  RegExp(r'^v'),
-  '',
-);
+String _normalizedVersion() =>
+    AppConstants.appVersion.replaceFirst(RegExp(r'^v'), '');
 
 /// A cheap sanity check for a user-supplied base URL, so the settings page can
 /// reject obvious nonsense before it becomes a backend that always fails.

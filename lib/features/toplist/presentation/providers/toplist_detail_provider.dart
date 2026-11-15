@@ -17,11 +17,8 @@ const int toplistSongLimit = 300;
 ///
 /// `RankedSong.rankChange` is positive when a song moved **up** — QQ reports it
 /// as `old_count - cur_count` and the adapter already normalises it.
-final toplistSongsProvider =
-    FutureProvider.autoDispose.family<List<RankedSong>, ToplistKey>((
-      ref,
-      key,
-    ) async {
+final toplistSongsProvider = FutureProvider.autoDispose
+    .family<List<RankedSong>, ToplistKey>((ref, key) async {
       final platform = PlatformRegistry.get(key.platform);
       return platform
           .getRankedSongs(key.toplistId, num: toplistSongLimit)

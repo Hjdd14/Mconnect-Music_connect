@@ -68,11 +68,7 @@ abstract class CrashSink {
 class CrashReporter {
   /// 字段直接用初始化形参（`this.diagnostics`）：命名参数不能带下划线前缀，
   /// 所以想让 `prefer_initializing_formals` 满意就只能让字段名等于参数名。
-  CrashReporter({
-    this.diagnostics,
-    this.remote,
-    this.dsn = crashReporterDsn,
-  });
+  CrashReporter({this.diagnostics, this.remote, this.dsn = crashReporterDsn});
 
   /// 本地落点；null 表示"只算不写"（测试里可用）。
   final DiagnosticsService? diagnostics;
@@ -152,7 +148,7 @@ class CrashReporter {
     diagnostics?.record(
       'crash_remote_unavailable',
       'a DSN was supplied at build time but no remote sink is wired '
-      '(sentry_flutter is not a dependency yet); staying local',
+          '(sentry_flutter is not a dependency yet); staying local',
     );
   }
 
@@ -179,7 +175,9 @@ ZoneErrorHandler installCrashHandling(
   final present = presentError ?? FlutterError.presentError;
 
   FlutterError.onError = (details) {
-    unawaited(reporter.report('FlutterError', details.exception, details.stack));
+    unawaited(
+      reporter.report('FlutterError', details.exception, details.stack),
+    );
     present(details);
   };
 

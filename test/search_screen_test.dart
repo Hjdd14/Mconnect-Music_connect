@@ -18,7 +18,9 @@ void main() {
   ProviderContainer containerOf(WidgetTester tester) =>
       ProviderScope.containerOf(tester.element(find.byType(SearchScreen)));
 
-  testWidgets('search screen lets users switch between songs and playlists', (tester) async {
+  testWidgets('search screen lets users switch between songs and playlists', (
+    tester,
+  ) async {
     await tester.pumpWidget(wrap(const SearchScreen()));
     final container = containerOf(tester);
 
@@ -31,23 +33,24 @@ void main() {
     expect(container.read(searchModeProvider), SearchMode.playlists);
   });
 
-  testWidgets('search input updates query after debounce and clears immediately', (
-    tester,
-  ) async {
-    await tester.pumpWidget(wrap(const SearchScreen()));
-    final container = containerOf(tester);
+  testWidgets(
+    'search input updates query after debounce and clears immediately',
+    (tester) async {
+      await tester.pumpWidget(wrap(const SearchScreen()));
+      final container = containerOf(tester);
 
-    await tester.enterText(find.byType(TextField), '周杰伦');
-    await tester.pump(const Duration(milliseconds: 299));
-    expect(container.read(searchQueryProvider), isEmpty);
+      await tester.enterText(find.byType(TextField), '周杰伦');
+      await tester.pump(const Duration(milliseconds: 299));
+      expect(container.read(searchQueryProvider), isEmpty);
 
-    await tester.pump(const Duration(milliseconds: 1));
-    expect(container.read(searchQueryProvider), '周杰伦');
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(container.read(searchQueryProvider), '周杰伦');
 
-    await tester.tap(find.byIcon(Icons.clear));
-    await tester.pump();
-    expect(container.read(searchQueryProvider), isEmpty);
-  });
+      await tester.tap(find.byIcon(Icons.clear));
+      await tester.pump();
+      expect(container.read(searchQueryProvider), isEmpty);
+    },
+  );
 
   testWidgets('search distinguishes initial empty state from no results', (
     tester,
@@ -79,33 +82,34 @@ void main() {
     expect(find.byType(ElevatedButton), findsNothing);
   });
 
-  testWidgets('a failed search is an error state whose retry is an ElevatedButton', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      wrap(
-        const SearchScreen(),
-        overrides: [
-          searchResultsProvider.overrideWith(
-            (ref) async => throw Exception('search down'),
-          ),
-        ],
-      ),
-    );
-    final container = containerOf(tester);
+  testWidgets(
+    'a failed search is an error state whose retry is an ElevatedButton',
+    (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          const SearchScreen(),
+          overrides: [
+            searchResultsProvider.overrideWith(
+              (ref) async => throw Exception('search down'),
+            ),
+          ],
+        ),
+      );
+      final container = containerOf(tester);
 
-    container.read(searchQueryProvider.notifier).state = 'x';
-    await tester.pump();
-    await tester.pump();
+      container.read(searchQueryProvider.notifier).state = 'x';
+      await tester.pump();
+      await tester.pump();
 
-    // The message is the one `apiExceptionOf` normalises the raw exception into,
-    // so the page never shows an untranslated `Exception.toString()` of its own
-    // construction.
-    expect(find.textContaining('search down'), findsOneWidget);
-    // Contract rule 1: retry is an `ElevatedButton`, and it is the only button
-    // on screen in this state.
-    expect(find.widgetWithText(ElevatedButton, '重试'), findsOneWidget);
-  });
+      // The message is the one `apiExceptionOf` normalises the raw exception into,
+      // so the page never shows an untranslated `Exception.toString()` of its own
+      // construction.
+      expect(find.textContaining('search down'), findsOneWidget);
+      // Contract rule 1: retry is an `ElevatedButton`, and it is the only button
+      // on screen in this state.
+      expect(find.widgetWithText(ElevatedButton, '重试'), findsOneWidget);
+    },
+  );
 
   group('收藏歌单 goes through snackbar_helper', () {
     Future<void> pumpPlaylistResults(
@@ -163,9 +167,8 @@ void main() {
       expect(find.text('收藏失败'), findsOneWidget);
 
       final snackBar = tester.widget<SnackBar>(find.byType(SnackBar));
-      final scheme = Theme.of(
-        tester.element(find.byType(SnackBar)),
-      ).colorScheme;
+      final scheme = Theme.of(tester.element(find.byType(SnackBar)))
+          .colorScheme;
 
       expect(snackBar.behavior, SnackBarBehavior.floating);
       // The real regression: the old bare SnackBar painted success and failure
@@ -182,6 +185,8 @@ class _CollectingPlatform extends FakeContentPlatform {
   final bool result;
 
   @override
-  Future<bool> collectPlaylist(String playlistId, {bool collect = true}) async =>
-      result;
+  Future<bool> collectPlaylist(
+    String playlistId, {
+    bool collect = true,
+  }) async => result;
 }

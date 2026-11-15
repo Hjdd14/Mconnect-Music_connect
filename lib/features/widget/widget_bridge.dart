@@ -184,7 +184,9 @@ class WidgetBridge {
 
       // 封面：先落盘（saveImage 会把路径写进同一个 key），再触发重绘。
       final coverUrl = snapshot.coverPath;
-      if (coverUrl != null && coverUrl.isNotEmpty && !_coverIsLocalFile(coverUrl)) {
+      if (coverUrl != null &&
+          coverUrl.isNotEmpty &&
+          !_coverIsLocalFile(coverUrl)) {
         try {
           pluginCallCount++;
           await HomeWidget.saveImage(
@@ -195,7 +197,10 @@ class WidgetBridge {
           // 网络/解码失败 → 明确的"没有封面"，不要让上一次的封面残留
           _report('小组件封面落盘失败（已按无封面处理）', error, stack);
           pluginCallCount++;
-          await HomeWidget.saveWidgetData<String>(WidgetDataKeys.coverPath, null);
+          await HomeWidget.saveWidgetData<String>(
+            WidgetDataKeys.coverPath,
+            null,
+          );
         }
       } else {
         pluginCallCount++;

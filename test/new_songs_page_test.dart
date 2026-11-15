@@ -29,9 +29,7 @@ void main() {
   }
 
   testWidgets('地区 chips 覆盖 NewSongRegion 全部六项', (tester) async {
-    await tester.pumpWidget(
-      wrap([FakeContentPlatform(type: PlatformType.qq)]),
-    );
+    await tester.pumpWidget(wrap([FakeContentPlatform(type: PlatformType.qq)]));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 

@@ -74,30 +74,29 @@ void main() {
         notifier.state.tasks.single.filePath,
         'content://tree/primary%3AMusic/document/song-id',
       );
-      expect(
-        store.tasks,
-        hasLength(1),
-        reason: '恢复过程会持久化列表：任务一旦被丢就再也回不来',
-      );
+      expect(store.tasks, hasLength(1), reason: '恢复过程会持久化列表：任务一旦被丢就再也回不来');
     });
 
-    test('the document URI is never handed to the File existence probe', () async {
-      final probed = <String>[];
-      final notifier = DownloadNotifier(
-        manager: FakeDownloadManager(),
-        taskStore: _MemoryTaskStore([safTask()]),
-        fileExists: (path) {
-          probed.add(path);
-          return false;
-        },
-      );
-      addTearDown(notifier.dispose);
+    test(
+      'the document URI is never handed to the File existence probe',
+      () async {
+        final probed = <String>[];
+        final notifier = DownloadNotifier(
+          manager: FakeDownloadManager(),
+          taskStore: _MemoryTaskStore([safTask()]),
+          fileExists: (path) {
+            probed.add(path);
+            return false;
+          },
+        );
+        addTearDown(notifier.dispose);
 
-      await notifier.ready;
+        await notifier.ready;
 
-      expect(probed, isEmpty, reason: 'content:// 不能走 File(path).exists()');
-      expect(notifier.state.tasks, hasLength(1));
-    });
+        expect(probed, isEmpty, reason: 'content:// 不能走 File(path).exists()');
+        expect(notifier.state.tasks, hasLength(1));
+      },
+    );
 
     test('a plain-path task whose file is gone is still dropped', () async {
       final missing = File(
@@ -114,15 +113,13 @@ void main() {
 
       await notifier.ready;
 
-      expect(
-        notifier.state.tasks,
-        isEmpty,
-        reason: '普通路径的既有行为必须保持不变',
-      );
+      expect(notifier.state.tasks, isEmpty, reason: '普通路径的既有行为必须保持不变');
     });
 
     test('a plain-path task whose file exists is kept', () async {
-      final tempDir = await Directory.systemTemp.createTemp('mconnect_restore_');
+      final tempDir = await Directory.systemTemp.createTemp(
+        'mconnect_restore_',
+      );
       addTearDown(() async {
         if (await tempDir.exists()) await tempDir.delete(recursive: true);
       });

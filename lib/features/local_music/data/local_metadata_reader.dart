@@ -152,8 +152,7 @@ class AudioMetadataReader implements LocalMetadataReader {
       if (length >= 128) {
         reader.setPositionSync(length - 128);
         final trailer = reader.readSync(3);
-        if (trailer.length == 3 &&
-            String.fromCharCodes(trailer) == 'TAG') {
+        if (trailer.length == 3 && String.fromCharCodes(trailer) == 'TAG') {
           return true; // ID3v1-only MP3
         }
       }

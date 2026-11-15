@@ -1,5 +1,7 @@
 import 'dart:async';
+
 import 'package:flutter/foundation.dart';
+
 import '../../lyrics/models/lyrics_bundle.dart';
 import '../../lyrics/models/lyrics_line.dart';
 import '../../models/song.dart';
@@ -236,9 +238,8 @@ class QqPlatform extends MusicPlatform {
   /// so it never matched a real response: the URL stayed null, the OAuth
   /// completion step was skipped entirely, and QR login could never succeed.
   @visibleForTesting
-  static String? parseQrRedirectUrlForTest(String raw) => RegExp(
-    r"ptui[Cc]B\('[^']*','[^']*','([^']+)'",
-  ).firstMatch(raw)?.group(1);
+  static String? parseQrRedirectUrlForTest(String raw) =>
+      RegExp(r"ptui[Cc]B\('[^']*','[^']*','([^']+)'").firstMatch(raw)?.group(1);
 
   @visibleForTesting
   static String? extractUinFromCookieForTest(String cookie) {
@@ -408,7 +409,8 @@ class QqPlatform extends MusicPlatform {
           s['songid'],
         ]) ??
         '';
-    final songName = _firstText([s['name'], s['title'], s['songname'], s['songName']]) ?? '';
+    final songName =
+        _firstText([s['name'], s['title'], s['songname'], s['songName']]) ?? '';
     final singers = <Artist>[];
     final singerRows = s['singer'];
     if (singerRows is List) {
@@ -417,7 +419,10 @@ class QqPlatform extends MusicPlatform {
         final name = _firstText([singer['name'], singer['title']]);
         if (name == null) continue;
         singers.add(
-          Artist(id: _firstText([singer['mid'], singer['id'], name]) ?? name, name: name),
+          Artist(
+            id: _firstText([singer['mid'], singer['id'], name]) ?? name,
+            name: name,
+          ),
         );
       }
     }
@@ -430,11 +435,16 @@ class QqPlatform extends MusicPlatform {
       s['album_mid'],
     ]);
     final albumName =
-        _firstText([album['name'], album['title'], s['albumName'], s['albumname']]) ?? '';
-    final coverUrl =
-        (albumMid != null && albumMid.isNotEmpty
-            ? _albumCover(albumMid)
-            : _firstText([album['cover'], s['cover'], s['pic']]));
+        _firstText([
+          album['name'],
+          album['title'],
+          s['albumName'],
+          s['albumname'],
+        ]) ??
+        '';
+    final coverUrl = (albumMid != null && albumMid.isNotEmpty
+        ? _albumCover(albumMid)
+        : _firstText([album['cover'], s['cover'], s['pic']]));
 
     return Song(
       id: songId,
@@ -444,10 +454,7 @@ class QqPlatform extends MusicPlatform {
       album: albumName.isNotEmpty
           ? Album(id: albumMid ?? '', name: albumName, coverUrl: coverUrl)
           : null,
-      duration: Duration(
-        seconds:
-            _asInt(s['interval'] ?? s['duration']) ?? 0,
-      ),
+      duration: Duration(seconds: _asInt(s['interval'] ?? s['duration']) ?? 0),
       coverUrl: coverUrl,
     );
   }
@@ -709,13 +716,20 @@ class QqPlatform extends MusicPlatform {
       );
       return null;
     } catch (e) {
-      DiagnosticsService.instance.recordError('qq.createPlaylist', e, StackTrace.current);
+      DiagnosticsService.instance.recordError(
+        'qq.createPlaylist',
+        e,
+        StackTrace.current,
+      );
       debugPrint('QQ createPlaylist error: $e');
       return null;
     }
   }
 
-  Future<Playlist?> _findCreatedPlaylistByDirId(String dirId, String name) async {
+  Future<Playlist?> _findCreatedPlaylistByDirId(
+    String dirId,
+    String name,
+  ) async {
     if (dirId.isEmpty || _currentUser == null) return null;
     final playlists = await getUserPlaylists();
     for (final playlist in playlists) {
@@ -814,9 +828,10 @@ class QqPlatform extends MusicPlatform {
   /// 「今日私享」 tracks, or an empty list when unavailable (any failure).
   Future<List<Song>> _personalisedDaily() async {
     try {
-      final playlistId = await _api
-          .getDailyPlaylistId()
-          .timeout(const Duration(seconds: 12), onTimeout: () => null);
+      final playlistId = await _api.getDailyPlaylistId().timeout(
+        const Duration(seconds: 12),
+        onTimeout: () => null,
+      );
       if (playlistId == null || playlistId.isEmpty) return const [];
       final songs = await getPlaylistDetail(playlistId);
       return songs.take(30).toList();
@@ -927,10 +942,7 @@ class QqPlatform extends MusicPlatform {
 
   /// The 热歌榜 as reported by QQ's own endpoint, up to [num] tracks
   /// (default: all 300).
-  Future<List<RankedSong>> getHotSongs({
-    int offset = 0,
-    int num = 300,
-  }) async {
+  Future<List<RankedSong>> getHotSongs({int offset = 0, int num = 300}) async {
     return getRankedSongs('${QqToplistIds.hot}', offset: offset, num: num);
   }
 
@@ -1329,9 +1341,7 @@ class QqPlatform extends MusicPlatform {
       name: _firstText([row['albumName'], row['albumTranName']]) ?? '未知专辑',
       artistName: _firstText([row['singerName']]),
       coverUrl: mid.isEmpty ? null : _albumCover(mid),
-      releaseDate: DateTime.tryParse(
-        _firstText([row['publishDate']]) ?? '',
-      ),
+      releaseDate: DateTime.tryParse(_firstText([row['publishDate']]) ?? ''),
     );
   }
 
@@ -1342,8 +1352,8 @@ class QqPlatform extends MusicPlatform {
       id: mid,
       name: _firstText([row['name'], row['albumName']]) ?? '未知专辑',
       artistName: _firstText([row['singer']]),
-      coverUrl: _firstText([row['pic']]) ??
-          (mid.isEmpty ? null : _albumCover(mid)),
+      coverUrl:
+          _firstText([row['pic']]) ?? (mid.isEmpty ? null : _albumCover(mid)),
       releaseDate: DateTime.tryParse(_firstText([row['publish_date']]) ?? ''),
       songCount: _asInt(row['song_num']),
     );
@@ -1417,7 +1427,9 @@ class QqPlatform extends MusicPlatform {
               'title':
                   metadata['title'] ?? metadata['dissname'] ?? metadata['name'],
               'picurl':
-                  metadata['picurl'] ?? metadata['logo'] ?? metadata['coverurl'],
+                  metadata['picurl'] ??
+                  metadata['logo'] ??
+                  metadata['coverurl'],
             };
       return Playlist(
         id: id,

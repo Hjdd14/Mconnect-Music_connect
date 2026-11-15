@@ -192,7 +192,9 @@ class DownloadScheduler {
     if (_pumping) return;
     _pumping = true;
     try {
-      while (!_paused && _active.length < maxConcurrent && _pending.isNotEmpty) {
+      while (!_paused &&
+          _active.length < maxConcurrent &&
+          _pending.isNotEmpty) {
         final taskId = _pending.removeFirst();
         _active.add(taskId);
         onStart(taskId);

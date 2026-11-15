@@ -110,7 +110,9 @@ void main() {
         overrides: [
           playerProvider.overrideWith((ref) => player),
           searchHistoryStoreProvider.overrideWithValue(
-            SearchHistoryStore(boxOpener: () async => throw Exception('no hive')),
+            SearchHistoryStore(
+              boxOpener: () async => throw Exception('no hive'),
+            ),
           ),
           aggregatedSearchProvider.overrideWith(
             (ref) => AggregatedSearchNotifier(
@@ -139,7 +141,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('QQ音乐').last);
     await tester.pumpAndSettle();
-    expect(container.read(aggregatedSearchProvider).playableSongs.single.id, 'q1');
+    expect(
+      container.read(aggregatedSearchProvider).playableSongs.single.id,
+      'q1',
+    );
 
     await tester.longPress(find.text('晴天'));
     await tester.pumpAndSettle();

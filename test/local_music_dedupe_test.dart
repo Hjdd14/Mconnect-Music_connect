@@ -63,9 +63,7 @@ void main() {
       local: [
         localSong(path: '/a.flac', name: '本地曲', artist: '甲', seconds: 200),
       ],
-      online: [
-        song(id: 'ne-2', name: '在线曲', artist: '乙', seconds: 180),
-      ],
+      online: [song(id: 'ne-2', name: '在线曲', artist: '乙', seconds: 180)],
     );
 
     expect(merged, hasLength(2));
@@ -111,14 +109,19 @@ void main() {
     expect(merged, hasLength(2));
   });
 
-  test('a length difference beyond the 4-second bucket is a different song', () {
-    final merged = LocalLibraryDedupe.mergeLocalWithOnline(
-      local: [localSong(path: '/y.flac', name: '歌', artist: '甲', seconds: 240)],
-      online: [song(id: 'ne-4', name: '歌', artist: '甲', seconds: 260)],
-    );
+  test(
+    'a length difference beyond the 4-second bucket is a different song',
+    () {
+      final merged = LocalLibraryDedupe.mergeLocalWithOnline(
+        local: [
+          localSong(path: '/y.flac', name: '歌', artist: '甲', seconds: 240),
+        ],
+        online: [song(id: 'ne-4', name: '歌', artist: '甲', seconds: 260)],
+      );
 
-    expect(merged, hasLength(2));
-  });
+      expect(merged, hasLength(2));
+    },
+  );
 
   test('keysOf/onlyMissing expose which songs are not local yet', () {
     final local = [

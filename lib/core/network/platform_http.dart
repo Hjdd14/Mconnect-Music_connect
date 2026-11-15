@@ -198,10 +198,18 @@ class PlatformErrorInterceptor extends Interceptor {
 
 /// Maps a [DioException] onto the app's typed exception hierarchy.
 ApiException translateDioException(DioException err, {String label = ''}) {
-  switch (err.type) {
-    case DioExceptionType.connectionTimeout:
-    case DioExceptionType.sendTimeout:
-    case DioExceptionType.receiveTimeout:
+  // Switched on the enum NAME, not on the enum itself.
+  //
+  // dio keeps growing `DioExceptionType` (newer releases added
+  // `transformTimeout`). A `switch` over the enum is exhaustive only for the
+  // version that compiled it, so a resolver that picks up a newer dio - CI, or
+  // any machine whose lock file was regenerated - turned a dependency bump into
+  // a compile error here. Matching the name keeps the mapping stable across
+  // versions: unknown values fall into the same bucket as `unknown`.
+  switch (err.type.name) {
+    case 'connectionTimeout':
+    case 'sendTimeout':
+    case 'receiveTimeout':
       // A timeout is a connectivity problem, but the UI can say something more
       // precise than "couldn't connect": it knows which platform timed out.
       return NetworkException(
@@ -209,18 +217,18 @@ ApiException translateDioException(DioException err, {String label = ''}) {
         code: ApiErrorCode.requestTimeout,
         platform: label,
       );
-    case DioExceptionType.connectionError:
-    case DioExceptionType.badCertificate:
+    case 'connectionError':
+    case 'badCertificate':
       return NetworkException(details: err.message);
-    case DioExceptionType.cancel:
+    case 'cancel':
       // A deliberate cancel (screen disposed, a newer query superseded this
       // one, `CancelToken` fired) is not a connectivity problem. Adapters wire
       // per-query `CancelToken`s, so callers must be able to tell the two
       // apart — otherwise leaving a page shows "网络连接失败，请检查网络".
       return RequestCancelledException();
-    case DioExceptionType.badResponse:
+    case 'badResponse':
       return _fromStatusCode(err.response?.statusCode, label);
-    case DioExceptionType.unknown:
+    default:
       return NetworkException(details: err.message);
   }
 }

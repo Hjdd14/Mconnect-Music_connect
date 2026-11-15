@@ -25,10 +25,7 @@ void main() {
             body: SizedBox(
               width: 1024,
               height: 600,
-              child: DesktopSidebar(
-                collapsed: false,
-                currentPath: '/settings',
-              ),
+              child: DesktopSidebar(collapsed: false, currentPath: '/settings'),
             ),
           ),
         ),

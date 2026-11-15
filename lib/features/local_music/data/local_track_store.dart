@@ -86,9 +86,7 @@ class LocalTrackEntry {
     id: path,
     platform: PlatformType.local,
     name: displayTitle,
-    artists: [
-      Artist(id: 'local', name: displayArtist),
-    ],
+    artists: [Artist(id: 'local', name: displayArtist)],
     album: hasAlbum
         ? Album(id: '', name: displayAlbum, artistName: displayArtist)
         : null,
@@ -172,7 +170,8 @@ abstract class LocalTrackStore {
 /// than opening a second accessor on the same table. The value-object mapping
 /// stays here because [LocalTrackEntry] is the local-music feature's own shape.
 class DriftLocalTrackStore extends LocalTrackStore {
-  DriftLocalTrackStore({AppDatabase? database}) : _db = database ?? _appDatabase();
+  DriftLocalTrackStore({AppDatabase? database})
+    : _db = database ?? _appDatabase();
 
   /// Resolves the process-wide database without shadowing it with the
   /// constructor parameter of the same name.

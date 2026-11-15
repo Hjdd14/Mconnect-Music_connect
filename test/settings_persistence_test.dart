@@ -131,7 +131,9 @@ void main() {
     setUp(() async {
       // 与 test/settings_page_test.dart 的 setUp 保持一致：**唯一的差别**只有
       // 下面那两个 provider override。
-      tempDir = await Directory.systemTemp.createTemp('mconnect_persist_widget_');
+      tempDir = await Directory.systemTemp.createTemp(
+        'mconnect_persist_widget_',
+      );
       Hive.init(tempDir.path);
       await Hive.openBox('settings');
     });
@@ -174,20 +176,14 @@ void main() {
       // ① 自动换源：默认开 → 点一下关。内存 store 必须收到那次写请求。
       expect(await _tapSwitch(tester, '自动换源'), isTrue);
       expect(container.read(autoSourceSwitchProvider).enabled, isFalse);
-      expect(
-        switchStore.writes,
-        <bool>[false],
-        reason: '点击必须要求落盘（只是落到了内存 store）—— 否则就是"只改内存"的假绿',
-      );
+      expect(switchStore.writes, <bool>[
+        false,
+      ], reason: '点击必须要求落盘（只是落到了内存 store）—— 否则就是"只改内存"的假绿');
 
       // ② 淡入淡出：同一个页面上的另一个"点击即持久化"路径（PROBE D 证明过它同样卡）。
       expect(await _tapSwitch(tester, '淡入淡出'), isTrue);
       expect(container.read(audioEffectsSettingsProvider).fadeEnabled, isTrue);
-      expect(
-        effectsStore.writes,
-        isNotEmpty,
-        reason: '音频增强设置也必须要求落盘',
-      );
+      expect(effectsStore.writes, isNotEmpty, reason: '音频增强设置也必须要求落盘');
 
       // ③ 用内存 store 重建一个 notifier，证明"写进去的东西读得回来"
       //    （不依赖 toJson 的具体键名，避免把测试钉在实现细节上）。

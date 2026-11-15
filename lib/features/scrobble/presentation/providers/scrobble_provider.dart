@@ -85,7 +85,7 @@ class ScrobbleStatus {
 /// already correct; the stored value replaces it asynchronously.
 class ScrobblePreferencesNotifier extends StateNotifier<ScrobblePreferences> {
   ScrobblePreferencesNotifier(this._ref, {ScrobblePreferences? initial})
-      : super(initial ?? const ScrobblePreferences()) {
+    : super(initial ?? const ScrobblePreferences()) {
     if (initial == null) unawaited(_load());
   }
 
@@ -177,13 +177,14 @@ final scrobblePreferencesProvider =
 /// service, loaded from the platform keystore and written back on change.
 class ScrobbleSecretsNotifier extends StateNotifier<ScrobbleSecrets> {
   ScrobbleSecretsNotifier(this._ref, {ScrobbleSecrets? initial})
-      : super(initial ?? const ScrobbleSecrets()) {
+    : super(initial ?? const ScrobbleSecrets()) {
     if (initial == null) unawaited(_load());
   }
 
   final Ref _ref;
 
-  ScrobbleService get _service => _ref.read(scrobblePreferencesProvider).service;
+  ScrobbleService get _service =>
+      _ref.read(scrobblePreferencesProvider).service;
 
   Future<void> _load() async {
     try {
@@ -210,17 +211,14 @@ class ScrobbleSecretsNotifier extends StateNotifier<ScrobbleSecrets> {
   Future<void> _save(ScrobbleSecrets next) async {
     state = next;
     try {
-      await _ref
-          .read(scrobbleCredentialsProvider)
-          .save(_service, next);
+      await _ref.read(scrobbleCredentialsProvider).save(_service, next);
     } catch (_) {
       // Same reasoning as the preferences half: the field already shows what the
       // user typed; a keystore failure must not throw at the UI.
     }
   }
 
-  Future<void> setApiKey(String value) =>
-      _save(state.copyWith(apiKey: value));
+  Future<void> setApiKey(String value) => _save(state.copyWith(apiKey: value));
   Future<void> setApiSecret(String value) =>
       _save(state.copyWith(apiSecret: value));
   Future<void> setSessionKey(String value) =>
@@ -288,14 +286,14 @@ final scrobbleCoordinatorProvider = Provider<ScrobbleCoordinator>((ref) {
 /// by the page (`initState`) and after each action, which is where it belongs.
 class ScrobbleStatusNotifier extends StateNotifier<ScrobbleStatus> {
   ScrobbleStatusNotifier(this._ref)
-      : super(
-          ScrobbleStatus(
-            preferences: const ScrobblePreferences(),
-            hasCredentials: false,
-            needsReauth: false,
-            pendingCount: 0,
-          ),
-        );
+    : super(
+        ScrobbleStatus(
+          preferences: const ScrobblePreferences(),
+          hasCredentials: false,
+          needsReauth: false,
+          pendingCount: 0,
+        ),
+      );
 
   final Ref _ref;
 
@@ -361,7 +359,8 @@ class ScrobbleStatusNotifier extends StateNotifier<ScrobbleStatus> {
   /// "立即补交": drains once and refreshes the count.
   Future<ScrobbleDrainOutcome?> drainNow() async {
     final coordinator = _ref.read(scrobbleCoordinatorProvider);
-    ScrobbleDrainOutcome? outcome;    try {
+    ScrobbleDrainOutcome? outcome;
+    try {
       outcome = await coordinator.drainOnce();
     } catch (_) {
       outcome = null;

@@ -35,13 +35,16 @@ void main() {
       expect(words[1].duration, const Duration(milliseconds: 600));
     });
 
-    test('keeps credit lines instead of assuming line 0 is the first lyric', () {
-      final document = LyricsDocument.parse(yrc, LyricsFormat.yrc);
+    test(
+      'keeps credit lines instead of assuming line 0 is the first lyric',
+      () {
+        final document = LyricsDocument.parse(yrc, LyricsFormat.yrc);
 
-      // 真实 payload 头几行是制作人/作词/作曲，它们有时间戳、是可见文本。
-      expect(document.lines.first.text, '制作人');
-      expect(document.lines.first.timestamp, Duration.zero);
-    });
+        // 真实 payload 头几行是制作人/作词/作曲，它们有时间戳、是可见文本。
+        expect(document.lines.first.text, '制作人');
+        expect(document.lines.first.timestamp, Duration.zero);
+      },
+    );
 
     test('a chunk with an empty body is a gap, not a word', () {
       const withGap = '[0,900](0,300,0)前(300,300,0)(600,300,0)后';
@@ -99,7 +102,10 @@ void main() {
       final track = mainLyricsTrack(bundle)!;
 
       expect(track.format, LyricsFormat.lrc);
-      final document = buildLyricsDocument(bundle, source: LyricsSource.netease);
+      final document = buildLyricsDocument(
+        bundle,
+        source: LyricsSource.netease,
+      );
       expect(document.lines, hasLength(2));
       expect(document.lines.first.text, 'Hello');
     });
@@ -124,7 +130,8 @@ void main() {
       expect(buildLyricsDocument(bundle).lines, hasLength(2));
     });
 
-    test('returns nothing usable for an empty bundle', () {      expect(mainLyricsTrack(const LyricsBundle()), isNull);
+    test('returns nothing usable for an empty bundle', () {
+      expect(mainLyricsTrack(const LyricsBundle()), isNull);
       expect(LyricsBundle(lrc: '   ').isEmpty, isTrue);
       expect(buildLyricsDocument(const LyricsBundle()).lines, isEmpty);
     });
@@ -150,11 +157,10 @@ void main() {
       expect(document.format, LyricsFormat.yrc);
       expect(document.source, LyricsSource.netease);
       expect(document.lines.map((line) => line.text), ['Hello', 'World']);
-      expect(
-        document.lines.map((line) => line.translation),
-        ['你好', '世界'],
-        reason: 'yrc 主轨必须用 ytlrc 配对，而不是 lrc 时间轴的 tlyric',
-      );
+      expect(document.lines.map((line) => line.translation), [
+        '你好',
+        '世界',
+      ], reason: 'yrc 主轨必须用 ytlrc 配对，而不是 lrc 时间轴的 tlyric');
       expect(document.lines.first.words, isNotNull);
     });
 
@@ -166,7 +172,10 @@ void main() {
         yrcTranslation: '[00:09.00]不该被用上',
       );
 
-      final document = buildLyricsDocument(bundle, source: LyricsSource.netease);
+      final document = buildLyricsDocument(
+        bundle,
+        source: LyricsSource.netease,
+      );
 
       expect(document.format, LyricsFormat.lrc);
       expect(document.lines.map((line) => line.translation), ['你好', '世界']);
@@ -186,10 +195,7 @@ void main() {
     });
 
     test('a translation line without a matching timestamp is ignored', () {
-      const bundle = LyricsBundle(
-        lrc: lrc,
-        translation: '[00:09.00]无对应行',
-      );
+      const bundle = LyricsBundle(lrc: lrc, translation: '[00:09.00]无对应行');
 
       final document = buildLyricsDocument(bundle);
 

@@ -79,11 +79,10 @@ void main() {
         'netease_s1_low_cache',
         'netease_s2_low_cache',
       ]);
-      expect(
-        manager.started,
-        ['netease_s1_low_cache', 'netease_s2_low_cache'],
-        reason: 'the cache queue must really start downloads (P0-1)',
-      );
+      expect(manager.started, [
+        'netease_s1_low_cache',
+        'netease_s2_low_cache',
+      ], reason: 'the cache queue must really start downloads (P0-1)');
     },
   );
 

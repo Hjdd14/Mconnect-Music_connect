@@ -1,5 +1,7 @@
 import 'dart:async';
+
 import 'package:flutter/foundation.dart';
+
 import '../../core/network/api_exception.dart';
 import '../../core/network/platform_http.dart';
 import '../../core/diagnostics/diagnostics_service.dart';
@@ -260,10 +262,7 @@ class NeteasePlatform extends MusicPlatform {
         rawArtists
             ?.whereType<Map>()
             .map(
-              (a) => Artist(
-                id: '${a['id'] ?? ''}',
-                name: '${a['name'] ?? ''}',
-              ),
+              (a) => Artist(id: '${a['id'] ?? ''}', name: '${a['name'] ?? ''}'),
             )
             .toList() ??
         [];
@@ -606,7 +605,11 @@ class NeteasePlatform extends MusicPlatform {
         DiagnosticsService.instance.record(
           'netease',
           'remove_song_rejected',
-          data: {'playlist_id': playlistId, 'song_id': song.id, 'code': res['code']},
+          data: {
+            'playlist_id': playlistId,
+            'song_id': song.id,
+            'code': res['code'],
+          },
         );
       }
       return res['code'] == 200;
@@ -624,7 +627,11 @@ class NeteasePlatform extends MusicPlatform {
         DiagnosticsService.instance.record(
           'netease',
           'delete_playlist_rejected',
-          data: {'playlist_id': playlistId, 'code': res['code'], 'message': res['message']},
+          data: {
+            'playlist_id': playlistId,
+            'code': res['code'],
+            'message': res['message'],
+          },
         );
       }
       return res['code'] == 200;
@@ -647,7 +654,11 @@ class NeteasePlatform extends MusicPlatform {
         DiagnosticsService.instance.record(
           'netease',
           'rename_playlist_rejected',
-          data: {'playlist_id': playlistId, 'code': res['code'], 'message': res['message']},
+          data: {
+            'playlist_id': playlistId,
+            'code': res['code'],
+            'message': res['message'],
+          },
         );
       }
       return res['code'] == 200;
@@ -909,9 +920,7 @@ class NeteasePlatform extends MusicPlatform {
       // 才能保证 UI 上"第 N 首"这个承诺成立。
       final allNumbered = parsed.every((s) => s.trackNumber != null);
       if (!allNumbered) return parsed;
-      parsed.sort(
-        (a, b) => (a.trackNumber ?? 0).compareTo(b.trackNumber ?? 0),
-      );
+      parsed.sort((a, b) => (a.trackNumber ?? 0).compareTo(b.trackNumber ?? 0));
       return parsed;
     } on Object catch (e) {
       throw apiExceptionOf(e);
@@ -1051,9 +1060,7 @@ class NeteasePlatform extends MusicPlatform {
             .toList(growable: false);
         for (var i = 0; i < missingIds.length; i += 200) {
           final end = (i + 200).clamp(0, missingIds.length);
-          final detail = await _api.getSongDetails(
-            missingIds.sublist(i, end),
-          );
+          final detail = await _api.getSongDetails(missingIds.sublist(i, end));
           final detailSongs = detail['songs'] as List<dynamic>? ?? const [];
           songs.addAll(detailSongs.map(_parseSong));
         }

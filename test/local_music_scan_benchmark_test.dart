@@ -17,84 +17,80 @@ import 'local_music_fixtures.dart';
 /// the report can quote them; only the counters are asserted (a wall-clock
 /// assertion would be flaky on a loaded CI machine).
 void main() {
-  test(
-    '1000-track library: first scan parses every file, second scan parses none',
-    () async {
-      const trackCount = 1000;
-      final root = await Directory.systemTemp.createTemp('mconnect_bench_');
-      addTearDown(() async {
-        if (await root.exists()) {
-          await root.delete(recursive: true);
-        }
-      });
-
-      final writeWatch = Stopwatch()..start();
-      for (var i = 0; i < trackCount; i++) {
-        final folder = p.join(root.path, 'album${i % 20}');
-        await writeFlacFixture(
-          Directory(folder),
-          'track$i.flac',
-          title: '曲目$i',
-          artist: '歌手${i % 50}',
-          album: '专辑${i % 20}',
-          trackNumber: (i % 20) + 1,
-          durationMs: 180000,
-          paddingBytes: 8192,
-        );
+  test('1000-track library: first scan parses every file, second scan parses none', () async {
+    const trackCount = 1000;
+    final root = await Directory.systemTemp.createTemp('mconnect_bench_');
+    addTearDown(() async {
+      if (await root.exists()) {
+        await root.delete(recursive: true);
       }
-      writeWatch.stop();
+    });
 
-      final tracks = MemoryLocalTrackStore();
-      final lyrics = MemoryLocalLyricsStore();
-
-      // First scan: every file is new, so every tag container is opened.
-      final firstReader = CountingMetadataReader();
-      final firstRepo = LocalMusicRepository(
-        metadataReader: firstReader,
-        trackStore: tracks,
-        lyricsStore: lyrics,
-        coverDirectoryPath: p.join(root.path, 'covers'),
-        scanInIsolate: false,
+    final writeWatch = Stopwatch()..start();
+    for (var i = 0; i < trackCount; i++) {
+      final folder = p.join(root.path, 'album${i % 20}');
+      await writeFlacFixture(
+        Directory(folder),
+        'track$i.flac',
+        title: '曲目$i',
+        artist: '歌手${i % 50}',
+        album: '专辑${i % 20}',
+        trackNumber: (i % 20) + 1,
+        durationMs: 180000,
+        paddingBytes: 8192,
       );
-      final first = await firstRepo.scanDirectory(root.path);
+    }
+    writeWatch.stop();
 
-      // Second scan: identical tree, nothing modified.
-      final secondReader = CountingMetadataReader();
-      final secondRepo = LocalMusicRepository(
-        metadataReader: secondReader,
-        trackStore: tracks,
-        lyricsStore: lyrics,
-        coverDirectoryPath: p.join(root.path, 'covers'),
-        scanInIsolate: false,
-      );
-      final second = await secondRepo.scanDirectory(root.path);
+    final tracks = MemoryLocalTrackStore();
+    final lyrics = MemoryLocalLyricsStore();
 
-      // ignore: avoid_print
-      print(
-        '[WS-J benchmark] 1000 tracks | build=${writeWatch.elapsedMilliseconds}ms | '
-        'first scan=${first.elapsed.inMilliseconds}ms '
-        '(tag reads=${firstReader.calls}, reused=${first.reusedCount}) | '
-        'second scan=${second.elapsed.inMilliseconds}ms '
-        '(tag reads=${secondReader.calls}, reused=${second.reusedCount})',
-      );
+    // First scan: every file is new, so every tag container is opened.
+    final firstReader = CountingMetadataReader();
+    final firstRepo = LocalMusicRepository(
+      metadataReader: firstReader,
+      trackStore: tracks,
+      lyricsStore: lyrics,
+      coverDirectoryPath: p.join(root.path, 'covers'),
+      scanInIsolate: false,
+    );
+    final first = await firstRepo.scanDirectory(root.path);
 
-      expect(first.tracks, hasLength(trackCount));
-      expect(firstReader.calls, trackCount);
-      expect(second.tracks, hasLength(trackCount));
-      expect(secondReader.calls, 0, reason: '第二次扫描不得读取任何元数据');
-      expect(second.reusedCount, trackCount);
-      expect(second.parsedCount, 0);
-      expect(second.songs.first.duration, const Duration(milliseconds: 180000));
+    // Second scan: identical tree, nothing modified.
+    final secondReader = CountingMetadataReader();
+    final secondRepo = LocalMusicRepository(
+      metadataReader: secondReader,
+      trackStore: tracks,
+      lyricsStore: lyrics,
+      coverDirectoryPath: p.join(root.path, 'covers'),
+      scanInIsolate: false,
+    );
+    final second = await secondRepo.scanDirectory(root.path);
 
-      // The incremental pass must not be slower than the full one.
-      expect(
-        second.elapsed.inMilliseconds,
-        lessThanOrEqualTo(first.elapsed.inMilliseconds),
-        reason: '增量扫描应当快于首次全量扫描',
-      );
-    },
-    timeout: const Timeout(Duration(minutes: 5)),
-  );
+    // ignore: avoid_print
+    print(
+      '[WS-J benchmark] 1000 tracks | build=${writeWatch.elapsedMilliseconds}ms | '
+      'first scan=${first.elapsed.inMilliseconds}ms '
+      '(tag reads=${firstReader.calls}, reused=${first.reusedCount}) | '
+      'second scan=${second.elapsed.inMilliseconds}ms '
+      '(tag reads=${secondReader.calls}, reused=${second.reusedCount})',
+    );
+
+    expect(first.tracks, hasLength(trackCount));
+    expect(firstReader.calls, trackCount);
+    expect(second.tracks, hasLength(trackCount));
+    expect(secondReader.calls, 0, reason: '第二次扫描不得读取任何元数据');
+    expect(second.reusedCount, trackCount);
+    expect(second.parsedCount, 0);
+    expect(second.songs.first.duration, const Duration(milliseconds: 180000));
+
+    // The incremental pass must not be slower than the full one.
+    expect(
+      second.elapsed.inMilliseconds,
+      lessThanOrEqualTo(first.elapsed.inMilliseconds),
+      reason: '增量扫描应当快于首次全量扫描',
+    );
+  }, timeout: const Timeout(Duration(minutes: 5)));
 
   test(
     'the real tag parser cost is what the skip avoids (per-file measurement)',

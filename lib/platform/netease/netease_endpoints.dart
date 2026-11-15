@@ -17,7 +17,8 @@ class NeteaseEndpoints {
   static const String userPlaylist = '/api/user/playlist';
   static const String playlistDetail = '/api/v6/playlist/detail';
   static const String recommendSongs = '/api/v3/discovery/recommend/songs';
-  static const String recommendResource = '/api/v1/discovery/recommend/resource';
+  static const String recommendResource =
+      '/api/v1/discovery/recommend/resource';
   static const String like = '/api/radio/like';
   static const String qrKey = '/api/login/qrcode/unikey';
   static const String qrCheck = '/api/login/qrcode/client/login';
@@ -76,7 +77,8 @@ class NeteaseEndpoints {
   static const String playlistUnsubscribe = '/api/playlist/unsubscribe';
 
   /// 歌单内增删歌曲。
-  static const String playlistTrackManipulate = '/api/playlist/manipulate/tracks';
+  static const String playlistTrackManipulate =
+      '/api/playlist/manipulate/tracks';
 
   /// 删除**自建**歌单。
   ///

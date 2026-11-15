@@ -39,9 +39,7 @@ void main() {
         body: MediaQuery(
           data: MediaQueryData(textScaler: textScaler),
           child: Stack(
-            children: [
-              Positioned(left: 0, right: 0, bottom: 0, child: child),
-            ],
+            children: [Positioned(left: 0, right: 0, bottom: 0, child: child)],
           ),
         ),
       ),
@@ -122,14 +120,10 @@ void main() {
         ),
       );
 
-      final selected = tester.getSemantics(
-        find.bySemanticsLabel('下载'),
-      );
+      final selected = tester.getSemantics(find.bySemanticsLabel('下载'));
       expect(selected.flagsCollection.isSelected, Tristate.isTrue);
 
-      final unselected = tester.getSemantics(
-        find.bySemanticsLabel('搜索'),
-      );
+      final unselected = tester.getSemantics(find.bySemanticsLabel('搜索'));
       expect(unselected.flagsCollection.isSelected, Tristate.isFalse);
 
       handle.dispose();
@@ -147,9 +141,7 @@ void main() {
           ),
         ),
       );
-      final firstColor = tester
-          .widget<Icon>(find.byIcon(Icons.search))
-          .color;
+      final firstColor = tester.widget<Icon>(find.byIcon(Icons.search)).color;
 
       await tester.pumpWidget(
         host(
@@ -165,10 +157,7 @@ void main() {
         tester.widget<Icon>(find.byIcon(Icons.search)).color,
         isNot(firstColor),
       );
-      expect(
-        tester.widget<Icon>(find.byIcon(Icons.explore)).color,
-        firstColor,
-      );
+      expect(tester.widget<Icon>(find.byIcon(Icons.explore)).color, firstColor);
     });
 
     testWidgets('every destination cell is at least a 48dp touch target', (
@@ -295,10 +284,7 @@ void main() {
 
       await tester.pumpWidget(
         host(
-          FloatingGlassNavBar(
-            selectedIndex: 0,
-            onDestinationSelected: (_) {},
-          ),
+          FloatingGlassNavBar(selectedIndex: 0, onDestinationSelected: (_) {}),
         ),
       );
       await tester.pumpAndSettle();
@@ -329,10 +315,12 @@ void main() {
       );
 
       final box = tester.widget<DecoratedBox>(
-        find.descendant(
-          of: find.byKey(FloatingGlassNavBar.opaqueKey),
-          matching: find.byType(DecoratedBox),
-        ).first,
+        find
+            .descendant(
+              of: find.byKey(FloatingGlassNavBar.opaqueKey),
+              matching: find.byType(DecoratedBox),
+            )
+            .first,
       );
       final decoration = box.decoration as BoxDecoration;
 
@@ -359,10 +347,12 @@ void main() {
       );
 
       final box = tester.widget<DecoratedBox>(
-        find.descendant(
-          of: find.byKey(FloatingGlassNavBar.opaqueKey),
-          matching: find.byType(DecoratedBox),
-        ).first,
+        find
+            .descendant(
+              of: find.byKey(FloatingGlassNavBar.opaqueKey),
+              matching: find.byType(DecoratedBox),
+            )
+            .first,
       );
       final color = (box.decoration as BoxDecoration).color!;
       expect(color.a, 1.0);
@@ -393,10 +383,7 @@ void main() {
 
       await tester.pumpWidget(
         host(
-          FloatingGlassNavBar(
-            selectedIndex: 0,
-            onDestinationSelected: (_) {},
-          ),
+          FloatingGlassNavBar(selectedIndex: 0, onDestinationSelected: (_) {}),
         ),
       );
       await tester.pump();
@@ -416,10 +403,7 @@ void main() {
 
       await tester.pumpWidget(
         host(
-          FloatingGlassNavBar(
-            selectedIndex: 0,
-            onDestinationSelected: (_) {},
-          ),
+          FloatingGlassNavBar(selectedIndex: 0, onDestinationSelected: (_) {}),
         ),
       );
       await tester.pump();
@@ -446,16 +430,9 @@ void main() {
       final tabs = tester.widget<GlassTabBar>(find.byType(GlassTabBar)).tabs;
       expect(
         tabs
-            .map(
-              (tab) => (
-                icon: ((tab.icon! as Icon).icon),
-                label: tab.label,
-              ),
-            )
+            .map((tab) => (icon: ((tab.icon! as Icon).icon), label: tab.label))
             .toList(),
-        _destinations
-            .map((d) => (icon: d.icon, label: d.label))
-            .toList(),
+        _destinations.map((d) => (icon: d.icon, label: d.label)).toList(),
       );
     });
 
@@ -464,10 +441,7 @@ void main() {
 
       await tester.pumpWidget(
         host(
-          FloatingGlassNavBar(
-            selectedIndex: 0,
-            onDestinationSelected: (_) {},
-          ),
+          FloatingGlassNavBar(selectedIndex: 0, onDestinationSelected: (_) {}),
         ),
       );
       await tester.pump();
@@ -531,15 +505,10 @@ void main() {
       );
 
       final screenWidth = tester.getSize(find.byType(MaterialApp)).width;
-      final barRect = tester.getRect(
-        find.byKey(FloatingGlassNavBar.opaqueKey),
-      );
+      final barRect = tester.getRect(find.byKey(FloatingGlassNavBar.opaqueKey));
 
       expect(barRect.left, FloatingGlassNavBar.sideMargin);
-      expect(
-        screenWidth - barRect.right,
-        FloatingGlassNavBar.sideMargin,
-      );
+      expect(screenWidth - barRect.right, FloatingGlassNavBar.sideMargin);
       expect(
         tester.getSize(find.byType(Scaffold)).height - barRect.bottom,
         FloatingGlassNavBar.bottomMargin,
@@ -553,10 +522,7 @@ void main() {
 
       await tester.pumpWidget(
         host(
-          FloatingGlassNavBar(
-            selectedIndex: 99,
-            onDestinationSelected: (_) {},
-          ),
+          FloatingGlassNavBar(selectedIndex: 99, onDestinationSelected: (_) {}),
         ),
       );
       await tester.pump();
@@ -631,9 +597,7 @@ void main() {
       // default (`canvas`) Material would paint an opaque plate over the
       // background shell.
       expect(
-        tester
-            .widget<Material>(find.byKey(glassMaterialAncestorKey))
-            .type,
+        tester.widget<Material>(find.byKey(glassMaterialAncestorKey)).type,
         MaterialType.transparency,
       );
       // It must be an *ancestor* of the routed content, not a sibling.

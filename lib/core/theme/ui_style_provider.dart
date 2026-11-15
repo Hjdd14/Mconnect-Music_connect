@@ -49,10 +49,11 @@ class UiStyleSettings {
 }
 
 /// User-selectable UI style with Hive persistence.
-final uiStyleProvider =
-    StateNotifierProvider<UiStyleNotifier, UiStyleSettings>((ref) {
-      return UiStyleNotifier();
-    });
+final uiStyleProvider = StateNotifierProvider<UiStyleNotifier, UiStyleSettings>(
+  (ref) {
+    return UiStyleNotifier();
+  },
+);
 
 class UiStyleNotifier extends StateNotifier<UiStyleSettings> {
   Future<void> ready = Future.value();

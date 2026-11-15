@@ -101,7 +101,8 @@ void main() {
       expect(
         await indexNames(db),
         isNot(contains(_droppedIndexName)),
-        reason: 'a v1 database never had it, and must not gain it on the way up',
+        reason:
+            'a v1 database never had it, and must not gain it on the way up',
       );
 
       // --- The dead v1 table is gone. ---
@@ -117,67 +118,69 @@ void main() {
       expect(db.schemaVersion, 4);
     });
 
-    test('the v2 tables are usable through their DAOs after a v1 upgrade', () async {
-      // Same "real v1 database" trick, then exercise each new DAO: an upgrade that
-      // created a table with the wrong columns would only show up here.
-      final db = AppDatabase.forTesting(
-        NativeDatabase(
-          dbFile,
-          setup: (raw) {
-            _createV1Schema(raw.execute);
-            raw.execute('PRAGMA user_version = 1');
-          },
-        ),
-      );
-      addTearDown(db.close);
+    test(
+      'the v2 tables are usable through their DAOs after a v1 upgrade',
+      () async {
+        // Same "real v1 database" trick, then exercise each new DAO: an upgrade that
+        // created a table with the wrong columns would only show up here.
+        final db = AppDatabase.forTesting(
+          NativeDatabase(
+            dbFile,
+            setup: (raw) {
+              _createV1Schema(raw.execute);
+              raw.execute('PRAGMA user_version = 1');
+            },
+          ),
+        );
+        addTearDown(db.close);
 
-      await db.statsDao.recordPlayStart(
-        songId: 's1',
-        platform: 'netease',
-        startedAt: DateTime(2026, 5, 30, 10),
-      );
-      await db.statsDao.addListenedDuration(
-        songId: 's1',
-        platform: 'netease',
-        duration: const Duration(minutes: 3),
-      );
-      expect(await db.statsDao.countPlayEvents(), 1);
-      expect(await db.statsDao.activeDayCount(), 1);
-      expect(
-        (await db.statsDao.songAggregate('s1', 'netease'))!.listenMs,
-        const Duration(minutes: 3).inMilliseconds,
-      );
+        await db.statsDao.recordPlayStart(
+          songId: 's1',
+          platform: 'netease',
+          startedAt: DateTime(2026, 5, 30, 10),
+        );
+        await db.statsDao.addListenedDuration(
+          songId: 's1',
+          platform: 'netease',
+          duration: const Duration(minutes: 3),
+        );
+        expect(await db.statsDao.countPlayEvents(), 1);
+        expect(await db.statsDao.activeDayCount(), 1);
+        expect(
+          (await db.statsDao.songAggregate('s1', 'netease'))!.listenMs,
+          const Duration(minutes: 3).inMilliseconds,
+        );
 
-      await db.localTracksDao.upsertAll([
-        LocalTracksCompanion.insert(
-          path: 'C:/music/upgraded.mp3',
-          mtime: 1,
-          size: 2,
-          lyricsMtime: const Value(11),
-          lyricsSize: const Value(22),
-        ),
-      ]);
-      expect(await db.localTracksDao.count(), 1);
+        await db.localTracksDao.upsertAll([
+          LocalTracksCompanion.insert(
+            path: 'C:/music/upgraded.mp3',
+            mtime: 1,
+            size: 2,
+            lyricsMtime: const Value(11),
+            lyricsSize: const Value(22),
+          ),
+        ]);
+        expect(await db.localTracksDao.count(), 1);
 
-      await db.toplistsCacheDao.replaceForPlatform('qq', [
-        ToplistsCacheCompanion.insert(
-          platform: 'qq',
-          toplistId: '26',
-          name: '热歌榜',
-          fetchedAt: 1,
-        ),
-      ]);
-      expect(await db.toplistsCacheDao.byPlatform('qq'), hasLength(1));
+        await db.toplistsCacheDao.replaceForPlatform('qq', [
+          ToplistsCacheCompanion.insert(
+            platform: 'qq',
+            toplistId: '26',
+            name: '热歌榜',
+            fetchedAt: 1,
+          ),
+        ]);
+        expect(await db.toplistsCacheDao.byPlatform('qq'), hasLength(1));
 
-      await db.smartPlaylistSnapshotsDao.saveSnapshot(
-        ruleId: 'rule-1',
-        songKeys: const ['netease:s1'],
-      );
-      expect(
-        await db.smartPlaylistSnapshotsDao.songKeys('rule-1'),
-        ['netease:s1'],
-      );
-    });
+        await db.smartPlaylistSnapshotsDao.saveSnapshot(
+          ruleId: 'rule-1',
+          songKeys: const ['netease:s1'],
+        );
+        expect(await db.smartPlaylistSnapshotsDao.songKeys('rule-1'), [
+          'netease:s1',
+        ]);
+      },
+    );
   });
 
   group('v2 → v3', () {
@@ -213,24 +216,24 @@ void main() {
       // would break the agreement between them.
       expect(await db.statsDao.countPlayEvents(), 2);
       expect((await db.statsDao.dailySeries()).single.playCount, 2);
-      expect(
-        (await db.statsDao.songAggregate('s1', 'netease'))!.playCount,
-        2,
-      );
+      expect((await db.statsDao.songAggregate('s1', 'netease'))!.playCount, 2);
 
       // The v2 local-library row survives, with the new columns null.
       final track = await db.localTracksDao.byPath('C:/music/old.mp3');
       expect(track, isNotNull);
       expect(track!.title, '旧曲');
       expect(track.mtime, 100);
-      expect(track.lyricsMtime, isNull, reason: 'v3 column, nothing to backfill');
+      expect(
+        track.lyricsMtime,
+        isNull,
+        reason: 'v3 column, nothing to backfill',
+      );
       expect(track.lyricsSize, isNull);
 
       expect((await db.toplistsCacheDao.byPlatform('qq')).single.name, '热歌榜');
-      expect(
-        await db.smartPlaylistSnapshotsDao.songKeys('rule-1'),
-        ['netease:s1'],
-      );
+      expect(await db.smartPlaylistSnapshotsDao.songKeys('rule-1'), [
+        'netease:s1',
+      ]);
 
       // --- The v3 additions. ---
       expect(await db.select(db.lyricsOffsets).get(), isEmpty);
@@ -245,63 +248,62 @@ void main() {
         containsAll(_v4IndexNames),
         reason: 'a v2 database must gain every v4 index on upgrade',
       );
-      expect(
-        await indexNames(db),
-        isNot(contains(_droppedIndexName)),
-      );
+      expect(await indexNames(db), isNot(contains(_droppedIndexName)));
     });
 
-    test('the v3 columns are writable and the v3 DAOs work after an upgrade', () async {
-      final db = AppDatabase.forTesting(
-        NativeDatabase(
-          dbFile,
-          setup: (raw) {
-            _createV2Schema(raw.execute);
-            raw.execute('PRAGMA user_version = 2');
-          },
-        ),
-      );
-      addTearDown(db.close);
+    test(
+      'the v3 columns are writable and the v3 DAOs work after an upgrade',
+      () async {
+        final db = AppDatabase.forTesting(
+          NativeDatabase(
+            dbFile,
+            setup: (raw) {
+              _createV2Schema(raw.execute);
+              raw.execute('PRAGMA user_version = 2');
+            },
+          ),
+        );
+        addTearDown(db.close);
 
-      await db.localTracksDao.upsert(
-        LocalTracksCompanion.insert(
-          path: 'C:/music/new.mp3',
-          mtime: 1,
-          size: 2,
-          lyricsMtime: const Value(1234),
-          lyricsSize: const Value(99),
-        ),
-      );
-      final row = await db.localTracksDao.byPath('C:/music/new.mp3');
-      expect(row!.lyricsMtime, 1234);
-      expect(row.lyricsSize, 99);
+        await db.localTracksDao.upsert(
+          LocalTracksCompanion.insert(
+            path: 'C:/music/new.mp3',
+            mtime: 1,
+            size: 2,
+            lyricsMtime: const Value(1234),
+            lyricsSize: const Value(99),
+          ),
+        );
+        final row = await db.localTracksDao.byPath('C:/music/new.mp3');
+        expect(row!.lyricsMtime, 1234);
+        expect(row.lyricsSize, 99);
 
-      await db.lyricsOffsetDao.set('netease:s1', const Duration(seconds: 2));
-      expect(
-        await db.lyricsOffsetDao.get('netease:s1'),
-        const Duration(seconds: 2),
-      );
-      await db.lyricsOffsetDao.set('netease:s1', Duration.zero);
-      expect(await db.lyricsOffsetDao.get('netease:s1'), Duration.zero);
+        await db.lyricsOffsetDao.set('netease:s1', const Duration(seconds: 2));
+        expect(
+          await db.lyricsOffsetDao.get('netease:s1'),
+          const Duration(seconds: 2),
+        );
+        await db.lyricsOffsetDao.set('netease:s1', Duration.zero);
+        expect(await db.lyricsOffsetDao.get('netease:s1'), Duration.zero);
 
-      await db.sourceMatchCacheDao.put(
-        songKey: 'qq:s2',
-        targetPlatform: 'netease',
-        targetSongId: 's1',
-        expiresAt: DateTime(2026, 6, 1),
-      );
-      final cachedMatch = await db.sourceMatchCacheDao.get(
-        'qq:s2',
-        'netease',
-        now: DateTime(2026, 5, 30),
-      );
-      expect(cachedMatch!.targetSongId, 's1');
-    });
+        await db.sourceMatchCacheDao.put(
+          songKey: 'qq:s2',
+          targetPlatform: 'netease',
+          targetSongId: 's1',
+          expiresAt: DateTime(2026, 6, 1),
+        );
+        final cachedMatch = await db.sourceMatchCacheDao.get(
+          'qq:s2',
+          'netease',
+          now: DateTime(2026, 5, 30),
+        );
+        expect(cachedMatch!.targetSongId, 's1');
+      },
+    );
   });
 
   group('v3 → v4', () {
-    test('a v3 database gains the v4 tables and loses the redundant index',
-        () async {
+    test('a v3 database gains the v4 tables and loses the redundant index', () async {
       final db = AppDatabase.forTesting(
         NativeDatabase(
           dbFile,
@@ -441,8 +443,7 @@ void main() {
   });
 
   group('schema parity', () {
-    test('a fresh v4 database and an upgraded v2 one are the same schema',
-        () async {
+    test('a fresh v4 database and an upgraded v2 one are the same schema', () async {
       // The upgrade path and `onCreate` are two independent code paths that must
       // agree. Without this test, a column or index added to the table definition
       // alone leaves upgraded installs quietly different from new ones forever.
@@ -480,8 +481,7 @@ void main() {
       }
     });
 
-    test('a fresh v4 database and an upgraded v1 one are the same schema',
-        () async {
+    test('a fresh v4 database and an upgraded v1 one are the same schema', () async {
       // `containsAll` (asserted in the v1 group above) cannot see an **extra**
       // column or index, and cannot see a missing table at all — only the
       // equality comparison can. The v1 path is the longest jump (four branches
@@ -520,40 +520,42 @@ void main() {
       }
     });
 
-    test('a fresh v4 database and an upgraded v3 one are the same schema',
-        () async {
-      // The v2 → v4 test above cannot see an index that v3 created and v4 drops,
-      // because the v2 path never creates it in the first place. This pairing is
-      // what covers the `DROP INDEX` branch.
-      final fresh = AppDatabase.forTesting(NativeDatabase.memory());
-      addTearDown(fresh.close);
+    test(
+      'a fresh v4 database and an upgraded v3 one are the same schema',
+      () async {
+        // The v2 → v4 test above cannot see an index that v3 created and v4 drops,
+        // because the v2 path never creates it in the first place. This pairing is
+        // what covers the `DROP INDEX` branch.
+        final fresh = AppDatabase.forTesting(NativeDatabase.memory());
+        addTearDown(fresh.close);
 
-      final upgraded = AppDatabase.forTesting(
-        NativeDatabase(
-          dbFile,
-          setup: (raw) {
-            _createV3Schema(raw.execute);
-            raw.execute('PRAGMA user_version = 3');
-          },
-        ),
-      );
-      addTearDown(upgraded.close);
-
-      expect(await indexNames(upgraded), await indexNames(fresh));
-      expect(await _tableNames(upgraded), await _tableNames(fresh));
-      expect(
-        await indexNames(fresh),
-        isNot(contains(_droppedIndexName)),
-        reason: 'a fresh v4 install must not create the dropped index',
-      );
-      for (final table in const ['track_ratings', 'scrobble_queue']) {
-        expect(
-          await columnsOf(upgraded, table),
-          await columnsOf(fresh, table),
-          reason: '$table must have the same columns on both paths',
+        final upgraded = AppDatabase.forTesting(
+          NativeDatabase(
+            dbFile,
+            setup: (raw) {
+              _createV3Schema(raw.execute);
+              raw.execute('PRAGMA user_version = 3');
+            },
+          ),
         );
-      }
-    });
+        addTearDown(upgraded.close);
+
+        expect(await indexNames(upgraded), await indexNames(fresh));
+        expect(await _tableNames(upgraded), await _tableNames(fresh));
+        expect(
+          await indexNames(fresh),
+          isNot(contains(_droppedIndexName)),
+          reason: 'a fresh v4 install must not create the dropped index',
+        );
+        for (final table in const ['track_ratings', 'scrobble_queue']) {
+          expect(
+            await columnsOf(upgraded, table),
+            await columnsOf(fresh, table),
+            reason: '$table must have the same columns on both paths',
+          );
+        }
+      },
+    );
 
     test('a fresh database is created at v4 with every table', () async {
       final db = AppDatabase.forTesting(NativeDatabase.memory());

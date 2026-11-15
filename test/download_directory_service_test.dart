@@ -73,7 +73,6 @@ void main() {
 
     await service.resetCustomRootDirectory();
 
-
     final resetRoot = await service.currentRootDirectory();
     expect(store.customRootPath, isNull);
     expect(resetRoot.path, p.join(appDocs.path, 'downloads'));
@@ -100,34 +99,41 @@ void main() {
   // `download_directory_probe_test.dart`.
 
   group('unwritable directory guard', () {
-    test('an unwritable directory is rejected, with a reason, without throwing',
-        () async {
-      final guard = _FakeGuard(
-        dirExists: true,
-        writeError: const FileSystemException(
-          'Cannot write to the directory',
+    test(
+      'an unwritable directory is rejected, with a reason, without throwing',
+      () async {
+        final guard = _FakeGuard(
+          dirExists: true,
+          writeError: const FileSystemException(
+            'Cannot write to the directory',
+            '/readonly/music',
+            OSError('Permission denied', 13),
+          ),
+        );
+        final service = serviceWith(guard);
+
+        final result = await service.applyCustomRootDirectory(
           '/readonly/music',
-          OSError('Permission denied', 13),
-        ),
-      );
-      final service = serviceWith(guard);
+        );
 
-      final result = await service.applyCustomRootDirectory('/readonly/music');
-
-      expect(result.isOk, isFalse);
-      expect(result.rejection, DownloadRootRejection.notWritable);
-      expect(
-        result.message,
-        '该目录不可写，请选择应用可写的位置',
-        reason: 'the user must be told why nothing happened',
-      );
-      expect(result.detail, contains('Permission denied'));
-      // The bad path must not be persisted.
-      expect(store.customRootPath, isNull);
-      // The legacy bool view agrees.
-      expect(await service.setCustomRootDirectory('/readonly/music'), isFalse);
-      expect(store.customRootPath, isNull);
-    });
+        expect(result.isOk, isFalse);
+        expect(result.rejection, DownloadRootRejection.notWritable);
+        expect(
+          result.message,
+          '该目录不可写，请选择应用可写的位置',
+          reason: 'the user must be told why nothing happened',
+        );
+        expect(result.detail, contains('Permission denied'));
+        // The bad path must not be persisted.
+        expect(store.customRootPath, isNull);
+        // The legacy bool view agrees.
+        expect(
+          await service.setCustomRootDirectory('/readonly/music'),
+          isFalse,
+        );
+        expect(store.customRootPath, isNull);
+      },
+    );
 
     test('a directory that cannot be created is rejected', () async {
       final guard = _FakeGuard(
@@ -188,17 +194,26 @@ void main() {
       expect(result.rejection, DownloadRootRejection.storeFailed);
     });
 
-    test('a writable directory is accepted, normalized and persisted', () async {
-      final guard = _FakeGuard(dirExists: true);
-      final service = serviceWith(guard);
+    test(
+      'a writable directory is accepted, normalized and persisted',
+      () async {
+        final guard = _FakeGuard(dirExists: true);
+        final service = serviceWith(guard);
 
-      final result = await service.applyCustomRootDirectory(' /music/../music ');
+        final result = await service.applyCustomRootDirectory(
+          ' /music/../music ',
+        );
 
-      expect(result.isOk, isTrue);
-      expect(result.path, p.normalize('/music'));
-      expect(store.customRootPath, p.normalize('/music'));
-      expect(guard.created, isEmpty, reason: 'an existing dir is not recreated');
-    });
+        expect(result.isOk, isTrue);
+        expect(result.path, p.normalize('/music'));
+        expect(store.customRootPath, p.normalize('/music'));
+        expect(
+          guard.created,
+          isEmpty,
+          reason: 'an existing dir is not recreated',
+        );
+      },
+    );
 
     test('a missing but creatable directory is created then probed', () async {
       final guard = _FakeGuard(dirExists: false);
@@ -222,9 +237,8 @@ void main() {
       await guard.verifyWritable(directory);
 
       expect(
-        await File(
-          p.join(directory.path, DownloadDirectoryGuard.probeFileName),
-        ).exists(),
+        await File(p.join(directory.path, DownloadDirectoryGuard.probeFileName))
+            .exists(),
         isFalse,
         reason: 'the probe must not be left behind',
       );
@@ -241,36 +255,38 @@ void main() {
   });
 
   group('available root options', () {
-    test('offers the app documents root and the app-specific external root',
-        () async {
-      final appDocs = Directory(p.join(tempDir.path, 'app_docs'));
-      final external = Directory(p.join(tempDir.path, 'ext', 'downloads'));
-      final service = DownloadDirectoryService(
-        store: store,
-        defaultRootProvider: () async => appDocs,
-        externalRootProvider: () async => external,
-        guard: _FakeGuard(dirExists: true),
-      );
+    test(
+      'offers the app documents root and the app-specific external root',
+      () async {
+        final appDocs = Directory(p.join(tempDir.path, 'app_docs'));
+        final external = Directory(p.join(tempDir.path, 'ext', 'downloads'));
+        final service = DownloadDirectoryService(
+          store: store,
+          defaultRootProvider: () async => appDocs,
+          externalRootProvider: () async => external,
+          guard: _FakeGuard(dirExists: true),
+        );
 
-      final options = await service.availableRootOptions();
+        final options = await service.availableRootOptions();
 
-      expect(
-        options.map((option) => option.kind),
-        [DownloadRootKind.appDocuments, DownloadRootKind.appExternal],
-      );
-      expect(
-        options.map((option) => option.path),
-        [p.join(appDocs.path, 'downloads'), external.path],
-      );
-      expect(options.first.isCurrent, isTrue);
-      expect(options.last.isCurrent, isFalse);
+        expect(options.map((option) => option.kind), [
+          DownloadRootKind.appDocuments,
+          DownloadRootKind.appExternal,
+        ]);
+        expect(options.map((option) => option.path), [
+          p.join(appDocs.path, 'downloads'),
+          external.path,
+        ]);
+        expect(options.first.isCurrent, isTrue);
+        expect(options.last.isCurrent, isFalse);
 
-      // Once the external root is chosen it becomes the current one.
-      await service.applyCustomRootDirectory(external.path);
-      final refreshed = await service.availableRootOptions();
-      expect(refreshed.first.isCurrent, isFalse);
-      expect(refreshed.last.isCurrent, isTrue);
-    });
+        // Once the external root is chosen it becomes the current one.
+        await service.applyCustomRootDirectory(external.path);
+        final refreshed = await service.availableRootOptions();
+        expect(refreshed.first.isCurrent, isFalse);
+        expect(refreshed.last.isCurrent, isTrue);
+      },
+    );
 
     test('omits the external root when the platform has none', () async {
       final service = DownloadDirectoryService(
@@ -289,45 +305,44 @@ void main() {
 
   // ---- W0-C: one path per (song, quality) ---------------------------------
 
-  test('three lossy qualities of one song resolve to three distinct paths',
-      () async {
-    // The directory deliberately stays `平台/{mp3|flac}`: the quality that
-    // separates 标准/较高/极高 belongs in the *file* name, because the SAF
-    // staging file is flat (`staging/<fileName>`) — a directory-only split would
-    // leave SAF targets colliding exactly as before.
-    final service = DownloadDirectoryService(
-      store: store,
-      defaultRootProvider: () async => Directory(p.join(tempDir.path, 'docs')),
-    );
-    const song = Song(
-      id: 's1',
-      platform: PlatformType.netease,
-      name: 'Song 1',
-      artists: [Artist(id: 'a1', name: 'Artist 1')],
-    );
-
-    final paths = <String>{};
-    for (final quality in const [
-      AudioLevel.low,
-      AudioLevel.medium,
-      AudioLevel.high,
-    ]) {
-      final dir = await service.targetDirectory(song.platform, quality);
-      final task = DownloadTask(
-        id: DownloadTask.buildId(song, quality),
-        song: song,
-        quality: quality,
-        createdAt: DateTime(2026, 10, 9),
+  test(
+    'three lossy qualities of one song resolve to three distinct paths',
+    () async {
+      // The directory deliberately stays `平台/{mp3|flac}`: the quality that
+      // separates 标准/较高/极高 belongs in the *file* name, because the SAF
+      // staging file is flat (`staging/<fileName>`) — a directory-only split would
+      // leave SAF targets colliding exactly as before.
+      final service = DownloadDirectoryService(
+        store: store,
+        defaultRootProvider: () async =>
+            Directory(p.join(tempDir.path, 'docs')),
       );
-      paths.add(p.join(dir.path, task.fileName));
-    }
+      const song = Song(
+        id: 's1',
+        platform: PlatformType.netease,
+        name: 'Song 1',
+        artists: [Artist(id: 'a1', name: 'Artist 1')],
+      );
 
-    expect(
-      paths,
-      hasLength(3),
-      reason: '三个有损音质必须落到三个不同文件，否则会互相续传、互相删除',
-    );
-  });
+      final paths = <String>{};
+      for (final quality in const [
+        AudioLevel.low,
+        AudioLevel.medium,
+        AudioLevel.high,
+      ]) {
+        final dir = await service.targetDirectory(song.platform, quality);
+        final task = DownloadTask(
+          id: DownloadTask.buildId(song, quality),
+          song: song,
+          quality: quality,
+          createdAt: DateTime(2026, 10, 9),
+        );
+        paths.add(p.join(dir.path, task.fileName));
+      }
+
+      expect(paths, hasLength(3), reason: '三个有损音质必须落到三个不同文件，否则会互相续传、互相删除');
+    },
+  );
 }
 
 /// A guard that answers from memory and can be told to fail, so the guard tests
@@ -364,7 +379,6 @@ class _FakeGuard implements DownloadDirectoryGuard {
     if (writeError != null) throw writeError!;
   }
 }
-
 
 class _MemoryDownloadDirectoryStore implements DownloadDirectoryStore {
   String? customRootPath;

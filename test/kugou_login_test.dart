@@ -340,60 +340,57 @@ void main() {
     },
   );
 
-  test(
-    'Kugou create playlist omits x-router (which 404s) and sends client identity',
-    () async {
-      final dio = Dio();
-      RequestOptions? capturedOptions;
-      Object? capturedBody;
-      dio.interceptors.add(
-        InterceptorsWrapper(
-          onRequest: (options, handler) {
-            capturedOptions = options;
-            capturedBody = options.data;
-            handler.resolve(
-              Response(
-                requestOptions: options,
-                statusCode: 200,
-                data: {'status': 1},
-              ),
-            );
-          },
-        ),
-      );
+  test('Kugou create playlist omits x-router (which 404s) and sends client identity', () async {
+    final dio = Dio();
+    RequestOptions? capturedOptions;
+    Object? capturedBody;
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          capturedOptions = options;
+          capturedBody = options.data;
+          handler.resolve(
+            Response(
+              requestOptions: options,
+              statusCode: 200,
+              data: {'status': 1},
+            ),
+          );
+        },
+      ),
+    );
 
-      final api = KugouApi(dio: dio)
-        ..setClientMode(KugouPlaybackClient.lite)
-        ..setToken('token-1')
-        ..setUserId('10001');
+    final api = KugouApi(dio: dio)
+      ..setClientMode(KugouPlaybackClient.lite)
+      ..setToken('token-1')
+      ..setUserId('10001');
 
-      await api.createPlaylist('新歌单');
+    await api.createPlaylist('新歌单');
 
-      expect(capturedOptions, isNotNull);
-      expect(capturedOptions!.method, 'POST');
-      expect(
-        capturedOptions!.uri.toString(),
-        contains('/cloudlist.service/v5/add_list'),
-      );
-      // 这里以前断言 x-router == 'cloudlist.service.kugou.com'。那条断言把"建歌单
-      // 失败"钉成了"预期行为"。2026-10-09 对线上网关实测：
-      //   同一 URL，不带 x-router            -> HTTP 200
-      //   同一 URL，带 cloudlist.service…    -> HTTP 404  ← 用户看到的"新建歌单失败"
-      // 而 `collectPlaylist`（同一个 endpoint）本来就不带这个头。所以现在断言它
-      // **不存在**：这是修复本身，不是放宽断言。
-      expect(
-        capturedOptions!.headers.containsKey('x-router'),
-        isFalse,
-        reason: '带 x-router 会让此端点 404（实测），因此不得再发送它',
-      );
-      expect(capturedOptions!.queryParameters['appid'], 3116);
-      expect(capturedOptions!.queryParameters['clientver'], 11440);
-      expect(capturedOptions!.queryParameters['userid'], '10001');
-      expect(capturedOptions!.queryParameters['token'], 'token-1');
-      expect(capturedBody, isA<Map>());
-      expect((capturedBody as Map)['name'], '新歌单');
-    },
-  );
+    expect(capturedOptions, isNotNull);
+    expect(capturedOptions!.method, 'POST');
+    expect(
+      capturedOptions!.uri.toString(),
+      contains('/cloudlist.service/v5/add_list'),
+    );
+    // 这里以前断言 x-router == 'cloudlist.service.kugou.com'。那条断言把"建歌单
+    // 失败"钉成了"预期行为"。2026-10-09 对线上网关实测：
+    //   同一 URL，不带 x-router            -> HTTP 200
+    //   同一 URL，带 cloudlist.service…    -> HTTP 404  ← 用户看到的"新建歌单失败"
+    // 而 `collectPlaylist`（同一个 endpoint）本来就不带这个头。所以现在断言它
+    // **不存在**：这是修复本身，不是放宽断言。
+    expect(
+      capturedOptions!.headers.containsKey('x-router'),
+      isFalse,
+      reason: '带 x-router 会让此端点 404（实测），因此不得再发送它',
+    );
+    expect(capturedOptions!.queryParameters['appid'], 3116);
+    expect(capturedOptions!.queryParameters['clientver'], 11440);
+    expect(capturedOptions!.queryParameters['userid'], '10001');
+    expect(capturedOptions!.queryParameters['token'], 'token-1');
+    expect(capturedBody, isA<Map>());
+    expect((capturedBody as Map)['name'], '新歌单');
+  });
 
   test(
     'Kugou QR success stores userid from fetched profile for later APIs',
@@ -543,17 +540,15 @@ void main() {
     expect(saved['client'], 'lite');
 
     final oldApi = KugouApi();
-    await KugouPlatform(
-      api: oldApi,
-    ).restoreSession(_MemorySessionStorage(cookie: 'old-token|60006'));
+    await KugouPlatform(api: oldApi)
+        .restoreSession(_MemorySessionStorage(cookie: 'old-token|60006'));
     expect(oldApi.token, 'old-token');
     expect(oldApi.userid, '60006');
     expect(oldApi.clientMode, KugouPlaybackClient.android);
 
     final restoredApi = KugouApi();
-    await KugouPlatform(
-      api: restoredApi,
-    ).restoreSession(_MemorySessionStorage(cookie: storage.cookie));
+    await KugouPlatform(api: restoredApi)
+        .restoreSession(_MemorySessionStorage(cookie: storage.cookie));
     expect(restoredApi.clientMode, KugouPlaybackClient.lite);
     expect(restoredApi.hasVipPlaybackSession, isTrue);
   });

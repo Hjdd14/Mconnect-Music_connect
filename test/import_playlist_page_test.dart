@@ -56,15 +56,14 @@ void main() {
     final document = decodePlaylistTransfer(_threeBucketText);
 
     expect(document, isNotNull);
-    expect(
-      document!.entries.map((entry) => entry.title).toList(),
-      <String>['可入的歌', '待确认的歌', '没有的歌'],
-    );
+    expect(document!.entries.map((entry) => entry.title).toList(), <String>[
+      '可入的歌',
+      '待确认的歌',
+      '没有的歌',
+    ]);
 
-    final report = await TransferMatcher(matcher: _ThreeBucketMatcher()).match(
-      playlistName: document.name,
-      entries: document.entries,
-    );
+    final report = await TransferMatcher(matcher: _ThreeBucketMatcher())
+        .match(playlistName: document.name, entries: document.entries);
 
     expect(report.exactCount, 1);
     expect(report.needsConfirmationCount, 1);

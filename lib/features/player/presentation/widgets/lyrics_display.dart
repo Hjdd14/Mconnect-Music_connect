@@ -1,8 +1,10 @@
 import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../../lyrics/lyrics_display_settings.dart';
 import '../../../../lyrics/lyrics_progress.dart';
 import '../../../../lyrics/models/lyrics_line.dart';
@@ -40,6 +42,7 @@ class _LyricsDisplayState extends ConsumerState<LyricsDisplay>
   Timer? _scrollTimer;
   Timer? _positionTimer;
   Duration _position = Duration.zero;
+
   /// Manual calibration; added to the playback position before matching lines.
   Duration _lyricsOffset = Duration.zero;
 

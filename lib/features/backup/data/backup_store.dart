@@ -79,7 +79,8 @@ class MemorySettingsSnapshotSource implements SettingsSnapshotSource {
   Map<String, dynamic> get values => Map<String, dynamic>.unmodifiable(_values);
 
   @override
-  Future<Map<String, dynamic>> read() async => Map<String, dynamic>.from(_values);
+  Future<Map<String, dynamic>> read() async =>
+      Map<String, dynamic>.from(_values);
 
   @override
   Future<void> write(Map<String, dynamic> values) async {
@@ -316,9 +317,7 @@ dynamic _jsonSafe(dynamic value) {
   }
   if (value is List) return value.map(_jsonSafe).toList();
   if (value is Map) {
-    return value.map(
-      (key, item) => MapEntry(key.toString(), _jsonSafe(item)),
-    );
+    return value.map((key, item) => MapEntry(key.toString(), _jsonSafe(item)));
   }
   throw FormatException('unsupported value type ${value.runtimeType}');
 }

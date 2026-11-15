@@ -54,10 +54,7 @@ void main() {
     channel = _RecordingChannel();
   });
 
-  Future<void> pumpPage(
-    WidgetTester tester, {
-    String link = _link,
-  }) async {
+  Future<void> pumpPage(WidgetTester tester, {String link = _link}) async {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -201,9 +198,8 @@ void main() {
       ProviderScope(
         overrides: [
           myPlaylistsProvider.overrideWith(
-            (ref) => MyPlaylistsNotifier(
-              repository: _FakeMyPlaylistsRepository(),
-            ),
+            (ref) =>
+                MyPlaylistsNotifier(repository: _FakeMyPlaylistsRepository()),
           ),
           platformPlaylistsProvider.overrideWith(
             (ref) => PlatformPlaylistsNotifier(
@@ -229,11 +225,7 @@ void main() {
     await tester.tap(find.text('重试'));
     await tester.pumpAndSettle();
 
-    expect(
-      loads,
-      2,
-      reason: '点重试必须真的再拉一次该平台的歌单，而不是只把错误清掉',
-    );
+    expect(loads, 2, reason: '点重试必须真的再拉一次该平台的歌单，而不是只把错误清掉');
   });
 
   testWidgets(

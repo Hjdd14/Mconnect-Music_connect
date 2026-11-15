@@ -65,10 +65,10 @@ void main() {
 
     final grouped = await store.all();
 
-    expect(grouped.keys, containsAll(<PlatformType>[
-      PlatformType.qq,
-      PlatformType.netease,
-    ]));
+    expect(
+      grouped.keys,
+      containsAll(<PlatformType>[PlatformType.qq, PlatformType.netease]),
+    );
     expect(grouped[PlatformType.qq]!.single.name, '热歌榜');
     expect(grouped.values.expand((rows) => rows).length, 2);
   });
@@ -104,7 +104,8 @@ class ToplistFixture {
   static const hot = Toplist(
     id: '26',
     name: '热歌榜',
-    coverUrl: 'http://y.gtimg.cn/music/photo_new/T003R300x300M000001xEeb01e5Jyf.jpg',
+    coverUrl:
+        'http://y.gtimg.cn/music/photo_new/T003R300x300M000001xEeb01e5Jyf.jpg',
     updateFrequency: '每日更新',
     songCount: 300,
     period: '2026-10-06',

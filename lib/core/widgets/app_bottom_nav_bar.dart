@@ -56,13 +56,22 @@ class AppBottomNavBar extends ConsumerWidget {
       // Same ARB keys as the Miuix branch (loating_glass_nav_bar.dart), so
       // switching UI style cannot change the four labels.
       destinations: [
-        NavigationDestination(icon: const Icon(Icons.search), label: l.navSearch),
-        NavigationDestination(icon: const Icon(Icons.explore), label: l.navDiscover),
+        NavigationDestination(
+          icon: const Icon(Icons.search),
+          label: l.navSearch,
+        ),
+        NavigationDestination(
+          icon: const Icon(Icons.explore),
+          label: l.navDiscover,
+        ),
         NavigationDestination(
           icon: const Icon(Icons.library_music),
           label: l.navLibrary,
         ),
-        NavigationDestination(icon: const Icon(Icons.download), label: l.navDownloads),
+        NavigationDestination(
+          icon: const Icon(Icons.download),
+          label: l.navDownloads,
+        ),
       ],
     );
   }

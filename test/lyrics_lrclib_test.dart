@@ -38,10 +38,7 @@ void main() {
         format: LyricsFormat.lrc,
       );
 
-      expect(
-        shouldAskLrclib(document, songDuration: song.duration),
-        isFalse,
-      );
+      expect(shouldAskLrclib(document, songDuration: song.duration), isFalse);
     });
 
     test('asks when the timeline is obviously off', () {
@@ -51,10 +48,7 @@ void main() {
         format: LyricsFormat.lrc,
       );
 
-      expect(
-        shouldAskLrclib(document, songDuration: song.duration),
-        isTrue,
-      );
+      expect(shouldAskLrclib(document, songDuration: song.duration), isTrue);
     });
 
     test('cannot judge a timeline without a song duration', () {
@@ -132,18 +126,25 @@ void main() {
       expect(query['artist_name'], 'The Beatles');
     });
 
-    test('skips instrumental entries and entries without synced lyrics', () async {
-      final stub = build([
-        candidate(duration: 125, synced: '[00:01.00]instrumental', instrumental: true),
-        candidate(duration: 125, synced: null),
-        candidate(duration: 125, synced: '[00:01.00]real one'),
-      ]);
+    test(
+      'skips instrumental entries and entries without synced lyrics',
+      () async {
+        final stub = build([
+          candidate(
+            duration: 125,
+            synced: '[00:01.00]instrumental',
+            instrumental: true,
+          ),
+          candidate(duration: 125, synced: null),
+          candidate(duration: 125, synced: '[00:01.00]real one'),
+        ]);
 
-      expect(
-        await stub.client.fetchSyncedLyrics(song, duration: song.duration),
-        '[00:01.00]real one',
-      );
-    });
+        expect(
+          await stub.client.fetchSyncedLyrics(song, duration: song.duration),
+          '[00:01.00]real one',
+        );
+      },
+    );
 
     test('rejects a candidate whose duration is far off', () async {
       final stub = build([
@@ -157,16 +158,17 @@ void main() {
       );
     });
 
-    test('accepts the first usable candidate when the duration is unknown', () async {
-      final stub = build([
-        candidate(duration: 400, synced: '[00:01.00]any'),
-      ]);
+    test(
+      'accepts the first usable candidate when the duration is unknown',
+      () async {
+        final stub = build([candidate(duration: 400, synced: '[00:01.00]any')]);
 
-      expect(
-        await stub.client.fetchSyncedLyrics(song, duration: Duration.zero),
-        '[00:01.00]any',
-      );
-    });
+        expect(
+          await stub.client.fetchSyncedLyrics(song, duration: Duration.zero),
+          '[00:01.00]any',
+        );
+      },
+    );
 
     test('a 404 (no match) is a miss, not a crash', () async {
       final stub = build(null, statusCode: 404);

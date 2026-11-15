@@ -321,9 +321,7 @@ class DownloadManager {
         cancelToken: cancelToken,
         options: Options(
           responseType: ResponseType.stream,
-          headers: resumeFrom > 0
-              ? {'Range': 'bytes=$resumeFrom-'}
-              : null,
+          headers: resumeFrom > 0 ? {'Range': 'bytes=$resumeFrom-'} : null,
         ),
       );
 

@@ -36,7 +36,9 @@ void main() {
       );
 
       expect(handler, contains('WM_CLOSE'));
-      final close = handler.indexOf('desktop_integration_channel_->HandleCloseRequest()');
+      final close = handler.indexOf(
+        'desktop_integration_channel_->HandleCloseRequest()',
+      );
       final lifecycle = handler.indexOf('HandleTopLevelWindowProc');
       expect(close, greaterThan(-1), reason: 'WM_CLOSE must be answered here');
       expect(lifecycle, greaterThan(-1));
@@ -89,7 +91,8 @@ void main() {
       expect(
         loader,
         isNot(contains('return nullptr')),
-        reason: 'a null icon is exactly what leaves the app with no tray at all',
+        reason:
+            'a null icon is exactly what leaves the app with no tray at all',
       );
     });
 
@@ -166,7 +169,11 @@ void main() {
       expect(save, contains('remember_window_state_'));
 
       // The idle save timer after a drag/resize is the other place that writes.
-      final idle = _section(source, 'case WM_EXITSIZEMOVE:', 'case WM_COPYDATA:');
+      final idle = _section(
+        source,
+        'case WM_EXITSIZEMOVE:',
+        'case WM_COPYDATA:',
+      );
       expect(idle, contains('remember_window_state_'));
       expect(idle, contains('SetTimer'));
     });
@@ -200,7 +207,9 @@ void main() {
         reason: 'the hidden fallback must not let the app exit',
       );
       // Recoverability is the whole reason hiding is safe here.
-      final single = _source('windows/runner/desktop/desktop_integration_channel.cpp');
+      final single = _source(
+        'windows/runner/desktop/desktop_integration_channel.cpp',
+      );
       final forwarded = _section(
         single,
         'void DesktopIntegrationChannel::HandleForwardedPayload',

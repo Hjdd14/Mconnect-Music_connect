@@ -34,8 +34,10 @@ typedef LyricsOffsetLoad = Future<Duration> Function(String songKey);
 
 /// Writes (or clears, on a zero offset) one song's calibration. The key is null
 /// when no song is bound — the store then has nothing to write.
-typedef LyricsOffsetPersist =
-    Future<void> Function(String? songKey, int milliseconds);
+typedef LyricsOffsetPersist = Future<void> Function(
+  String? songKey,
+  int milliseconds,
+);
 
 /// Where the per-song calibration is stored.
 ///
@@ -53,7 +55,8 @@ class DriftLyricsOffsetStore implements LyricsOffsetStore {
   const DriftLyricsOffsetStore();
 
   @override
-  Future<Duration> load(String songKey) => database.lyricsOffsetDao.get(songKey);
+  Future<Duration> load(String songKey) =>
+      database.lyricsOffsetDao.get(songKey);
 
   @override
   Future<void> save(String songKey, Duration offset) =>

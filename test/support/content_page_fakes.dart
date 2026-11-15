@@ -362,10 +362,7 @@ List<RankedSong> rankedSongsFromHotCpFixture(Map<String, dynamic> payload) {
       name: '${songRow['songname']}',
       artists: [
         for (final singer in songRow['singer'] as List)
-          Artist(
-            id: '${(singer as Map)['mid']}',
-            name: '${singer['name']}',
-          ),
+          Artist(id: '${(singer as Map)['mid']}', name: '${singer['name']}'),
       ],
       album: songRow['albumname'] == null
           ? null
@@ -379,7 +376,9 @@ List<RankedSong> rankedSongsFromHotCpFixture(Map<String, dynamic> payload) {
       RankedSong(
         song: song,
         rank: current ?? i + 1,
-        rankChange: previous == null || current == null ? null : previous - current,
+        rankChange: previous == null || current == null
+            ? null
+            : previous - current,
         isNew: previous == 0,
         rankValue: row['Franking_value']?.toString(),
       ),
@@ -407,11 +406,7 @@ Song song(
     artists: [Artist(id: artistId ?? 'artist', name: artist)],
     album: albumName == null
         ? null
-        : Album(
-            id: albumId ?? 'album',
-            name: albumName,
-            coverUrl: coverUrl,
-          ),
+        : Album(id: albumId ?? 'album', name: albumName, coverUrl: coverUrl),
     albumId: albumId,
     artistId: artistId,
     trackNumber: trackNumber,

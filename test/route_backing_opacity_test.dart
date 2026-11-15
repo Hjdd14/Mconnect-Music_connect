@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' show GlassContainer;
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart'
+    show GlassContainer;
 import 'package:mconnect/app.dart';
 import 'package:mconnect/core/router/app_router.dart';
 import 'package:mconnect/core/theme/app_background.dart';
@@ -86,23 +88,26 @@ void main() {
   });
 
   group('backing opacity is per route', () {
-    test('the home screen is barely dimmed; a secondary page is not dimmed', () {
-      // One value for every route is what dimmed the user's background everywhere,
-      // home included. The transition no longer relies on this number (the incoming
-      // page is opaque), so it is free to serve readability alone.
-      expect(routeBackingOpacityFor('/'), homeBackingOpacity);
-      expect(homeBackingOpacity, lessThanOrEqualTo(0.15));
+    test(
+      'the home screen is barely dimmed; a secondary page is not dimmed',
+      () {
+        // One value for every route is what dimmed the user's background everywhere,
+        // home included. The transition no longer relies on this number (the incoming
+        // page is opaque), so it is free to serve readability alone.
+        expect(routeBackingOpacityFor('/'), homeBackingOpacity);
+        expect(homeBackingOpacity, lessThanOrEqualTo(0.15));
 
-      for (final route in ['/settings', '/likes', '/history', '/downloads']) {
-        expect(
-          routeBackingOpacityFor(route),
-          0,
-          reason:
-              'a secondary page must not flatten the background: its readability '
-              'comes from the glass blur instead',
-        );
-      }
-    });
+        for (final route in ['/settings', '/likes', '/history', '/downloads']) {
+          expect(
+            routeBackingOpacityFor(route),
+            0,
+            reason:
+                'a secondary page must not flatten the background: its readability '
+                'comes from the glass blur instead',
+          );
+        }
+      },
+    );
 
     testWidgets('the home route really does not dim the background', (
       tester,
@@ -280,68 +285,69 @@ void main() {
       );
     });
 
-    testWidgets('no BackdropFilter and no GlassContainer anywhere in the sheet', (
-      tester,
-    ) async {
-      // THE regression guard for the "白影" (a blurred ghost of the previous page's
-      // text seen *through* the panel).
-      //
-      // A `BackdropFilter` filters the already-composited scene at its paint
-      // position, and `TransitionRoute._handleStatusChanged` keeps the outgoing
-      // route painted (`overlayEntries.first.opaque = false`) for the whole
-      // forward/reverse window. So any backdrop filter here necessarily samples the
-      // previous page — which is exactly how its white text got smeared into the
-      // panel. `ImageFiltered` filters only its own child, so it cannot.
-      //
-      // This assertion is therefore not cosmetic: "no BackdropFilter in this
-      // subtree" *is* the proof that no other route can reach the sheet.
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            appBackgroundSettingsProvider.overrideWith(
-              (ref) => _Bg(path: _realImageFile.path),
-            ),
-          ],
-          child: MaterialApp(
-            home: SecondaryGlassSurface(
-              imageBuilder: (_) => const ColoredBox(
-                key: Key('fake-frosted-image'),
-                color: Colors.red,
-                child: SizedBox.expand(),
+    testWidgets(
+      'no BackdropFilter and no GlassContainer anywhere in the sheet',
+      (tester) async {
+        // THE regression guard for the "白影" (a blurred ghost of the previous page's
+        // text seen *through* the panel).
+        //
+        // A `BackdropFilter` filters the already-composited scene at its paint
+        // position, and `TransitionRoute._handleStatusChanged` keeps the outgoing
+        // route painted (`overlayEntries.first.opaque = false`) for the whole
+        // forward/reverse window. So any backdrop filter here necessarily samples the
+        // previous page — which is exactly how its white text got smeared into the
+        // panel. `ImageFiltered` filters only its own child, so it cannot.
+        //
+        // This assertion is therefore not cosmetic: "no BackdropFilter in this
+        // subtree" *is* the proof that no other route can reach the sheet.
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              appBackgroundSettingsProvider.overrideWith(
+                (ref) => _Bg(path: _realImageFile.path),
               ),
-              child: const Text('page'),
+            ],
+            child: MaterialApp(
+              home: SecondaryGlassSurface(
+                imageBuilder: (_) => const ColoredBox(
+                  key: Key('fake-frosted-image'),
+                  color: Colors.red,
+                  child: SizedBox.expand(),
+                ),
+                child: const Text('page'),
+              ),
             ),
           ),
-        ),
-      );
+        );
 
-      expect(find.text('page'), findsOneWidget);
-      expect(
-        find.byType(BackdropFilter),
-        findsNothing,
-        reason:
-            'a backdrop filter samples the live scene, which during a transition '
-            'still contains the outgoing route — that is the ghost',
-      );
-      expect(
-        find.byType(GlassContainer),
-        findsNothing,
-        reason: 'a GlassContainer would paint the rim again',
-      );
+        expect(find.text('page'), findsOneWidget);
+        expect(
+          find.byType(BackdropFilter),
+          findsNothing,
+          reason:
+              'a backdrop filter samples the live scene, which during a transition '
+              'still contains the outgoing route — that is the ghost',
+        );
+        expect(
+          find.byType(GlassContainer),
+          findsNothing,
+          reason: 'a GlassContainer would paint the rim again',
+        );
 
-      // The blur now runs over the sheet's own copy of the picture.
-      final frosted = tester.widget<ImageFiltered>(
-        find.byKey(const Key('secondary-acrylic-frosted-image')),
-      );
-      expect(frosted.imageFilter.toString(), contains('20.0'));
-      expect(find.byKey(const Key('fake-frosted-image')), findsOneWidget);
+        // The blur now runs over the sheet's own copy of the picture.
+        final frosted = tester.widget<ImageFiltered>(
+          find.byKey(const Key('secondary-acrylic-frosted-image')),
+        );
+        expect(frosted.imageFilter.toString(), contains('20.0'));
+        expect(find.byKey(const Key('fake-frosted-image')), findsOneWidget);
 
-      // The fill must stay light so the picture reads through.
-      final fill = tester.widget<ColoredBox>(
-        find.byKey(const Key('secondary-acrylic-surface')),
-      );
-      expect(fill.color.a, lessThanOrEqualTo(0.2));
-    });
+        // The fill must stay light so the picture reads through.
+        final fill = tester.widget<ColoredBox>(
+          find.byKey(const Key('secondary-acrylic-surface')),
+        );
+        expect(fill.color.a, lessThanOrEqualTo(0.2));
+      },
+    );
 
     testWidgets('the masking floor is opaque', (tester) async {
       // Masking is structural now: an opaque floor plus a picture the sheet paints
@@ -525,7 +531,9 @@ void main() {
     });
   });
 
-  testWidgets('the sheet masks whether or not motion is reduced', (tester) async {
+  testWidgets('the sheet masks whether or not motion is reduced', (
+    tester,
+  ) async {
     // This used to be the only branch that skipped the sheet: it fell back to a
     // `surface` scrim at alpha 0.6. That scrim is translucent, so for the whole
     // route animation (280 ms forward / 220 ms reverse) the outgoing route still
@@ -536,9 +544,7 @@ void main() {
     // changes the material at all. One path means one behaviour to reason about.
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [
-          appBackgroundSettingsProvider.overrideWith((ref) => _Bg()),
-        ],
+        overrides: [appBackgroundSettingsProvider.overrideWith((ref) => _Bg())],
         child: const MediaQuery(
           data: MediaQueryData(disableAnimations: true),
           child: MaterialApp(home: SecondaryGlassSurface(child: Text('page'))),

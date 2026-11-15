@@ -95,7 +95,8 @@ void main() {
       expect(
         children,
         isNotEmpty,
-        reason: 'BaseAudioHandler.getChildren 默认返回 []；若这里是空的，'
+        reason:
+            'BaseAudioHandler.getChildren 默认返回 []；若这里是空的，'
             '说明 mixin 没被应用（Play 审核会以 EP-1/EP-2 拒审）',
       );
       expect(children.first.id, AudioBrowseTree.queueGroupId);

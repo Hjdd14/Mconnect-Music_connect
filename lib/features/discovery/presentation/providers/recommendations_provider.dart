@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../../models/recommendation_source.dart';
 import '../../../../models/song.dart';
 import '../../../../models/platform_type.dart';
@@ -127,8 +128,9 @@ class RecommendationsNotifier extends StateNotifier<RecommendationsState> {
 
     // Only blame login when nothing at all could be produced. A single
     // platform failing must not turn into a page-level error.
-    final String? nextError =
-        results.isEmpty && loggedInCount == 0 ? '请先登录平台账号' : null;
+    final String? nextError = results.isEmpty && loggedInCount == 0
+        ? '请先登录平台账号'
+        : null;
 
     state = state.copyWith(
       songsByPlatform: results,
@@ -148,9 +150,9 @@ class RecommendationsNotifier extends StateNotifier<RecommendationsState> {
       platformImpl = _platformResolver(platform);
       loggedIn = platformImpl.isLoggedIn;
 
-      final result = await platformImpl
-          .getDailyRecommendation()
-          .timeout(_operationTimeout);
+      final result = await platformImpl.getDailyRecommendation().timeout(
+        _operationTimeout,
+      );
       return _RecommendationLoadResult(
         platform: platform,
         loggedIn: loggedIn,

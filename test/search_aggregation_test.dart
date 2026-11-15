@@ -15,10 +15,20 @@ import 'support/content_page_fakes.dart';
 void main() {
   group('跨平台合并', () {
     test('按 Song.dedupeKey 合并同曲多平台并保留全部来源', () {
-      final netease = song('n1', PlatformType.netease, name: '晴天', artist: '周杰伦');
+      final netease = song(
+        'n1',
+        PlatformType.netease,
+        name: '晴天',
+        artist: '周杰伦',
+      );
       final qq = song('q1', PlatformType.qq, name: '晴天', artist: '周杰伦');
       final kugou = song('k1', PlatformType.kugou, name: '晴天', artist: '周杰伦');
-      final other = song('n2', PlatformType.netease, name: '七里香', artist: '周杰伦');
+      final other = song(
+        'n2',
+        PlatformType.netease,
+        name: '七里香',
+        artist: '周杰伦',
+      );
 
       final merged = mergeSearchSongs([qq, netease, other, kugou]);
 
@@ -82,7 +92,10 @@ void main() {
 
       expect(notifier.state.songs, hasLength(1));
       expect(notifier.state.songs.single.sourceCount, 2);
-      expect(notifier.state.errorsByPlatform[PlatformType.qq], contains('boom'));
+      expect(
+        notifier.state.errorsByPlatform[PlatformType.qq],
+        contains('boom'),
+      );
       expect(notifier.state.error, isNull, reason: '还有结果时不报页面级错误');
     });
 
@@ -176,10 +189,7 @@ void main() {
     });
 
     test('空关键词不产生联想', () {
-      expect(
-        searchSuggestions(query: '  ', history: ['周杰伦']),
-        isEmpty,
-      );
+      expect(searchSuggestions(query: '  ', history: ['周杰伦']), isEmpty);
     });
   });
 
@@ -267,7 +277,9 @@ void main() {
         ProviderScope(
           overrides: [
             searchHistoryStoreProvider.overrideWithValue(
-              SearchHistoryStore(boxOpener: () async => throw Exception('no hive')),
+              SearchHistoryStore(
+                boxOpener: () async => throw Exception('no hive'),
+              ),
             ),
             aggregatedSearchProvider.overrideWith(
               (ref) => AggregatedSearchNotifier(
@@ -310,7 +322,9 @@ void main() {
         ProviderScope(
           overrides: [
             searchHistoryStoreProvider.overrideWithValue(
-              SearchHistoryStore(boxOpener: () async => throw Exception('no hive')),
+              SearchHistoryStore(
+                boxOpener: () async => throw Exception('no hive'),
+              ),
             ),
           ],
           child: const MaterialApp(home: Scaffold(body: SearchScreen())),

@@ -17,9 +17,7 @@ import 'support/content_page_fakes.dart';
 /// the per-frame progress ring.
 void main() {
   Future<PlayerNotifier> playerWithCurrentTrack() async {
-    final platform = registerFake(
-      FakeContentPlatform(type: PlatformType.qq),
-    );
+    final platform = registerFake(FakeContentPlatform(type: PlatformType.qq));
     final player = PlayerNotifier(
       audioController: IdleAudioController(),
       platformResolver: (_) => platform,

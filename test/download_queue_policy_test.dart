@@ -130,44 +130,48 @@ void main() {
 
   // ---- P0-3a: 仅 Wi-Fi 下载 --------------------------------------------------
 
-  test('仅 Wi-Fi 下载 holds cache tasks on mobile and releases them on Wi-Fi',
-      () async {
-    final manager = FakeDownloadManager();
-    final connectivity = StreamController<Object?>.broadcast();
-    var onWifi = false;
-    final notifier = DownloadNotifier(
-      manager: manager,
-      taskStore: MemoryDownloadTaskStore([]),
-      policy: () => const DownloadQueuePolicy(wifiOnly: true),
-      connectionCheck: () async => onWifi,
-      connectivityStream: connectivity.stream,
-    );
-    addTearDown(() {
-      notifier.dispose();
-      unawaited(connectivity.close());
-    });
+  test(
+    '仅 Wi-Fi 下载 holds cache tasks on mobile and releases them on Wi-Fi',
+    () async {
+      final manager = FakeDownloadManager();
+      final connectivity = StreamController<Object?>.broadcast();
+      var onWifi = false;
+      final notifier = DownloadNotifier(
+        manager: manager,
+        taskStore: MemoryDownloadTaskStore([]),
+        policy: () => const DownloadQueuePolicy(wifiOnly: true),
+        connectionCheck: () async => onWifi,
+        connectivityStream: connectivity.stream,
+      );
+      addTearDown(() {
+        notifier.dispose();
+        unawaited(connectivity.close());
+      });
 
-    final report = await notifier.cacheSongs([_song], quality: AudioLevel.low);
-    await pumpEventQueue();
+      final report = await notifier.cacheSongs([
+        _song,
+      ], quality: AudioLevel.low);
+      await pumpEventQueue();
 
-    expect(report.blockedNoConnection, 1);
-    expect(report.started, 0);
-    expect(manager.started, isEmpty, reason: 'no download on mobile data');
-    expect(
-      notifier.state.tasks.single.status,
-      DownloadStatus.waiting,
-      reason: 'a held task is still visible as waiting',
-    );
-    expect(notifier.state.queueBlockedReason, contains('Wi-Fi'));
+      expect(report.blockedNoConnection, 1);
+      expect(report.started, 0);
+      expect(manager.started, isEmpty, reason: 'no download on mobile data');
+      expect(
+        notifier.state.tasks.single.status,
+        DownloadStatus.waiting,
+        reason: 'a held task is still visible as waiting',
+      );
+      expect(notifier.state.queueBlockedReason, contains('Wi-Fi'));
 
-    // Wi-Fi comes back: the held task starts by itself.
-    onWifi = true;
-    connectivity.add(<Object>[]);
-    await pumpEventQueue();
+      // Wi-Fi comes back: the held task starts by itself.
+      onWifi = true;
+      connectivity.add(<Object>[]);
+      await pumpEventQueue();
 
-    expect(manager.started, ['netease_s1_low_cache']);
-    expect(notifier.state.tasks.single.status, DownloadStatus.downloading);
-  });
+      expect(manager.started, ['netease_s1_low_cache']);
+      expect(notifier.state.tasks.single.status, DownloadStatus.downloading);
+    },
+  );
 
   test('仅 Wi-Fi 下载 never vetoes a download the user tapped', () async {
     final manager = FakeDownloadManager();
@@ -182,11 +186,9 @@ void main() {
     await notifier.startDownload(_song, AudioLevel.low);
     await pumpEventQueue();
 
-    expect(
-      manager.started,
-      ['netease_s1_low'],
-      reason: 'the switch is labelled "移动网络下不自动执行缓存任务"',
-    );
+    expect(manager.started, [
+      'netease_s1_low',
+    ], reason: 'the switch is labelled "移动网络下不自动执行缓存任务"');
     expect(notifier.state.tasks.single.status, DownloadStatus.downloading);
   });
 
@@ -206,7 +208,10 @@ void main() {
     await pumpEventQueue();
     expect(manager.started, hasLength(1));
 
-    manager.fail(manager.started.first, DownloadFailure.network('socket reset'));
+    manager.fail(
+      manager.started.first,
+      DownloadFailure.network('socket reset'),
+    );
     await pumpEventQueue();
 
     // The failure is recorded (and the switch has scheduled a retry).
@@ -309,34 +314,37 @@ void main() {
 
   // ---- P0-3c: 离线模式 ------------------------------------------------------
 
-  test('离线模式 stops the cache queue from starting anything on its own',
-      () async {
-    final manager = FakeDownloadManager();
-    final notifier = DownloadNotifier(
-      manager: manager,
-      taskStore: MemoryDownloadTaskStore([]),
-      policy: () => const DownloadQueuePolicy(offlineMode: true),
-    );
-    addTearDown(notifier.dispose);
+  test(
+    '离线模式 stops the cache queue from starting anything on its own',
+    () async {
+      final manager = FakeDownloadManager();
+      final notifier = DownloadNotifier(
+        manager: manager,
+        taskStore: MemoryDownloadTaskStore([]),
+        policy: () => const DownloadQueuePolicy(offlineMode: true),
+      );
+      addTearDown(notifier.dispose);
 
-    final report = await notifier.cacheSongs([_song], quality: AudioLevel.low);
-    await pumpEventQueue();
+      final report = await notifier.cacheSongs([
+        _song,
+      ], quality: AudioLevel.low);
+      await pumpEventQueue();
 
-    expect(report.blockedOfflineMode, 1);
-    expect(report.started, 0);
-    expect(manager.started, isEmpty);
-    expect(notifier.state.queueBlockedReason, contains('离线模式'));
+      expect(report.blockedOfflineMode, 1);
+      expect(report.started, 0);
+      expect(manager.started, isEmpty);
+      expect(notifier.state.queueBlockedReason, contains('离线模式'));
 
-    // An explicit tap still works.
-    await notifier.startWaitingTask('netease_s1_low_cache');
-    await pumpEventQueue();
-    expect(manager.started, ['netease_s1_low_cache']);
-  });
+      // An explicit tap still works.
+      await notifier.startWaitingTask('netease_s1_low_cache');
+      await pumpEventQueue();
+      expect(manager.started, ['netease_s1_low_cache']);
+    },
+  );
 
   // ---- P0-3d: 自动清理 / LRU ------------------------------------------------
 
-  test('自动清理 runs when an offline-cache file lands and evicts by LRU',
-      () async {
+  test('自动清理 runs when an offline-cache file lands and evicts by LRU', () async {
     final manager = FakeDownloadManager();
     final files = <String, String>{};
     Future<DownloadTask> seedTask(
@@ -380,7 +388,9 @@ void main() {
 
     final notifier = DownloadNotifier(
       manager: manager,
-      initialState: DownloadState(tasks: [oldestButMostUsed, leastRecentlyUsed, newest]),
+      initialState: DownloadState(
+        tasks: [oldestButMostUsed, leastRecentlyUsed, newest],
+      ),
       taskStore: MemoryDownloadTaskStore([]),
       policy: () =>
           const DownloadQueuePolicy(autoCleanup: true, sizeLimitMb: 1),
@@ -394,7 +404,8 @@ void main() {
     // wait for the eviction instead of assuming a fixed number of event-loop
     // turns is enough.
     await _waitFor(
-      () => !notifier.state.tasks.any((task) => task.id == leastRecentlyUsed.id),
+      () =>
+          !notifier.state.tasks.any((task) => task.id == leastRecentlyUsed.id),
     );
 
     final remaining = notifier.state.tasks.map((task) => task.id).toList();
@@ -412,121 +423,127 @@ void main() {
     expect(notifier.state.estimatedOfflineCacheBytes, lessThan(1024 * 1024));
   });
 
-  test('cleanupOfflineCache can be triggered by hand and respects the limit',
-      () async {
-    final manager = FakeDownloadManager();
-    final task = DownloadTask(
-      id: 'c1',
-      song: _songOf('c1'),
-      quality: AudioLevel.low,
-      status: DownloadStatus.completed,
-      progress: 1,
-      downloadedBytes: 2048,
-      totalBytes: 2048,
-      filePath: p.join(tempDir.path, 'c1.bin'),
-      createdAt: DateTime(2026, 1, 1),
-      completedAt: DateTime(2026, 1, 1),
-      isOfflineCache: true,
-    );
-    final notifier = DownloadNotifier(
-      manager: manager,
-      initialState: DownloadState(tasks: [task]),
-      taskStore: MemoryDownloadTaskStore([]),
-      policy: () => const DownloadQueuePolicy(autoCleanup: false),
-    );
-    addTearDown(notifier.dispose);
+  test(
+    'cleanupOfflineCache can be triggered by hand and respects the limit',
+    () async {
+      final manager = FakeDownloadManager();
+      final task = DownloadTask(
+        id: 'c1',
+        song: _songOf('c1'),
+        quality: AudioLevel.low,
+        status: DownloadStatus.completed,
+        progress: 1,
+        downloadedBytes: 2048,
+        totalBytes: 2048,
+        filePath: p.join(tempDir.path, 'c1.bin'),
+        createdAt: DateTime(2026, 1, 1),
+        completedAt: DateTime(2026, 1, 1),
+        isOfflineCache: true,
+      );
+      final notifier = DownloadNotifier(
+        manager: manager,
+        initialState: DownloadState(tasks: [task]),
+        taskStore: MemoryDownloadTaskStore([]),
+        policy: () => const DownloadQueuePolicy(autoCleanup: false),
+      );
+      addTearDown(notifier.dispose);
 
-    expect(await notifier.cleanupOfflineCache(sizeLimitMb: 0), 0);
-    expect(notifier.state.tasks, hasLength(1));
-  });
+      expect(await notifier.cleanupOfflineCache(sizeLimitMb: 0), 0);
+      expect(notifier.state.tasks, hasLength(1));
+    },
+  );
 
   // ---- P2: cache usage is measured by scanning the disk ---------------------
 
-  test('offline cache usage is scanned from disk, not from task records',
-      () async {
-    final manager = FakeDownloadManager();
-    final fileA = File(p.join(tempDir.path, 'a.bin'));
-    final fileB = File(p.join(tempDir.path, 'b.bin'));
-    await fileA.writeAsBytes(List<int>.filled(1000, 1));
-    await fileB.writeAsBytes(List<int>.filled(2000, 1));
-    DownloadTask taskFor(String id, File file, int bytes) => DownloadTask(
-      id: id,
-      song: _songOf(id),
-      quality: AudioLevel.low,
-      status: DownloadStatus.completed,
-      progress: 1,
-      downloadedBytes: bytes,
-      totalBytes: bytes,
-      filePath: file.path,
-      createdAt: DateTime(2026, 1, 1),
-      completedAt: DateTime(2026, 1, 1),
-      isOfflineCache: true,
-    );
+  test(
+    'offline cache usage is scanned from disk, not from task records',
+    () async {
+      final manager = FakeDownloadManager();
+      final fileA = File(p.join(tempDir.path, 'a.bin'));
+      final fileB = File(p.join(tempDir.path, 'b.bin'));
+      await fileA.writeAsBytes(List<int>.filled(1000, 1));
+      await fileB.writeAsBytes(List<int>.filled(2000, 1));
+      DownloadTask taskFor(String id, File file, int bytes) => DownloadTask(
+        id: id,
+        song: _songOf(id),
+        quality: AudioLevel.low,
+        status: DownloadStatus.completed,
+        progress: 1,
+        downloadedBytes: bytes,
+        totalBytes: bytes,
+        filePath: file.path,
+        createdAt: DateTime(2026, 1, 1),
+        completedAt: DateTime(2026, 1, 1),
+        isOfflineCache: true,
+      );
 
-    final notifier = DownloadNotifier(
-      manager: manager,
-      initialState: DownloadState(
-        tasks: [taskFor('a', fileA, 1000), taskFor('b', fileB, 2000)],
-      ),
-      taskStore: MemoryDownloadTaskStore([]),
-    );
-    addTearDown(notifier.dispose);
+      final notifier = DownloadNotifier(
+        manager: manager,
+        initialState: DownloadState(
+          tasks: [taskFor('a', fileA, 1000), taskFor('b', fileB, 2000)],
+        ),
+        taskStore: MemoryDownloadTaskStore([]),
+      );
+      addTearDown(notifier.dispose);
 
-    expect(await notifier.refreshCacheUsage(), 3000);
+      expect(await notifier.refreshCacheUsage(), 3000);
 
-    // The user (or another app) deletes one file: the number must follow.
-    await fileA.delete();
-    expect(await notifier.refreshCacheUsage(), 2000);
-    expect(notifier.state.estimatedOfflineCacheBytes, 2000);
-    expect(notifier.state.recordedOfflineCacheBytes, 3000);
-  });
+      // The user (or another app) deletes one file: the number must follow.
+      await fileA.delete();
+      expect(await notifier.refreshCacheUsage(), 2000);
+      expect(notifier.state.estimatedOfflineCacheBytes, 2000);
+      expect(notifier.state.recordedOfflineCacheBytes, 3000);
+    },
+  );
 
   // ---- offline playback priority hook --------------------------------------
 
-  test('localFilePathFor prefers a manual download and stamps the access time',
-      () async {
-    final manager = FakeDownloadManager();
-    final manualFile = File(p.join(tempDir.path, 'manual.mp3'));
-    final cacheFile = File(p.join(tempDir.path, 'cache.mp3'));
-    await manualFile.writeAsString('manual');
-    await cacheFile.writeAsString('cache');
-    final cacheTask = DownloadTask(
-      id: 'netease_s1_low_cache',
-      song: _song,
-      quality: AudioLevel.low,
-      status: DownloadStatus.completed,
-      progress: 1,
-      filePath: cacheFile.path,
-      createdAt: DateTime(2026, 1, 1),
-      completedAt: DateTime(2026, 1, 1),
-      isOfflineCache: true,
-    );
-    final manualTask = DownloadTask(
-      id: 'netease_s1_low',
-      song: _song,
-      quality: AudioLevel.low,
-      status: DownloadStatus.completed,
-      progress: 1,
-      filePath: manualFile.path,
-      createdAt: DateTime(2026, 1, 2),
-      completedAt: DateTime(2026, 1, 2),
-    );
-    final notifier = DownloadNotifier(
-      manager: manager,
-      initialState: DownloadState(tasks: [cacheTask, manualTask]),
-      taskStore: MemoryDownloadTaskStore([]),
-    );
-    addTearDown(notifier.dispose);
+  test(
+    'localFilePathFor prefers a manual download and stamps the access time',
+    () async {
+      final manager = FakeDownloadManager();
+      final manualFile = File(p.join(tempDir.path, 'manual.mp3'));
+      final cacheFile = File(p.join(tempDir.path, 'cache.mp3'));
+      await manualFile.writeAsString('manual');
+      await cacheFile.writeAsString('cache');
+      final cacheTask = DownloadTask(
+        id: 'netease_s1_low_cache',
+        song: _song,
+        quality: AudioLevel.low,
+        status: DownloadStatus.completed,
+        progress: 1,
+        filePath: cacheFile.path,
+        createdAt: DateTime(2026, 1, 1),
+        completedAt: DateTime(2026, 1, 1),
+        isOfflineCache: true,
+      );
+      final manualTask = DownloadTask(
+        id: 'netease_s1_low',
+        song: _song,
+        quality: AudioLevel.low,
+        status: DownloadStatus.completed,
+        progress: 1,
+        filePath: manualFile.path,
+        createdAt: DateTime(2026, 1, 2),
+        completedAt: DateTime(2026, 1, 2),
+      );
+      final notifier = DownloadNotifier(
+        manager: manager,
+        initialState: DownloadState(tasks: [cacheTask, manualTask]),
+        taskStore: MemoryDownloadTaskStore([]),
+      );
+      addTearDown(notifier.dispose);
 
-    expect(await notifier.localFilePathFor(_song), manualFile.path);
-    expect(
-      notifier.state.tasks
-          .firstWhere((task) => task.id == manualTask.id)
-          .lastAccessedAt,
-      isNotNull,
-      reason: 'reading a file is what LRU eviction orders by',
-    );
-  });
+      expect(await notifier.localFilePathFor(_song), manualFile.path);
+      expect(
+        notifier.state.tasks
+            .firstWhere((task) => task.id == manualTask.id)
+            .lastAccessedAt,
+        isNotNull,
+        reason: 'reading a file is what LRU eviction orders by',
+      );
+    },
+  );
 
   test('localFilePathFor returns null once the file is gone', () async {
     final manager = FakeDownloadManager();
@@ -555,98 +572,104 @@ void main() {
 
   // ---- queue pause --------------------------------------------------------
 
-  test('pausing the queue stops new starts and resuming restarts them',
-      () async {
-    final manager = FakeDownloadManager();
-    final notifier = DownloadNotifier(
-      manager: manager,
-      taskStore: MemoryDownloadTaskStore([]),
-    );
-    addTearDown(notifier.dispose);
+  test(
+    'pausing the queue stops new starts and resuming restarts them',
+    () async {
+      final manager = FakeDownloadManager();
+      final notifier = DownloadNotifier(
+        manager: manager,
+        taskStore: MemoryDownloadTaskStore([]),
+      );
+      addTearDown(notifier.dispose);
 
-    notifier.pauseQueue();
-    expect(notifier.state.queuePaused, isTrue);
-    expect(notifier.state.queueBlockedReason, contains('暂停'));
+      notifier.pauseQueue();
+      expect(notifier.state.queuePaused, isTrue);
+      expect(notifier.state.queueBlockedReason, contains('暂停'));
 
-    final report = await notifier.cacheSongs([
-      _songOf('p1'),
-      _songOf('p2'),
-    ], quality: AudioLevel.low);
-    await pumpEventQueue();
+      final report = await notifier.cacheSongs([
+        _songOf('p1'),
+        _songOf('p2'),
+      ], quality: AudioLevel.low);
+      await pumpEventQueue();
 
-    expect(report.blockedQueuePaused, 2);
-    expect(manager.started, isEmpty);
+      expect(report.blockedQueuePaused, 2);
+      expect(manager.started, isEmpty);
 
-    await notifier.resumeQueue();
-    await pumpEventQueue();
+      await notifier.resumeQueue();
+      await pumpEventQueue();
 
-    expect(manager.started, hasLength(2));
-    expect(notifier.state.queuePaused, isFalse);
-    expect(notifier.state.queueBlockedReason, isNull);
-  });
+      expect(manager.started, hasLength(2));
+      expect(notifier.state.queuePaused, isFalse);
+      expect(notifier.state.queueBlockedReason, isNull);
+    },
+  );
 
-  test('resuming the queue restarts a download the pause had stopped',
-      () async {
-    final manager = FakeDownloadManager();
-    final notifier = DownloadNotifier(
-      manager: manager,
-      taskStore: MemoryDownloadTaskStore([]),
-    );
-    addTearDown(notifier.dispose);
+  test(
+    'resuming the queue restarts a download the pause had stopped',
+    () async {
+      final manager = FakeDownloadManager();
+      final notifier = DownloadNotifier(
+        manager: manager,
+        taskStore: MemoryDownloadTaskStore([]),
+      );
+      addTearDown(notifier.dispose);
 
-    await notifier.startDownload(_song, AudioLevel.low);
-    await pumpEventQueue();
-    expect(notifier.state.tasks.single.status, DownloadStatus.downloading);
+      await notifier.startDownload(_song, AudioLevel.low);
+      await pumpEventQueue();
+      expect(notifier.state.tasks.single.status, DownloadStatus.downloading);
 
-    notifier.pauseQueue();
-    await pumpEventQueue();
+      notifier.pauseQueue();
+      await pumpEventQueue();
 
-    expect(manager.pauseCalls, 1);
-    expect(notifier.state.tasks.single.status, DownloadStatus.paused);
+      expect(manager.pauseCalls, 1);
+      expect(notifier.state.tasks.single.status, DownloadStatus.paused);
 
-    await notifier.resumeQueue();
-    await pumpEventQueue();
+      await notifier.resumeQueue();
+      await pumpEventQueue();
 
-    expect(
-      manager.started,
-      hasLength(2),
-      reason: '"继续队列" must put the stopped download back in the queue',
-    );
-    expect(notifier.state.tasks.single.status, DownloadStatus.downloading);
-  });
+      expect(
+        manager.started,
+        hasLength(2),
+        reason: '"继续队列" must put the stopped download back in the queue',
+      );
+      expect(notifier.state.tasks.single.status, DownloadStatus.downloading);
+    },
+  );
 
   // ---- P1: the queue is what caps concurrency ------------------------------
 
-  test('the queue hands slots to queued tasks as earlier ones finish',
-      () async {
-    final manager = FakeDownloadManager();
-    final notifier = DownloadNotifier(
-      manager: manager,
-      taskStore: MemoryDownloadTaskStore([]),
-    );
-    addTearDown(notifier.dispose);
+  test(
+    'the queue hands slots to queued tasks as earlier ones finish',
+    () async {
+      final manager = FakeDownloadManager();
+      final notifier = DownloadNotifier(
+        manager: manager,
+        taskStore: MemoryDownloadTaskStore([]),
+      );
+      addTearDown(notifier.dispose);
 
-    await notifier.cacheSongs([
-      _songOf('q1'),
-      _songOf('q2'),
-      _songOf('q3'),
-      _songOf('q4'),
-      _songOf('q5'),
-    ], quality: AudioLevel.low);
-    await pumpEventQueue();
+      await notifier.cacheSongs([
+        _songOf('q1'),
+        _songOf('q2'),
+        _songOf('q3'),
+        _songOf('q4'),
+        _songOf('q5'),
+      ], quality: AudioLevel.low);
+      await pumpEventQueue();
 
-    expect(kMaxConcurrentDownloads, 3);
-    expect(manager.started, hasLength(3));
+      expect(kMaxConcurrentDownloads, 3);
+      expect(manager.started, hasLength(3));
 
-    manager.complete(manager.started[0]);
-    await pumpEventQueue();
-    expect(manager.started, hasLength(4));
-    expect(manager.isRunning(manager.started[3]), isTrue);
+      manager.complete(manager.started[0]);
+      await pumpEventQueue();
+      expect(manager.started, hasLength(4));
+      expect(manager.isRunning(manager.started[3]), isTrue);
 
-    manager.complete(manager.started[1]);
-    await pumpEventQueue();
-    expect(manager.started, hasLength(5));
-  });
+      manager.complete(manager.started[1]);
+      await pumpEventQueue();
+      expect(manager.started, hasLength(5));
+    },
+  );
 }
 
 const _song = Song(

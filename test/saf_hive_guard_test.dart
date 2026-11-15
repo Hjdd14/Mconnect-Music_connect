@@ -7,20 +7,21 @@ import 'package:mconnect/features/download/data/saf_tree_store.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('reading the SAF store with Hive uninitialised degrades to "nothing saved"', (
-    tester,
-  ) async {
-    final store = HiveSafTreeStore();
+  testWidgets(
+    'reading the SAF store with Hive uninitialised degrades to "nothing saved"',
+    (tester) async {
+      final store = HiveSafTreeStore();
 
-    expect(await store.read(), isNull);
-    await store.save(
-      SafTreeSelection(
-        uri: 'content://tree/1',
-        name: 'Music',
-        grantedAt: DateTime(2026, 10, 8),
-      ),
-    );
-    await store.clear();
-    expect(await store.read(), isNull);
-  });
+      expect(await store.read(), isNull);
+      await store.save(
+        SafTreeSelection(
+          uri: 'content://tree/1',
+          name: 'Music',
+          grantedAt: DateTime(2026, 10, 8),
+        ),
+      );
+      await store.clear();
+      expect(await store.read(), isNull);
+    },
+  );
 }

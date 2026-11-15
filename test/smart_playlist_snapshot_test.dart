@@ -77,45 +77,51 @@ void main() {
     expect(await repository.loadAll(), isEmpty);
   });
 
-  test('the notifier exposes a saved result and prunes deleted rules', () async {
-    final rulesRepository = MemorySmartPlaylistRepository();
-    final snapshots = MemorySmartPlaylistSnapshotRepository();
-    final notifier = SmartPlaylistsNotifier(
-      repository: rulesRepository,
-      snapshotRepository: snapshots,
-    );
-    await notifier.ready;
+  test(
+    'the notifier exposes a saved result and prunes deleted rules',
+    () async {
+      final rulesRepository = MemorySmartPlaylistRepository();
+      final snapshots = MemorySmartPlaylistSnapshotRepository();
+      final notifier = SmartPlaylistsNotifier(
+        repository: rulesRepository,
+        snapshotRepository: snapshots,
+      );
+      await notifier.ready;
 
-    final rule = await notifier.createRule(name: '规则一');
-    final songs = [
-      _song('1', PlatformType.netease, '第一首'),
-      _song('2', PlatformType.qq, '第二首'),
-    ];
+      final rule = await notifier.createRule(name: '规则一');
+      final songs = [
+        _song('1', PlatformType.netease, '第一首'),
+        _song('2', PlatformType.qq, '第二首'),
+      ];
 
-    final saved = await notifier.saveSnapshot(rule.id, songs);
-    expect(saved, isNotNull);
-    expect(notifier.state.snapshotFor(rule.id)!.songs, hasLength(2));
-    expect(notifier.state.error, isNull);
+      final saved = await notifier.saveSnapshot(rule.id, songs);
+      expect(saved, isNotNull);
+      expect(notifier.state.snapshotFor(rule.id)!.songs, hasLength(2));
+      expect(notifier.state.error, isNull);
 
-    await notifier.deleteRule(rule.id);
-    expect(notifier.state.snapshotFor(rule.id), isNull);
-    expect(await snapshots.loadAll(), isEmpty);
-  });
+      await notifier.deleteRule(rule.id);
+      expect(notifier.state.snapshotFor(rule.id), isNull);
+      expect(await snapshots.loadAll(), isEmpty);
+    },
+  );
 
-  test('a snapshot save failure is reported instead of silently dropped', () async {
-    final notifier = SmartPlaylistsNotifier(
-      repository: MemorySmartPlaylistRepository(),
-      snapshotRepository: _FailingSnapshotRepository(),
-    );
-    await notifier.ready;
+  test(
+    'a snapshot save failure is reported instead of silently dropped',
+    () async {
+      final notifier = SmartPlaylistsNotifier(
+        repository: MemorySmartPlaylistRepository(),
+        snapshotRepository: _FailingSnapshotRepository(),
+      );
+      await notifier.ready;
 
-    final song = _song('1', PlatformType.netease, '第一首');
-    final saved = await notifier.saveSnapshot('rule-1', [song]);
+      final song = _song('1', PlatformType.netease, '第一首');
+      final saved = await notifier.saveSnapshot('rule-1', [song]);
 
-    expect(saved, isNull);
-    expect(notifier.state.error, '生成结果保存失败');
-    expect(notifier.state.isSaving, isFalse);
-  });
+      expect(saved, isNull);
+      expect(notifier.state.error, '生成结果保存失败');
+      expect(notifier.state.isSaving, isFalse);
+    },
+  );
 
   test('rules without a snapshot repository still work', () async {
     final notifier = SmartPlaylistsNotifier(

@@ -38,23 +38,31 @@ void main() {
   }
 
   for (final style in UiStyle.values) {
-    testWidgets('$style bottom bar renders its four labels at 200 % text scale', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        wrap(
-          style: style,
-          textScale: 2.0,
-          child: AppBottomNavBar(selectedIndex: 0, onDestinationSelected: (_) {}),
-        ),
-      );
-      await tester.pumpAndSettle();
+    testWidgets(
+      '$style bottom bar renders its four labels at 200 % text scale',
+      (tester) async {
+        await tester.pumpWidget(
+          wrap(
+            style: style,
+            textScale: 2.0,
+            child: AppBottomNavBar(
+              selectedIndex: 0,
+              onDestinationSelected: (_) {},
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      expect(tester.takeException(), isNull);
-      for (final label in const ['搜索', '发现', '音乐库', '下载']) {
-        expect(find.text(label), findsWidgets, reason: 'missing $label ($style)');
-      }
-    });
+        expect(tester.takeException(), isNull);
+        for (final label in const ['搜索', '发现', '音乐库', '下载']) {
+          expect(
+            find.text(label),
+            findsWidgets,
+            reason: 'missing $label ($style)',
+          );
+        }
+      },
+    );
   }
 
   testWidgets('the four labels come from the ARB, not from a hard-coded list', (

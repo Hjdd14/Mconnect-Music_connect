@@ -111,8 +111,10 @@ Future<Uint8List?> captureLyricsCardPng(
 }
 
 /// 截图实现（可注入，测试里用真实 boundary 截图代替 Overlay 流程）。
-typedef LyricsCardCapture =
-    Future<Uint8List?> Function(BuildContext context, Widget card);
+typedef LyricsCardCapture = Future<Uint8List?> Function(
+  BuildContext context,
+  Widget card,
+);
 
 /// 截图 → 落临时文件 → 交给分享通道；成功返回分享出去的文件路径。
 ///
@@ -129,7 +131,9 @@ Future<String?> shareLyricsCard(
   LyricsCardCapture? capture,
 }) async {
   final captureCard =
-      capture ?? (ctx, widget) => captureLyricsCardPng(ctx, card: widget, pixelRatio: pixelRatio);
+      capture ??
+      (ctx, widget) =>
+          captureLyricsCardPng(ctx, card: widget, pixelRatio: pixelRatio);
   final bytes = await captureCard(context, card);
   if (bytes == null || bytes.isEmpty) return null;
 

@@ -186,7 +186,10 @@ void main() {
       final headers = env.adapter.requests.single.headers;
       expect(headers['Authorization'], 'Token USER-TOKEN');
       // ListenBrainz bans clients that omit the User-Agent, silently.
-      expect(headers['User-Agent'], 'Mconnect/1.5.0 ( https://github.com/mconnect )');
+      expect(
+        headers['User-Agent'],
+        'Mconnect/1.5.0 ( https://github.com/mconnect )',
+      );
       // The token must never be put in the URL.
       expect(env.adapter.requests.single.uri.query, isEmpty);
     });
@@ -230,7 +233,9 @@ void main() {
       expect(metadata['artist_name'], 'Rick Astley');
       expect(metadata['track_name'], 'Never Gonna Give You Up');
       expect(metadata['release_name'], 'Whenever you need somebody');
-      final info = Map<String, dynamic>.from(metadata['additional_info'] as Map);
+      final info = Map<String, dynamic>.from(
+        metadata['additional_info'] as Map,
+      );
       expect(info['duration_ms'], 222000);
       expect(info['media_player'], 'Mconnect');
       expect(info['submission_client'], 'Mconnect');
@@ -263,7 +268,9 @@ void main() {
       final env = _build(
         statusCode: 429,
         body: '{}',
-        headers: {'x-ratelimit-reset-in': const ['42']},
+        headers: {
+          'x-ratelimit-reset-in': const ['42'],
+        },
       );
 
       final result = await env.backend.scrobble([_entry()]);

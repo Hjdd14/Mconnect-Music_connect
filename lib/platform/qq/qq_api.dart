@@ -1,6 +1,8 @@
 import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+
 import '../../core/network/platform_http.dart';
 import '../../models/audio_quality.dart';
 import '../../models/platform_type.dart';
@@ -36,8 +38,7 @@ class QqApi {
             platform: PlatformType.qq,
             label: 'QQ音乐',
             headers: {
-              'User-Agent':
-                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
               'Referer': 'https://y.qq.com/',
               'Origin': 'https://y.qq.com',
             },
@@ -227,7 +228,9 @@ class QqApi {
     String key,
   ) {
     final module = response[key];
-    return module is Map ? Map<String, dynamic>.from(module) : <String, dynamic>{};
+    return module is Map
+        ? Map<String, dynamic>.from(module)
+        : <String, dynamic>{};
   }
 
   /// Search songs
@@ -454,7 +457,9 @@ class QqApi {
       // Store qrsig cookie (attribute segments stripped — see [_mergeSetCookies]).
       final cookies = res.headers['set-cookie'];
       if (cookies != null && cookies.isNotEmpty) {
-        setCookie(_mergeSetCookies(existing: _cookie ?? '', setCookieLines: cookies));
+        setCookie(
+          _mergeSetCookies(existing: _cookie ?? '', setCookieLines: cookies),
+        );
       }
       return res.data as List<int>?;
     } catch (_) {
@@ -497,7 +502,10 @@ class QqApi {
       // jar, which is precisely the bug that made graph.qq.com reject the session.
       final cookieStr = cookieHeaders == null
           ? null
-          : _mergeSetCookies(existing: _cookie ?? '', setCookieLines: cookieHeaders);
+          : _mergeSetCookies(
+              existing: _cookie ?? '',
+              setCookieLines: cookieHeaders,
+            );
       return {'raw': text, 'cookies': cookieStr};
     } catch (e) {
       return {'error': e.toString()};
@@ -562,9 +570,7 @@ class QqApi {
         final names = (hopCookies ?? const <String>[])
             .map((c) => c.split('=').first.trim())
             .join(',');
-        debugPrint(
-          'QQ OAuth: hop=$hop host=$hopHost cookieNames=[$names]',
-        );
+        debugPrint('QQ OAuth: hop=$hop host=$hopHost cookieNames=[$names]');
 
         final location = res.headers.value('location');
         debugPrint(
@@ -612,13 +618,14 @@ class QqApi {
       // the "QQ帐号安全登录" outcome is what separates "cookie lost" (a name
       // missing) from "cookie not valid for this host" (name present, domain
       // wrong) — the two have different fixes.
-      final sentNames = (_cookie ?? '')
-          .split(';')
-          .map((p) => p.split('=').first.trim())
-          .where((n) => n.isNotEmpty)
-          .toSet()
-          .toList()
-        ..sort();
+      final sentNames =
+          (_cookie ?? '')
+              .split(';')
+              .map((p) => p.split('=').first.trim())
+              .where((n) => n.isNotEmpty)
+              .toSet()
+              .toList()
+            ..sort();
       debugPrint('QQ OAuth: sending cookie names to graph: $sentNames');
       final authRes = await _dio.get(
         QqEndpoints.graphShow,
@@ -672,7 +679,8 @@ class QqApi {
         // was NOT accepted); a page that instead embeds a redirect target means
         // the session WAS accepted and we must submit the form.
         final hasForm = body.contains('authorize') || body.contains('<form');
-        final hasLoginUi = body.contains('pt_login') || body.contains('loginbtn');
+        final hasLoginUi =
+            body.contains('pt_login') || body.contains('loginbtn');
         debugPrint(
           'QQ OAuth: show body len=${body.length} authorizeForm=$hasForm '
           'loginUi=$hasLoginUi',
@@ -745,9 +753,8 @@ class QqApi {
       }
       if (authCode == null || authCode.isEmpty) {
         // Try parsing from body
-        final bodyMatch = RegExp(
-          r'code=([^&\s]+)',
-        ).firstMatch(authCodeRes.data.toString());
+        final bodyMatch = RegExp(r'code=([^&\s]+)')
+            .firstMatch(authCodeRes.data.toString());
         authCode = bodyMatch?.group(1);
       }
       if (authCode == null || authCode.isEmpty) {
@@ -804,7 +811,8 @@ class QqApi {
   }) {
     // name=value only, in order; later duplicates replace earlier ones.
     final jar = <String, String>{};
-    final deletions = <String>[];    void absorb(String line, {required bool fromExisting}) {
+    final deletions = <String>[];
+    void absorb(String line, {required bool fromExisting}) {
       final firstPair = line.split(';').first.trim();
       final eq = firstPair.indexOf('=');
       if (eq <= 0) return; // no "=", or empty name — not a cookie
@@ -842,7 +850,9 @@ class QqApi {
       // was swallowed whole. Split on commas that are FOLLOWED by `name=`
       // (that lookahead also protects `Expires=Wed, 21 Oct ...`, whose comma is
       // followed by a day number, not by a name).
-      for (final entry in line.split(RegExp(r',(?=\s*[A-Za-z_$][A-Za-z0-9_$]*\s*=)'))) {
+      for (final entry in line.split(
+        RegExp(r',(?=\s*[A-Za-z_$][A-Za-z0-9_$]*\s*=)'),
+      )) {
         absorb(entry, fromExisting: false);
       }
     }

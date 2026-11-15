@@ -14,8 +14,7 @@ void main() {
     starter();
   });
 
-  test('starts at most maxConcurrent downloads and keeps FIFO order',
-      () async {
+  test('starts at most maxConcurrent downloads and keeps FIFO order', () async {
     final scheduler = DownloadScheduler(
       onStart: started.add,
       connectionCheck: () async => true,
@@ -59,31 +58,33 @@ void main() {
     expect(started, ['a']);
   });
 
-  test('the connection gate holds tasks and releases them on recheck',
-      () async {
-    var onWifi = false;
-    final scheduler = DownloadScheduler(
-      onStart: started.add,
-      connectionCheck: () async => onWifi,
-    );
-    addTearDown(scheduler.dispose);
+  test(
+    'the connection gate holds tasks and releases them on recheck',
+    () async {
+      var onWifi = false;
+      final scheduler = DownloadScheduler(
+        onStart: started.add,
+        connectionCheck: () async => onWifi,
+      );
+      addTearDown(scheduler.dispose);
 
-    expect(
-      await scheduler.enqueue('a', requiresConnection: true),
-      DownloadEnqueueOutcome.blockedNoConnection,
-    );
-    expect(started, isEmpty);
-    expect(scheduler.heldIds, ['a']);
+      expect(
+        await scheduler.enqueue('a', requiresConnection: true),
+        DownloadEnqueueOutcome.blockedNoConnection,
+      );
+      expect(started, isEmpty);
+      expect(scheduler.heldIds, ['a']);
 
-    // Still on mobile: nothing starts.
-    expect(await scheduler.recheckHeld(), 0);
-    expect(started, isEmpty);
+      // Still on mobile: nothing starts.
+      expect(await scheduler.recheckHeld(), 0);
+      expect(started, isEmpty);
 
-    onWifi = true;
-    expect(await scheduler.recheckHeld(), 1);
-    expect(started, ['a']);
-    expect(scheduler.heldIds, isEmpty);
-  });
+      onWifi = true;
+      expect(await scheduler.recheckHeld(), 1);
+      expect(started, ['a']);
+      expect(scheduler.heldIds, isEmpty);
+    },
+  );
 
   test('a manual task bypasses the connection gate', () async {
     final scheduler = DownloadScheduler(
@@ -92,10 +93,7 @@ void main() {
     );
     addTearDown(scheduler.dispose);
 
-    expect(
-      await scheduler.enqueue('manual'),
-      DownloadEnqueueOutcome.started,
-    );
+    expect(await scheduler.enqueue('manual'), DownloadEnqueueOutcome.started);
     expect(started, ['manual']);
   });
 

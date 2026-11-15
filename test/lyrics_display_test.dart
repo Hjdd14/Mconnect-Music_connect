@@ -38,10 +38,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // 播放位置 2s + 偏移 3s = 5s，应当已经落在 4s 的第二行（当前行字号更大）。
-    expect(
-      _nearestAnimatedTextStyle(tester, 'Next line').style.fontSize,
-      20,
-    );
+    expect(_nearestAnimatedTextStyle(tester, 'Next line').style.fontSize, 20);
   });
 
   testWidgets('lyrics display splits the current line at the played boundary', (
@@ -103,8 +100,7 @@ void main() {
     tester,
   ) async {
     final notifier = _LyricsTestPlayerNotifier();
-    const text =
-        '我会买下所有难得一见的笑脸让所有可怜的孩子不再胆怯勇敢的向前';
+    const text = '我会买下所有难得一见的笑脸让所有可怜的孩子不再胆怯勇敢的向前';
     const document = LyricsDocument(
       lines: [
         LyricsLine(timestamp: Duration.zero, text: text),
@@ -123,11 +119,7 @@ void main() {
         child: const MaterialApp(
           home: Scaffold(
             body: Center(
-              child: SizedBox(
-                width: 200,
-                height: 400,
-                child: LyricsDisplay(),
-              ),
+              child: SizedBox(width: 200, height: 400, child: LyricsDisplay()),
             ),
           ),
         ),
@@ -394,11 +386,7 @@ void main() {
 
   const translatedDocument = LyricsDocument(
     lines: [
-      LyricsLine(
-        timestamp: Duration.zero,
-        text: 'Hello',
-        translation: '你好',
-      ),
+      LyricsLine(timestamp: Duration.zero, text: 'Hello', translation: '你好'),
       LyricsLine(timestamp: Duration(seconds: 4), text: 'World'),
     ],
     format: LyricsFormat.lrc,
@@ -415,9 +403,8 @@ void main() {
       translatedDocument,
       extraOverrides: [
         lyricsDisplayModeProvider.overrideWith(
-          (ref) => LyricsDisplayModeNotifier(
-            initial: LyricsDisplayMode.bilingual,
-          ),
+          (ref) =>
+              LyricsDisplayModeNotifier(initial: LyricsDisplayMode.bilingual),
         ),
       ],
     );
@@ -438,9 +425,8 @@ void main() {
       translatedDocument,
       extraOverrides: [
         lyricsDisplayModeProvider.overrideWith(
-          (ref) => LyricsDisplayModeNotifier(
-            initial: LyricsDisplayMode.original,
-          ),
+          (ref) =>
+              LyricsDisplayModeNotifier(initial: LyricsDisplayMode.original),
         ),
       ],
     );
@@ -450,32 +436,29 @@ void main() {
     expect(find.text('World'), findsOneWidget);
   });
 
-  testWidgets('translation-only mode promotes the translation to the main line', (
-    tester,
-  ) async {
-    final notifier = _LyricsTestPlayerNotifier();
+  testWidgets(
+    'translation-only mode promotes the translation to the main line',
+    (tester) async {
+      final notifier = _LyricsTestPlayerNotifier();
 
-    await _pumpLyricsDisplay(
-      tester,
-      notifier,
-      translatedDocument,
-      extraOverrides: [
-        lyricsDisplayModeProvider.overrideWith(
-          (ref) => LyricsDisplayModeNotifier(
-            initial: LyricsDisplayMode.translationOnly,
+      await _pumpLyricsDisplay(
+        tester,
+        notifier,
+        translatedDocument,
+        extraOverrides: [
+          lyricsDisplayModeProvider.overrideWith(
+            (ref) => LyricsDisplayModeNotifier(
+              initial: LyricsDisplayMode.translationOnly,
+            ),
           ),
-        ),
-      ],
-    );
+        ],
+      );
 
-    expect(find.text('Hello', findRichText: true), findsNothing);
-    expect(find.text('你好', findRichText: true), findsWidgets);
-    expect(
-      find.text('World'),
-      findsOneWidget,
-      reason: '没有译文的行必须退回原文，不能变成空行',
-    );
-  });
+      expect(find.text('Hello', findRichText: true), findsNothing);
+      expect(find.text('你好', findRichText: true), findsWidgets);
+      expect(find.text('World'), findsOneWidget, reason: '没有译文的行必须退回原文，不能变成空行');
+    },
+  );
 
   testWidgets('the typography setting drives the line text size and height', (
     tester,
@@ -496,14 +479,8 @@ void main() {
     );
 
     // 当前行 = base + 4，非当前行 = base；行距直接用设定值。
-    expect(
-      _nearestAnimatedTextStyle(tester, 'Hello').style.fontSize,
-      28,
-    );
-    expect(
-      _nearestAnimatedTextStyle(tester, 'World').style.fontSize,
-      24,
-    );
+    expect(_nearestAnimatedTextStyle(tester, 'Hello').style.fontSize, 28);
+    expect(_nearestAnimatedTextStyle(tester, 'World').style.fontSize, 24);
     expect(_nearestAnimatedTextStyle(tester, 'World').style.height, 1.8);
   });
 
@@ -609,9 +586,7 @@ Future<void> _pumpLyricsDisplayWithOffset(
         ),
       ],
       child: const MaterialApp(
-        home: Scaffold(
-          body: SizedBox(height: 240, child: LyricsDisplay()),
-        ),
+        home: Scaffold(body: SizedBox(height: 240, child: LyricsDisplay())),
       ),
     ),
   );

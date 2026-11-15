@@ -31,18 +31,23 @@ void main() {
       });
     });
 
-    test('an unclassifiable error is unknown, and unknown is not retryable',
-        () {
-      final failure = DownloadFailure.from(StateError('boom'));
-      expect(failure.kind, DownloadFailureKind.unknown);
-      expect(failure.isRetryable, isFalse);
-    });
+    test(
+      'an unclassifiable error is unknown, and unknown is not retryable',
+      () {
+        final failure = DownloadFailure.from(StateError('boom'));
+        expect(failure.kind, DownloadFailureKind.unknown);
+        expect(failure.isRetryable, isFalse);
+      },
+    );
 
     test('a DioException carrying a translated exception is unwrapped', () {
       final dioError = DioException(
         requestOptions: RequestOptions(path: '/x'),
         type: DioExceptionType.badResponse,
-        response: Response<void>(requestOptions: RequestOptions(path: '/x'), statusCode: 401),
+        response: Response<void>(
+          requestOptions: RequestOptions(path: '/x'),
+          statusCode: 401,
+        ),
       );
       expect(
         DownloadFailure.from(dioError).kind,
@@ -55,10 +60,7 @@ void main() {
 
   group('HTTP status mapping', () {
     test('401/403 need a new login', () {
-      expect(
-        DownloadFailure.fromStatus(403).kind,
-        DownloadFailureKind.auth,
-      );
+      expect(DownloadFailure.fromStatus(403).kind, DownloadFailureKind.auth);
     });
 
     test('404/410 mean the track is gone', () {
@@ -69,10 +71,7 @@ void main() {
     });
 
     test('a bad Range is a network retry, not a dead end', () {
-      expect(
-        DownloadFailure.fromStatus(416).kind,
-        DownloadFailureKind.network,
-      );
+      expect(DownloadFailure.fromStatus(416).kind, DownloadFailureKind.network);
     });
 
     test('500 is reported with its status code', () {

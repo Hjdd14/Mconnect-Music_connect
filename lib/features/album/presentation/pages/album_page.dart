@@ -100,9 +100,7 @@ class _AlbumPageState extends ConsumerState<AlbumPage> {
                           : () => ref
                                 .read(playerProvider.notifier)
                                 .playPlaylist(songs),
-                      onCacheAll: songs.isEmpty
-                          ? null
-                          : () => _cacheAll(songs),
+                      onCacheAll: songs.isEmpty ? null : () => _cacheAll(songs),
                       onOpenArtist: data.album?.artistId == null
                           ? null
                           : () => context.push(
@@ -188,11 +186,7 @@ class _AlbumHeader extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _AlbumCover(
-                coverUrl: album?.coverUrl,
-                accent: accent,
-                size: 120,
-              ),
+              _AlbumCover(coverUrl: album?.coverUrl, accent: accent, size: 120),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(

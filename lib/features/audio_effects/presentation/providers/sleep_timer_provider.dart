@@ -9,8 +9,10 @@ import 'audio_effects_provider.dart';
 typedef PausePlayback = Future<void> Function();
 
 /// Persists the sleep-timer runtime state; failures must never break the timer.
-typedef PersistSleepTimer =
-    Future<void> Function({required bool enabled, required Duration remaining});
+typedef PersistSleepTimer = Future<void> Function({
+  required bool enabled,
+  required Duration remaining,
+});
 
 /// How often the remaining time is written to storage while counting down.
 ///
@@ -48,12 +50,8 @@ final sleepTimerProvider =
       final settings = ref.read(audioEffectsSettingsProvider);
       final notifier = SleepTimerNotifier(
         pausePlayback: () => ref.read(playerProvider.notifier).pause(),
-        fadeOutPause: () =>
-            ref.read(playerProvider.notifier).fadeOutAndPause(),
-        persist: ({
-          required bool enabled,
-          required Duration remaining,
-        }) => ref
+        fadeOutPause: () => ref.read(playerProvider.notifier).fadeOutAndPause(),
+        persist: ({required bool enabled, required Duration remaining}) => ref
             .read(audioEffectsSettingsProvider.notifier)
             .setSleepTimerState(enabled: enabled, remaining: remaining),
         initialDuration: settings.sleepTimerDuration,

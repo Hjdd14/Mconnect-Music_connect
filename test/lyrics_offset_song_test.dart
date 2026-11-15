@@ -80,11 +80,9 @@ void main() {
 
     await notifier.adjust(const Duration(milliseconds: 500));
 
-    expect(
-      keys,
-      [null],
-      reason: '没有当前曲目时由 provider 的闭包决定不落库，notifier 只如实上报 null',
-    );
+    expect(keys, [
+      null,
+    ], reason: '没有当前曲目时由 provider 的闭包决定不落库，notifier 只如实上报 null');
   });
 
   test('binding no song resets to zero without reading the store', () async {
@@ -116,21 +114,24 @@ void main() {
     expect(notifier.state, maxLyricsOffset);
   });
 
-  test('a failing load leaves the offset at zero instead of throwing', () async {
-    final notifier = LyricsOffsetNotifier(
-      load: (_) async => throw StateError('db closed'),
-      initial: const Duration(milliseconds: 750),
-    );
-    addTearDown(notifier.dispose);
+  test(
+    'a failing load leaves the offset at zero instead of throwing',
+    () async {
+      final notifier = LyricsOffsetNotifier(
+        load: (_) async => throw StateError('db closed'),
+        initial: const Duration(milliseconds: 750),
+      );
+      addTearDown(notifier.dispose);
 
-    await notifier.bindSong('netease:d');
+      await notifier.bindSong('netease:d');
 
-    expect(
-      notifier.state,
-      Duration.zero,
-      reason: '读库失败时不能退回上一首的偏移，也不能把异常抛进界面',
-    );
-  });
+      expect(
+        notifier.state,
+        Duration.zero,
+        reason: '读库失败时不能退回上一首的偏移，也不能把异常抛进界面',
+      );
+    },
+  );
 }
 
 Song _song(String id, PlatformType platform) => Song(

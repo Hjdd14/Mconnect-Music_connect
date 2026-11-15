@@ -121,7 +121,9 @@ class DiagnosticsExporter {
       ..writeln('Mconnect 诊断日志')
       ..writeln('生成时间: ${timestamp.toIso8601String()}')
       ..writeln('应用版本: ${AppConstants.appVersion}')
-      ..writeln('平台: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}')
+      ..writeln(
+        '平台: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}',
+      )
       ..writeln('日志文件: ${service.logFile.path}')
       ..writeln('最近事件: ${events.length} 条')
       ..writeln(
@@ -210,8 +212,7 @@ class DiagnosticsExporter {
           ? text.substring(newline + 1)
           : text;
       return _LogSlice(
-        content:
-            '--- 日志文件超过 $maxLogBytes 字节，以下为最后部分 ---\n$aligned',
+        content: '--- 日志文件超过 $maxLogBytes 字节，以下为最后部分 ---\n$aligned',
         includedBytes: utf8.encode(aligned).length,
         truncated: true,
       );

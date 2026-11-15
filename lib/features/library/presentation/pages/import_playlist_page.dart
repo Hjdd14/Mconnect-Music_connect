@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../../core/transfer/playlist_codec.dart';
 import '../../../../core/transfer/transfer_providers.dart';
 import '../../../../core/transfer/transfer_report.dart';
@@ -235,10 +236,7 @@ class _ImportPlaylistPageState extends ConsumerState<ImportPlaylistPage> {
                     ),
                   ),
                   if (report.exact.isNotEmpty) ...[
-                    _reportSection(
-                      '可入 (${report.exactCount})',
-                      '自动加入，无需确认',
-                    ),
+                    _reportSection('可入 (${report.exactCount})', '自动加入，无需确认'),
                     for (final match in report.exact) _reportRow(match, draft),
                   ],
                   if (report.needsConfirmation.isNotEmpty) ...[
@@ -306,12 +304,10 @@ class _ImportPlaylistPageState extends ConsumerState<ImportPlaylistPage> {
     final cs = Theme.of(context).colorScheme;
     final song = match.song;
     final subtitle = switch (match.kind) {
-      TransferMatchKind.exact => song == null
-          ? null
-          : '→ ${song.name} - ${song.artistNames}',
-      TransferMatchKind.needsConfirmation => song == null
-          ? null
-          : '待确认：${song.name} - ${song.artistNames}',
+      TransferMatchKind.exact =>
+        song == null ? null : '→ ${song.name} - ${song.artistNames}',
+      TransferMatchKind.needsConfirmation =>
+        song == null ? null : '待确认：${song.name} - ${song.artistNames}',
       TransferMatchKind.missing => match.reason ?? '未找到可播放版本',
     };
     final subtitleWidget = subtitle == null

@@ -291,31 +291,24 @@ void main() {
     );
   });
 
-  test(
-    'Kugou VIP playback tries private authenticated URL before ordinary fallback',
-    () async {
-      final api = _VipFallbackApi();
+  test('Kugou VIP playback tries private authenticated URL before ordinary fallback', () async {
+    final api = _VipFallbackApi();
 
-      final url = await KugouPlatform(api: api).getSongUrl('VIP_HASH');
+    final url = await KugouPlatform(api: api).getSongUrl('VIP_HASH');
 
-      expect(url, 'https://tracker.example.test/private.flac');
-      expect(api.calls, ['info', 'private']);
-    },
-  );
+    expect(url, 'https://tracker.example.test/private.flac');
+    expect(api.calls, ['info', 'private']);
+  });
 
-  test(
-    'Kugou high quality playback ignores ordinary song info url and uses private route',
-    () async {
-      final api = _VipSongInfoDirectUrlApi();
+  test('Kugou high quality playback ignores ordinary song info url and uses private route', () async {
+    final api = _VipSongInfoDirectUrlApi();
 
-      final url = await KugouPlatform(
-        api: api,
-      ).getSongUrl('VIP_HASH', quality: AudioLevel.lossless);
+    final url = await KugouPlatform(api: api)
+        .getSongUrl('VIP_HASH', quality: AudioLevel.lossless);
 
-      expect(url, 'https://tracker.example.test/private-lossless.flac');
-      expect(api.calls, ['info', 'private']);
-    },
-  );
+    expect(url, 'https://tracker.example.test/private-lossless.flac');
+    expect(api.calls, ['info', 'private']);
+  });
 
   test('Kugou non-VIP playback keeps ordinary v5 fallback behavior', () async {
     final api = _SongInfoApi({'status': 0, 'hash': 'HASH3', 'url': ''})
@@ -611,7 +604,8 @@ class _SongInfoDirectUrlOnlyApi extends KugouApi {
   }
 }
 
-class _AllRoutesFailVipApi extends KugouApi {  _AllRoutesFailVipApi() {
+class _AllRoutesFailVipApi extends KugouApi {
+  _AllRoutesFailVipApi() {
     setSessionFields(
       token: 'token-1',
       userid: '10001',

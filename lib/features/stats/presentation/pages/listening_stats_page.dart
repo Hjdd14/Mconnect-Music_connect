@@ -87,10 +87,7 @@ class ListeningStatsPage extends ConsumerWidget {
                     title: '常听歌手',
                     rows: dimensions.artists.take(10).toList(),
                   ),
-                  _DimensionSection(
-                    title: '平台分布',
-                    rows: dimensions.platforms,
-                  ),
+                  _DimensionSection(title: '平台分布', rows: dimensions.platforms),
                   _HourSection(hours: dimensions.hours),
                   if (dimensions.days.isNotEmpty) ...[
                     Text(
@@ -188,8 +185,10 @@ class _HourSection extends StatelessWidget {
         for (final hour in active.take(5))
           ListTile(
             dense: true,
-            title: Text('${hour.hour.toString().padLeft(2, '0')}:00 - '
-                '${(hour.hour + 1).toString().padLeft(2, '0')}:00'),
+            title: Text(
+              '${hour.hour.toString().padLeft(2, '0')}:00 - '
+              '${(hour.hour + 1).toString().padLeft(2, '0')}:00',
+            ),
             subtitle: Text('${hour.playCount} 次播放'),
             trailing: Text(_formatDuration(hour.listenDuration)),
           ),

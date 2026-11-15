@@ -72,9 +72,5 @@ class RecommendationResult {
   /// Set when the platform could not produce anything; surfaced per platform.
   final String? error;
 
-  const RecommendationResult({
-    this.songs = const [],
-    this.source,
-    this.error,
-  });
+  const RecommendationResult({this.songs = const [], this.source, this.error});
 }

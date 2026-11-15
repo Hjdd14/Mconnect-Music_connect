@@ -135,10 +135,7 @@ void main() {
       await notifier.loadRecommendations();
 
       // The healthy platform still renders.
-      expect(
-        notifier.state.songsForPlatform(PlatformType.qq),
-        hasLength(1),
-      );
+      expect(notifier.state.songsForPlatform(PlatformType.qq), hasLength(1));
       expect(
         notifier.state.errorsByPlatform[PlatformType.netease],
         contains('timeout'),
@@ -175,10 +172,7 @@ void main() {
     await notifier.loadRecommendations();
 
     expect(notifier.state.error, isNull);
-    expect(
-      notifier.state.songsForPlatform(PlatformType.netease),
-      hasLength(1),
-    );
+    expect(notifier.state.songsForPlatform(PlatformType.netease), hasLength(1));
     expect(notifier.state.songsForPlatform(PlatformType.qq), isEmpty);
     expect(notifier.state.errorsByPlatform[PlatformType.qq], isNull);
   });
@@ -202,32 +196,29 @@ void main() {
     },
   );
 
-  test(
-    'daily recommendations keep a logged-in platform visible when it returns no songs',
-    () async {
-      final notifier = RecommendationsNotifier(
-        supportedTypes: const [PlatformType.netease, PlatformType.qq],
-        platformResolver: (platform) => _FakeRecommendationPlatform(
-          platform: platform,
-          supportsDaily: true,
-          loggedIn: platform == PlatformType.netease,
-          songs: const [],
-        ),
-      );
+  test('daily recommendations keep a logged-in platform visible when it returns no songs', () async {
+    final notifier = RecommendationsNotifier(
+      supportedTypes: const [PlatformType.netease, PlatformType.qq],
+      platformResolver: (platform) => _FakeRecommendationPlatform(
+        platform: platform,
+        supportsDaily: true,
+        loggedIn: platform == PlatformType.netease,
+        songs: const [],
+      ),
+    );
 
-      await notifier.loadRecommendations();
+    await notifier.loadRecommendations();
 
-      expect(
-        notifier.state.songsByPlatform.containsKey(PlatformType.netease),
-        isTrue,
-      );
-      expect(
-        notifier.state.songsByPlatform.containsKey(PlatformType.qq),
-        isFalse,
-      );
-      expect(notifier.state.error, isNull);
-    },
-  );
+    expect(
+      notifier.state.songsByPlatform.containsKey(PlatformType.netease),
+      isTrue,
+    );
+    expect(
+      notifier.state.songsByPlatform.containsKey(PlatformType.qq),
+      isFalse,
+    );
+    expect(notifier.state.error, isNull);
+  });
 
   test(
     'daily recommendations keep a logged-in platform visible when it fails',
@@ -272,9 +263,7 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [
-          recommendationsProvider.overrideWith((ref) => notifier),
-        ],
+        overrides: [recommendationsProvider.overrideWith((ref) => notifier)],
         child: const MaterialApp(home: RecommendationsPage()),
       ),
     );
@@ -289,11 +278,7 @@ void main() {
     await tester.tap(find.text('重试'));
     await tester.pumpAndSettle();
 
-    expect(
-      loads,
-      2,
-      reason: '点重试必须真的再加载一次，而不是只把错误清掉',
-    );
+    expect(loads, 2, reason: '点重试必须真的再加载一次，而不是只把错误清掉');
   });
 }
 

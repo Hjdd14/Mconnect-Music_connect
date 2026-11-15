@@ -64,7 +64,8 @@ class _DiscoveryDesktopPageState extends ConsumerState<DiscoveryDesktopPage> {
       for (final entry in auth.loggedUsers.entries)
         if (entry.value != null) entry.key,
     };
-    final unchanged = _loadedForLogin != null &&
+    final unchanged =
+        _loadedForLogin != null &&
         _loadedForLogin!.length == logged.length &&
         _loadedForLogin!.containsAll(logged);
     if (unchanged && !_waitingForSession) return;

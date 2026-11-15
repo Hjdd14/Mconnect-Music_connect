@@ -7,27 +7,30 @@ import 'package:mconnect/platform/kugou/kugou_platform.dart';
 /// live endpoints (see `scripts/test_kugou_wave1_probe*.dart`).
 void main() {
   group('getToplists', () {
-    test('parses rank/list rows including the extra.resp.all_total count', () async {
-      final platform = KugouPlatform(api: _ContentApi());
+    test(
+      'parses rank/list rows including the extra.resp.all_total count',
+      () async {
+        final platform = KugouPlatform(api: _ContentApi());
 
-      final toplists = await platform.getToplists();
+        final toplists = await platform.getToplists();
 
-      expect(toplists, hasLength(2));
-      final top500 = toplists.first;
-      expect(top500.id, '8888');
-      expect(top500.name, 'TOP500');
-      expect(top500.coverUrl, contains('imge.kugou.com'));
-      expect(top500.coverUrl, isNot(contains('{size}')));
-      expect(top500.updateFrequency, '每天');
-      expect(top500.songCount, 500);
-      expect(top500.period, '2026-10-06 08:30:01');
-      expect(top500.intro, contains('更新频率：每天'));
+        expect(toplists, hasLength(2));
+        final top500 = toplists.first;
+        expect(top500.id, '8888');
+        expect(top500.name, 'TOP500');
+        expect(top500.coverUrl, contains('imge.kugou.com'));
+        expect(top500.coverUrl, isNot(contains('{size}')));
+        expect(top500.updateFrequency, '每天');
+        expect(top500.songCount, 500);
+        expect(top500.period, '2026-10-06 08:30:01');
+        expect(top500.intro, contains('更新频率：每天'));
 
-      final weekly = toplists[1];
-      expect(weekly.id, '85897');
-      expect(weekly.updateFrequency, '周五凌晨更新周榜');
-      expect(weekly.songCount, 100);
-    });
+        final weekly = toplists[1];
+        expect(weekly.id, '85897');
+        expect(weekly.updateFrequency, '周五凌晨更新周榜');
+        expect(weekly.songCount, 100);
+      },
+    );
 
     test('drops rows without a rankid', () async {
       final platform = KugouPlatform(api: _ContentApi());
@@ -39,20 +42,23 @@ void main() {
   });
 
   group('getRankedSongs', () {
-    test('uses the reported sort/rank_count and maps movement to rankChange', () async {
-      final platform = KugouPlatform(api: _ContentApi());
+    test(
+      'uses the reported sort/rank_count and maps movement to rankChange',
+      () async {
+        final platform = KugouPlatform(api: _ContentApi());
 
-      final ranked = await platform.getRankedSongs('8888', num: 3);
+        final ranked = await platform.getRankedSongs('8888', num: 3);
 
-      expect(ranked, hasLength(3));
-      expect(ranked.map((r) => r.rank), [1, 2, 5]);
-      // rank_count is the previous position: 1 -> 1 = 0, 5 -> 2 = +3, 9 -> 5 = +4
-      expect(ranked.map((r) => r.rankChange), [0, 3, 4]);
-      expect(ranked.map((r) => r.rankValue), ['1', '5', '9']);
-      expect(ranked.map((r) => r.isNew), [null, true, null]);
-      expect(ranked.first.song.name, '茶汤');
-      expect(ranked.first.song.id, 'HASH_RANK_1');
-    });
+        expect(ranked, hasLength(3));
+        expect(ranked.map((r) => r.rank), [1, 2, 5]);
+        // rank_count is the previous position: 1 -> 1 = 0, 5 -> 2 = +3, 9 -> 5 = +4
+        expect(ranked.map((r) => r.rankChange), [0, 3, 4]);
+        expect(ranked.map((r) => r.rankValue), ['1', '5', '9']);
+        expect(ranked.map((r) => r.isNew), [null, true, null]);
+        expect(ranked.first.song.name, '茶汤');
+        expect(ranked.first.song.id, 'HASH_RANK_1');
+      },
+    );
 
     test('falls back to the page index when sort is missing', () async {
       final platform = KugouPlatform(api: _ContentApi());
@@ -61,7 +67,10 @@ void main() {
 
       expect(ranked.map((r) => r.rank), [1, 2]);
       expect(ranked.map((r) => r.rankChange), [null, null]);
-      expect(ranked.map((r) => r.song.id), ['HASH_NO_SORT_1', 'HASH_NO_SORT_2']);
+      expect(ranked.map((r) => r.song.id), [
+        'HASH_NO_SORT_1',
+        'HASH_NO_SORT_2',
+      ]);
     });
 
     test('artist names come from the authors list', () async {
@@ -114,11 +123,14 @@ void main() {
       expect(artist.fansCount, 1234567);
     });
 
-    test('getArtistDetail returns null when the payload has no artist', () async {
-      final platform = KugouPlatform(api: _ContentApi());
+    test(
+      'getArtistDetail returns null when the payload has no artist',
+      () async {
+        final platform = KugouPlatform(api: _ContentApi());
 
-      expect(await platform.getArtistDetail('0'), isNull);
-    });
+        expect(await platform.getArtistDetail('0'), isNull);
+      },
+    );
 
     test('getArtistTopSongs honours the limit', () async {
       final platform = KugouPlatform(api: _ContentApi());
@@ -293,10 +305,7 @@ class _ContentApi extends KugouApi {
     final source = rankId == 8888 ? sorted : unsorted;
     return {
       'status': 1,
-      'data': {
-        'total': 500,
-        'info': source.take(pagesize).toList(),
-      },
+      'data': {'total': 500, 'info': source.take(pagesize).toList()},
     };
   }
 

@@ -57,7 +57,10 @@ void main() {
         expect(style, isNotNull);
         final size = style!.minimumSize?.resolve(<WidgetState>{});
         expect(size?.height, miuixButtonMinHeight);
-        expect(_cornerRadius(style.shape?.resolve(<WidgetState>{})), miuixTileRadius);
+        expect(
+          _cornerRadius(style.shape?.resolve(<WidgetState>{})),
+          miuixTileRadius,
+        );
       }
     });
 
@@ -87,19 +90,16 @@ void main() {
         scheme.outline,
       );
       expect(
-        switchTheme.trackOutlineColor!.resolve(
-          <WidgetState>{WidgetState.selected},
-        ),
+        switchTheme.trackOutlineColor!.resolve(<WidgetState>{
+          WidgetState.selected,
+        }),
         Colors.transparent,
       );
       expect(
         switchTheme.trackColor!.resolve(<WidgetState>{WidgetState.selected}),
         scheme.primary,
       );
-      expect(
-        switchTheme.trackOutlineWidth!.resolve(<WidgetState>{}),
-        1.5,
-      );
+      expect(switchTheme.trackOutlineWidth!.resolve(<WidgetState>{}), 1.5);
     });
 
     test('snackbars float with the tile radius', () {
@@ -155,7 +155,8 @@ void main() {
       // What the widget resolves, not just the theme slot: a widget-level
       // `backgroundColor` default could otherwise override the theme.
       final rendered = tester.widget<NavigationBar>(find.byType(NavigationBar));
-      final resolvedBackground = rendered.backgroundColor ??
+      final resolvedBackground =
+          rendered.backgroundColor ??
           Theme.of(tester.element(find.byType(NavigationBar)))
               .navigationBarTheme
               .backgroundColor;
@@ -181,10 +182,7 @@ void main() {
 
       // The two themes must not be interchangeable: if someone routes the
       // Material path through miuixTheme this fails.
-      expect(
-        _cornerRadius(material.cardTheme.shape),
-        isNot(miuixCardRadius),
-      );
+      expect(_cornerRadius(material.cardTheme.shape), isNot(miuixCardRadius));
       expect(_cornerRadius(miuix.cardTheme.shape), miuixCardRadius);
     });
 
@@ -193,7 +191,10 @@ void main() {
       miuixTheme(brightness: Brightness.light, seedColor: seed);
       final after = AppTheme.light(seedColor: seed);
 
-      expect(_cornerRadius(after.cardTheme.shape), _cornerRadius(before.cardTheme.shape));
+      expect(
+        _cornerRadius(after.cardTheme.shape),
+        _cornerRadius(before.cardTheme.shape),
+      );
       expect(after.colorScheme.primary, before.colorScheme.primary);
     });
 

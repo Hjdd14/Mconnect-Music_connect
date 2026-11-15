@@ -140,8 +140,7 @@ class DesktopRuntimeStatus {
   );
 }
 
-class DesktopRuntimeStatusNotifier
-    extends StateNotifier<DesktopRuntimeStatus> {
+class DesktopRuntimeStatusNotifier extends StateNotifier<DesktopRuntimeStatus> {
   DesktopRuntimeStatusNotifier() : super(const DesktopRuntimeStatus());
 
   void setTrayReady({required bool ready}) {

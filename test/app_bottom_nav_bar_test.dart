@@ -19,9 +19,7 @@ void main() {
   Widget wrap({required UiStyle style, required Widget child}) {
     return ProviderScope(
       overrides: [
-        uiStyleProvider.overrideWith(
-          (ref) => _StubUiStyleNotifier(style),
-        ),
+        uiStyleProvider.overrideWith((ref) => _StubUiStyleNotifier(style)),
       ],
       child: MaterialApp(home: Scaffold(body: child)),
     );
@@ -151,7 +149,8 @@ void main() {
         style: UiStyle.miuix,
         child: Builder(
           builder: (context) {
-            obstruction = MiuixBottomLayout.navBottomInset(context) +
+            obstruction =
+                MiuixBottomLayout.navBottomInset(context) +
                 MiuixBottomLayout.navCapsuleHeight(context);
             return const SizedBox.shrink();
           },

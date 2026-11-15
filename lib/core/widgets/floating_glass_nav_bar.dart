@@ -178,12 +178,7 @@ class FloatingGlassNavBar extends StatelessWidget {
         bottom: resolvedBottomMargin,
       ),
       child: effectiveUseGlass
-          ? _buildGlassBar(
-              context,
-              height: height,
-              icon: icon,
-              radius: radius,
-            )
+          ? _buildGlassBar(context, height: height, icon: icon, radius: radius)
           : _buildOpaqueBar(
               context,
               height: height,
@@ -215,10 +210,7 @@ class FloatingGlassNavBar extends StatelessWidget {
         onTabSelected: onDestinationSelected,
         tabs: [
           for (final destination in destinations)
-            GlassTab(
-              icon: Icon(destination.icon),
-              label: destination.label,
-            ),
+            GlassTab(icon: Icon(destination.icon), label: destination.label),
         ],
         // 硬约束 (task-4 交付物 4): pass quality explicitly. Keeping the
         // parameter null would let `resolveQuality` fall back to `premium` for
@@ -281,10 +273,7 @@ class FloatingGlassNavBar extends StatelessWidget {
           color: colorScheme.surfaceContainerHigh,
           borderRadius: BorderRadius.circular(radius),
           // 1 dp stroke, solid — no glow.
-          border: Border.all(
-            color: colorScheme.outlineVariant,
-            width: 1,
-          ),
+          border: Border.all(color: colorScheme.outlineVariant, width: 1),
           boxShadow: const [
             BoxShadow(
               color: Color(0x1A000000),
@@ -365,11 +354,7 @@ class _OpaqueDestination extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                destination.icon,
-                size: iconSize,
-                color: foreground,
-              ),
+              Icon(destination.icon, size: iconSize, color: foreground),
               const SizedBox(height: 2),
               Text(
                 destination.label,

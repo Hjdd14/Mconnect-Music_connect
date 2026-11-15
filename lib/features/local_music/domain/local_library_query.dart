@@ -132,11 +132,7 @@ class LocalLibraryQuery {
 
     final sorted = [...matched]
       ..sort((a, b) {
-        final result = _compare(
-          a,
-          b,
-          playCounts: playCounts,
-        );
+        final result = _compare(a, b, playCounts: playCounts);
         return descending ? -result : result;
       });
     return sorted;

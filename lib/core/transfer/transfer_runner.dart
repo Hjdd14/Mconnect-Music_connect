@@ -53,9 +53,7 @@ class TransferMatcher {
 
     for (var index = 0; index < total; index++) {
       final resumed = resumeFrom?[index];
-      matches.add(
-        resumed ?? await _matchOne(index, entries[index]),
-      );
+      matches.add(resumed ?? await _matchOne(index, entries[index]));
       onProgress?.call(index + 1, total);
     }
 

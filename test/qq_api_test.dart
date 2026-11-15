@@ -72,9 +72,7 @@ void main() {
       //   ② p_skey 真的进了 cookie
       // 修前必红（旧实现只请求一次、且 p_skey 为空）。
       final called = <String>[];
-      final api = QqApi(
-        dio: _hopCookieDio(calledUrls: called),
-      );
+      final api = QqApi(dio: _hopCookieDio(calledUrls: called));
 
       await api.completeOAuthLogin(
         'https://ssl.ptlogin2.graph.qq.com/check_sig?pttype=1&uin=123',
@@ -146,85 +144,82 @@ void main() {
     },
   );
 
-  test(
-    'a Set-Cookie line with FOLDED commas yields every cookie, including p_skey',
-    () {
-      // 真机证据（2026-10-10）：hop 日志打出
-      //   cookieNames=[pt2gguin, pt2gguin, p_uin, p_uin, p_skey, p_skey, ...]
-      // 每个名字出现两次 ⇒ dio 的一个 set-cookie 条目里折叠了多个 cookie；
-      // 而修复前 merge 之后 `p_skey=false` ⇒ p_skey 被吞。真实形态是
-      //   `pt2gguin=oX; Path=/, p_skey=yyy; Path=/; Domain=.qq.com`
-      // 逗号才是第二层分隔符。
-      final merged = QqApi.mergeSetCookiesForTest(
-        existing: '',
-        setCookieLines: const [
-          'pt2gguin=oX; Path=/, p_skey=YYY; Path=/; Domain=.qq.com',
-          'pt4_token=T; Path=/, p_uin=o2443599899; Path=/; Domain=.qq.com',
-        ],
-      );
-
-      expect(merged, contains('pt2gguin=oX'));
-      expect(
-        merged,
-        contains('p_skey=YYY'),
-        reason: 'p_skey 在折叠逗号之后，必须被拆出来 —— 修前它被吞进前一项的值里',
-      );
-      expect(merged, contains('p_uin=o2443599899'));
-      // `Expires=Wed, 21 Oct ...` 的逗号后面是星期/日期，不是 name=，
-      // 不得被误拆：
-      final withDate = QqApi.mergeSetCookiesForTest(
-        existing: '',
-        setCookieLines: const [
-          'a=B; Expires=Wed, 21 Oct 2026 07:28:00 GMT; Path=/',
-        ],
-      );
-      expect(withDate, contains('a=B'));
-      expect(withDate.contains('21 Oct'), isFalse, reason: 'Expires 的值不是 cookie');
-    },
-  );
-
-  test(
-    'an EMPTY Set-Cookie value is a deletion order and must NOT wipe the real one',
-    () {
-      // 真机证据（2026-10-10）：jar 名单里有 p_skey，值却是 null、g_tk=5381。
-      // 参考抓包（QQ 扫码 OAuth2 反向工程）显示 QQ 会发"删除型" Set-Cookie：
-      //   ptcz=;Expires=Thu, 01 Jan 1970 00:00:00 GMT;Path=/;Domain=ptlogin2.qq.com;
-      // 浏览器按 (名字, 域) 存 cookie，域限定的删除令不影响其他域的同名真值；
-      // 本 jar 是扁平的，若照单全收就会把前面刚写入的真值覆盖成空 —— p_skey
-      // 就是这样消失的。所以：空值不得进入 jar。
-      final merged = QqApi.mergeSetCookiesForTest(
-        existing: '',
-        setCookieLines: const [
-          'p_skey=REAL_PSKEY; Path=/; Domain=.qq.com; HttpOnly; Secure',
-          'p_skey=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/; '
-              'Domain=ptlogin2.qq.com',
-          'p_uin=o2443599899; Path=/; Domain=.qq.com',
-        ],
-      );
-
-      expect(
-        merged,
-        contains('p_skey=REAL_PSKEY'),
-        reason: '删除令（空值）出现在真值之后，不得把真值清掉',
-      );
-      expect(merged, isNot(contains('p_skey=;')));
-      expect(merged, contains('p_uin=o2443599899'));
-    },
-  );
-
-  test('g_tk uses the canonical seed-5381 hash (pinned by a captured sample)', () {
-    // 真机证据（2026-10-10）：cookie 全部正确后，authorize 首次给出明确错误码
-    //   which=error&error=100046
-    // QQ互联官方返回码表：100046 = g_tk 校验失败。
-    // 参考抓包给出可验证样本：skey `@Xb8aQtVvd` -> g_tk 1934165869。
-    // 旧实现函数名写着 5381、种子却是 0（算出 1033578536），永远通不过校验。
-    // （ptqrtoken 是另一种：种子 0，轮询一直正常，不在本用例范围。）
-    expect(
-      QqApi.gtkForTest('@Xb8aQtVvd'),
-      1934165869,
-      reason: '必须与抓包样本一致 —— 只有种子 5381 的变体能得到这个值',
+  test('a Set-Cookie line with FOLDED commas yields every cookie, including p_skey', () {
+    // 真机证据（2026-10-10）：hop 日志打出
+    //   cookieNames=[pt2gguin, pt2gguin, p_uin, p_uin, p_skey, p_skey, ...]
+    // 每个名字出现两次 ⇒ dio 的一个 set-cookie 条目里折叠了多个 cookie；
+    // 而修复前 merge 之后 `p_skey=false` ⇒ p_skey 被吞。真实形态是
+    //   `pt2gguin=oX; Path=/, p_skey=yyy; Path=/; Domain=.qq.com`
+    // 逗号才是第二层分隔符。
+    final merged = QqApi.mergeSetCookiesForTest(
+      existing: '',
+      setCookieLines: const [
+        'pt2gguin=oX; Path=/, p_skey=YYY; Path=/; Domain=.qq.com',
+        'pt4_token=T; Path=/, p_uin=o2443599899; Path=/; Domain=.qq.com',
+      ],
     );
+
+    expect(merged, contains('pt2gguin=oX'));
+    expect(
+      merged,
+      contains('p_skey=YYY'),
+      reason: 'p_skey 在折叠逗号之后，必须被拆出来 —— 修前它被吞进前一项的值里',
+    );
+    expect(merged, contains('p_uin=o2443599899'));
+    // `Expires=Wed, 21 Oct ...` 的逗号后面是星期/日期，不是 name=，
+    // 不得被误拆：
+    final withDate = QqApi.mergeSetCookiesForTest(
+      existing: '',
+      setCookieLines: const [
+        'a=B; Expires=Wed, 21 Oct 2026 07:28:00 GMT; Path=/',
+      ],
+    );
+    expect(withDate, contains('a=B'));
+    expect(withDate.contains('21 Oct'), isFalse, reason: 'Expires 的值不是 cookie');
   });
+
+  test('an EMPTY Set-Cookie value is a deletion order and must NOT wipe the real one', () {
+    // 真机证据（2026-10-10）：jar 名单里有 p_skey，值却是 null、g_tk=5381。
+    // 参考抓包（QQ 扫码 OAuth2 反向工程）显示 QQ 会发"删除型" Set-Cookie：
+    //   ptcz=;Expires=Thu, 01 Jan 1970 00:00:00 GMT;Path=/;Domain=ptlogin2.qq.com;
+    // 浏览器按 (名字, 域) 存 cookie，域限定的删除令不影响其他域的同名真值；
+    // 本 jar 是扁平的，若照单全收就会把前面刚写入的真值覆盖成空 —— p_skey
+    // 就是这样消失的。所以：空值不得进入 jar。
+    final merged = QqApi.mergeSetCookiesForTest(
+      existing: '',
+      setCookieLines: const [
+        'p_skey=REAL_PSKEY; Path=/; Domain=.qq.com; HttpOnly; Secure',
+        'p_skey=; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/; '
+            'Domain=ptlogin2.qq.com',
+        'p_uin=o2443599899; Path=/; Domain=.qq.com',
+      ],
+    );
+
+    expect(
+      merged,
+      contains('p_skey=REAL_PSKEY'),
+      reason: '删除令（空值）出现在真值之后，不得把真值清掉',
+    );
+    expect(merged, isNot(contains('p_skey=;')));
+    expect(merged, contains('p_uin=o2443599899'));
+  });
+
+  test(
+    'g_tk uses the canonical seed-5381 hash (pinned by a captured sample)',
+    () {
+      // 真机证据（2026-10-10）：cookie 全部正确后，authorize 首次给出明确错误码
+      //   which=error&error=100046
+      // QQ互联官方返回码表：100046 = g_tk 校验失败。
+      // 参考抓包给出可验证样本：skey `@Xb8aQtVvd` -> g_tk 1934165869。
+      // 旧实现函数名写着 5381、种子却是 0（算出 1033578536），永远通不过校验。
+      // （ptqrtoken 是另一种：种子 0，轮询一直正常，不在本用例范围。）
+      expect(
+        QqApi.gtkForTest('@Xb8aQtVvd'),
+        1934165869,
+        reason: '必须与抓包样本一致 —— 只有种子 5381 的变体能得到这个值',
+      );
+    },
+  );
 
   test('QQ OAuth cookie builder keeps QQ Music login tokens from QQLogin', () {
     final cookie = QqApi.buildMusicLoginCookieForTest(
@@ -364,7 +359,8 @@ Dio _hopCookieDio({required List<String> calledUrls}) {
   return dio;
 }
 
-Dio _plainTextDio(String body) {  final dio = Dio();
+Dio _plainTextDio(String body) {
+  final dio = Dio();
   dio.interceptors.add(
     InterceptorsWrapper(
       onRequest: (options, handler) {

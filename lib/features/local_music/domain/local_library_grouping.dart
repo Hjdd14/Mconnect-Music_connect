@@ -56,9 +56,7 @@ class LocalLibraryGrouping {
       return LocalTrackGroup(
         id: entry.key,
         title: entry.key,
-        subtitle: artists.length == 1
-            ? artists.first
-            : '${artists.length} 位歌手',
+        subtitle: artists.length == 1 ? artists.first : '${artists.length} 位歌手',
         coverPath: _firstCover(sorted),
         tracks: sorted,
       );
@@ -105,7 +103,9 @@ class LocalLibraryGrouping {
         );
       return LocalTrackGroup(
         id: entry.key,
-        title: p.basename(entry.key).isEmpty ? entry.key : p.basename(entry.key),
+        title: p.basename(entry.key).isEmpty
+            ? entry.key
+            : p.basename(entry.key),
         subtitle: entry.key,
         coverPath: _firstCover(sorted),
         tracks: sorted,
@@ -136,7 +136,9 @@ class LocalLibraryGrouping {
       }
       if (aTrack != null && bTrack == null) return -1;
       if (aTrack == null && bTrack != null) return 1;
-      return a.displayTitle.toLowerCase().compareTo(b.displayTitle.toLowerCase());
+      return a.displayTitle.toLowerCase().compareTo(
+        b.displayTitle.toLowerCase(),
+      );
     });
     return sorted;
   }
@@ -144,7 +146,8 @@ class LocalLibraryGrouping {
   static List<LocalTrackEntry> _byTitle(List<LocalTrackEntry> tracks) {
     final sorted = [...tracks];
     sorted.sort(
-      (a, b) => a.displayTitle.toLowerCase().compareTo(b.displayTitle.toLowerCase()),
+      (a, b) =>
+          a.displayTitle.toLowerCase().compareTo(b.displayTitle.toLowerCase()),
     );
     return sorted;
   }

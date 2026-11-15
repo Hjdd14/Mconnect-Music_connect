@@ -35,15 +35,11 @@ class ArtistPageData {
     this.albumsError,
   });
 
-  bool get isEmpty =>
-      artist == null && topSongs.isEmpty && albums.isEmpty;
+  bool get isEmpty => artist == null && topSongs.isEmpty && albums.isEmpty;
 }
 
-final artistPageProvider =
-    FutureProvider.autoDispose.family<ArtistPageData, ArtistKey>((
-      ref,
-      key,
-    ) async {
+final artistPageProvider = FutureProvider.autoDispose
+    .family<ArtistPageData, ArtistKey>((ref, key) async {
       final platform = PlatformRegistry.get(key.platform);
       if (!platform.supportsArtistPage) {
         throw UnsupportedActionException(platform.platformName);

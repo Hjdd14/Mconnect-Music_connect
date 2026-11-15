@@ -88,8 +88,7 @@ class _SmartPlaylistsBody extends ConsumerWidget {
               ),
             ),
           ),
-        if (state.isSaving)
-          const LinearProgressIndicator(minHeight: 2),
+        if (state.isSaving) const LinearProgressIndicator(minHeight: 2),
         Expanded(
           child: AppScrollbar(
             builder: (controller) => ListView.builder(
@@ -115,94 +114,89 @@ class _SmartPlaylistsBody extends ConsumerWidget {
     final songs = ref.watch(smartPlaylistPreviewProvider(rule));
     final saved = state.snapshotFor(rule.id);
     return Card(
-            margin: const EdgeInsets.symmetric(vertical: 6),
-            child: ListTile(
-              leading: const Icon(Icons.auto_awesome),
-              title: Text(rule.name),
-              subtitle: Text(
-                '${songs.length} 首 · ${_ruleSummary(rule)}'
-                '${saved == null ? '' : '\n已保存 ${saved.songs.length} 首'
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      child: ListTile(
+        leading: const Icon(Icons.auto_awesome),
+        title: Text(rule.name),
+        subtitle: Text(
+          '${songs.length} 首 · ${_ruleSummary(rule)}'
+          '${saved == null ? '' : '\n已保存 ${saved.songs.length} 首'
                     '（${_formatSavedAt(saved.generatedAt)}）'}',
+        ),
+        isThreeLine: saved != null,
+        trailing: PopupMenuButton<String>(
+          tooltip: '规则操作',
+          onSelected: (value) {
+            switch (value) {
+              case 'edit':
+                context.push('/smart-playlists/editor?id=${rule.id}');
+                break;
+              case 'play':
+                if (songs.isNotEmpty) {
+                  unawaited(
+                    ref.read(playerProvider.notifier).playPlaylist(songs),
+                  );
+                }
+                break;
+              case 'save':
+                unawaited(_saveSnapshot(context, ref, rule.id, songs));
+                break;
+              case 'playSaved':
+                if (saved != null && saved.songs.isNotEmpty) {
+                  unawaited(
+                    ref.read(playerProvider.notifier).playPlaylist(saved.songs),
+                  );
+                }
+                break;
+              case 'delete':
+                unawaited(
+                  ref.read(smartPlaylistsProvider.notifier).deleteRule(rule.id),
+                );
+                break;
+            }
+          },
+          itemBuilder: (context) => [
+            const PopupMenuItem(
+              value: 'play',
+              child: ListTile(
+                leading: Icon(Icons.play_arrow),
+                title: Text('播放'),
               ),
-              isThreeLine: saved != null,
-              trailing: PopupMenuButton<String>(
-                tooltip: '规则操作',
-                onSelected: (value) {
-                  switch (value) {
-                    case 'edit':
-                      context.push('/smart-playlists/editor?id=${rule.id}');
-                      break;
-                    case 'play':
-                      if (songs.isNotEmpty) {
-                        unawaited(
-                          ref.read(playerProvider.notifier).playPlaylist(songs),
-                        );
-                      }
-                      break;
-                    case 'save':
-                      unawaited(_saveSnapshot(context, ref, rule.id, songs));
-                      break;
-                    case 'playSaved':
-                      if (saved != null && saved.songs.isNotEmpty) {
-                        unawaited(
-                          ref
-                              .read(playerProvider.notifier)
-                              .playPlaylist(saved.songs),
-                        );
-                      }
-                      break;
-                    case 'delete':
-                      unawaited(
-                        ref
-                            .read(smartPlaylistsProvider.notifier)
-                            .deleteRule(rule.id),
-                      );
-                      break;
-                  }
-                },
-                itemBuilder: (context) => [
-                  const PopupMenuItem(
-                    value: 'play',
-                    child: ListTile(
-                      leading: Icon(Icons.play_arrow),
-                      title: Text('播放'),
-                    ),
-                  ),
-                  const PopupMenuItem(
-                    value: 'save',
-                    child: ListTile(
-                      leading: Icon(Icons.save_outlined),
-                      title: Text('保存生成结果'),
-                    ),
-                  ),
-                  if (saved != null)
-                    const PopupMenuItem(
-                      value: 'playSaved',
-                      child: ListTile(
-                        leading: Icon(Icons.bookmark_outline),
-                        title: Text('播放已保存结果'),
-                      ),
-                    ),
-                  const PopupMenuItem(
-                    value: 'edit',
-                    child: ListTile(
-                      leading: Icon(Icons.edit_outlined),
-                      title: Text('编辑规则'),
-                    ),
-                  ),
-                  const PopupMenuItem(
-                    value: 'delete',
-                    child: ListTile(
-                      leading: Icon(Icons.delete_outline),
-                      title: Text('删除'),
-                    ),
-                  ),
-                ],
-              ),
-              onTap: () =>
-                  context.push('/smart-playlists/editor?id=${rule.id}'),
             ),
-          );
+            const PopupMenuItem(
+              value: 'save',
+              child: ListTile(
+                leading: Icon(Icons.save_outlined),
+                title: Text('保存生成结果'),
+              ),
+            ),
+            if (saved != null)
+              const PopupMenuItem(
+                value: 'playSaved',
+                child: ListTile(
+                  leading: Icon(Icons.bookmark_outline),
+                  title: Text('播放已保存结果'),
+                ),
+              ),
+            const PopupMenuItem(
+              value: 'edit',
+              child: ListTile(
+                leading: Icon(Icons.edit_outlined),
+                title: Text('编辑规则'),
+              ),
+            ),
+            const PopupMenuItem(
+              value: 'delete',
+              child: ListTile(
+                leading: Icon(Icons.delete_outline),
+                title: Text('删除'),
+              ),
+            ),
+          ],
+        ),
+        onTap: () => context.push('/smart-playlists/editor?id=${rule.id}'),
+      ),
+    );
   }
 
   Future<void> _saveSnapshot(
@@ -219,9 +213,10 @@ class _SmartPlaylistsBody extends ConsumerWidget {
         .read(smartPlaylistsProvider.notifier)
         .saveSnapshot(ruleId, songs);
     if (!context.mounted) return;
-    showInfoSnackBar(context, saved == null
-              ? '保存失败'
-              : '已保存 ${saved.songs.length} 首，可在菜单中再次播放');
+    showInfoSnackBar(
+      context,
+      saved == null ? '保存失败' : '已保存 ${saved.songs.length} 首，可在菜单中再次播放',
+    );
   }
 
   String _formatSavedAt(DateTime value) {

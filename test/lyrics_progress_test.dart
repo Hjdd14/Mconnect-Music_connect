@@ -22,10 +22,7 @@ void main() {
         ],
       );
 
-      expect(
-        playedCharacterCount(line, const Duration(seconds: 10)),
-        0,
-      );
+      expect(playedCharacterCount(line, const Duration(seconds: 10)), 0);
       expect(
         playedCharacterCount(line, const Duration(milliseconds: 10500)),
         2,
@@ -34,10 +31,7 @@ void main() {
         playedCharacterCount(line, const Duration(milliseconds: 11500)),
         6,
       );
-      expect(
-        playedCharacterCount(line, const Duration(seconds: 12)),
-        7,
-      );
+      expect(playedCharacterCount(line, const Duration(seconds: 12)), 7);
     });
 
     test('never exceeds the lyric length', () {

@@ -44,8 +44,22 @@ class LocalLyricsLoader {
 
   /// The 16-byte KRC XOR key, identical to the Kugou client implementation.
   static const List<int> krcKey = [
-    0x40, 0x47, 0x61, 0x77, 0x5e, 0x32, 0x74, 0x47,
-    0x51, 0x36, 0x31, 0x2d, 0xce, 0xd2, 0x6e, 0x69,
+    0x40,
+    0x47,
+    0x61,
+    0x77,
+    0x5e,
+    0x32,
+    0x74,
+    0x47,
+    0x51,
+    0x36,
+    0x31,
+    0x2d,
+    0xce,
+    0xd2,
+    0x6e,
+    0x69,
   ];
 
   /// Loads [lyricsPath], or returns `null` when the file is missing, empty or
@@ -97,7 +111,9 @@ class LocalLyricsLoader {
       final decoded = gbk.decode(body);
       if (source != null) {
         // One diagnostic per file is enough to find the culprit library later.
-        debugPrint('LocalLyricsLoader: $source is not UTF-8, decoded as GB18030');
+        debugPrint(
+          'LocalLyricsLoader: $source is not UTF-8, decoded as GB18030',
+        );
       }
       return decoded;
     } catch (_) {

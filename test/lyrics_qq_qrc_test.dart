@@ -42,26 +42,30 @@ void main() {
     return (platform: QqPlatform(api: QqApi(dio: dio)), requests: requests);
   }
 
-  String plainQrc() => '<L T="1000" D="500"><P T="0" D="250">你</P>'
+  String plainQrc() =>
+      '<L T="1000" D="500"><P T="0" D="250">你</P>'
       '<P T="250" D="250">好</P></L>';
 
-  test('the qrc request carries qrc=1 (the parameter it was missing)', () async {
-    final stub = build(lrcBody: {'lyric': '[00:01.00]Hello'});
+  test(
+    'the qrc request carries qrc=1 (the parameter it was missing)',
+    () async {
+      final stub = build(lrcBody: {'lyric': '[00:01.00]Hello'});
 
-    await stub.platform.getLyricsBundle('mid');
+      await stub.platform.getLyricsBundle('mid');
 
-    final qrcRequest = stub.requests.firstWhere(
-      (options) => options.queryParameters['qrc'] == 1,
-    );
-    expect(qrcRequest.queryParameters['qrc'], 1);
-    expect(qrcRequest.queryParameters['songmid'], 'mid');
-    // The plain-LRC request must stay free of `qrc`, so a ciphertext body can
-    // never be mistaken for the guaranteed track.
-    final lrcRequest = stub.requests.firstWhere(
-      (options) => options.queryParameters['qrc'] == null,
-    );
-    expect(lrcRequest.queryParameters['qrc'], isNull);
-  });
+      final qrcRequest = stub.requests.firstWhere(
+        (options) => options.queryParameters['qrc'] == 1,
+      );
+      expect(qrcRequest.queryParameters['qrc'], 1);
+      expect(qrcRequest.queryParameters['songmid'], 'mid');
+      // The plain-LRC request must stay free of `qrc`, so a ciphertext body can
+      // never be mistaken for the guaranteed track.
+      final lrcRequest = stub.requests.firstWhere(
+        (options) => options.queryParameters['qrc'] == null,
+      );
+      expect(lrcRequest.queryParameters['qrc'], isNull);
+    },
+  );
 
   test('adopts a plaintext QRC body and keeps lrc as well', () async {
     final stub = build(
@@ -84,7 +88,9 @@ void main() {
 
   test('an encrypted (unreadable) body falls back to lrc, silently', () async {
     // 3DES 密文的样子：可 base64 解出来一堆不可打印字节，`_parseQrc` 认不出。
-    final ciphertext = base64Encode(List<int>.generate(64, (i) => (i * 37) % 256));
+    final ciphertext = base64Encode(
+      List<int>.generate(64, (i) => (i * 37) % 256),
+    );
     final stub = build(
       lrcBody: {'lyric': base64Encode(utf8.encode('[00:01.00]Hello'))},
       qrcBody: {'lyric': ciphertext},
@@ -114,21 +120,24 @@ void main() {
     expect(bundle.lrc, '[00:01.00]Hello');
   });
 
-  test('translation is carried separately, not folded into the lrc string', () async {
-    final stub = build(
-      lrcBody: {
-        'lyric': base64Encode(utf8.encode('[00:01.00]Hello')),
-        'trans': base64Encode(utf8.encode('[00:01.00]你好')),
-      },
-    );
+  test(
+    'translation is carried separately, not folded into the lrc string',
+    () async {
+      final stub = build(
+        lrcBody: {
+          'lyric': base64Encode(utf8.encode('[00:01.00]Hello')),
+          'trans': base64Encode(utf8.encode('[00:01.00]你好')),
+        },
+      );
 
-    final bundle = await stub.platform.getLyricsBundle('mid');
+      final bundle = await stub.platform.getLyricsBundle('mid');
 
-    expect(bundle!.lrc, '[00:01.00]Hello');
-    expect(bundle.translation, '[00:01.00]你好');
-    final document = buildLyricsDocument(bundle);
-    expect(document.lines.single.translation, '你好');
-  });
+      expect(bundle!.lrc, '[00:01.00]Hello');
+      expect(bundle.translation, '[00:01.00]你好');
+      final document = buildLyricsDocument(bundle);
+      expect(document.lines.single.translation, '你好');
+    },
+  );
 
   test('getLyric still folds lrc and translation into one string', () async {
     // 兼容旧调用方（qq_api_test 守着这一条）。

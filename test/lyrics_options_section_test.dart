@@ -16,7 +16,11 @@ void main() {
       text: 'Hello',
       translation: '你好',
       words: [
-        WordTiming(word: 'Hello', start: Duration(seconds: 1), duration: Duration(milliseconds: 500)),
+        WordTiming(
+          word: 'Hello',
+          start: Duration(seconds: 1),
+          duration: Duration(milliseconds: 500),
+        ),
       ],
     );
     const noTranslation = LyricsLine(
@@ -45,22 +49,24 @@ void main() {
 
       expect(shown.text, '你好');
       expect(shown.hasTranslation, isFalse);
-      expect(
-        shown.words,
-        isNull,
-        reason: '逐字时间轴属于原文，套到译文上会错位',
-      );
+      expect(shown.words, isNull, reason: '逐字时间轴属于原文，套到译文上会错位');
     });
 
     test('translationOnly falls back to the original when there is none', () {
-      final shown = displayLineFor(noTranslation, LyricsDisplayMode.translationOnly);
+      final shown = displayLineFor(
+        noTranslation,
+        LyricsDisplayMode.translationOnly,
+      );
 
       expect(shown.text, 'World');
     });
 
     test('original mode never invents a translation', () {
       expect(
-        displayLineFor(noTranslation, LyricsDisplayMode.original).hasTranslation,
+        displayLineFor(
+          noTranslation,
+          LyricsDisplayMode.original,
+        ).hasTranslation,
         isFalse,
       );
     });
@@ -72,10 +78,22 @@ void main() {
 
       expect(defaults.fontSize, 16, reason: '默认值与改动前的硬编码一致');
       expect(defaults.lineHeight, 1.5);
-      expect(defaults.copyWith(fontSize: 99).clamped().fontSize, LyricsTypography.maxFontSize);
-      expect(defaults.copyWith(fontSize: 1).clamped().fontSize, LyricsTypography.minFontSize);
-      expect(defaults.copyWith(lineHeight: 9).clamped().lineHeight, LyricsTypography.maxLineHeight);
-      expect(defaults.copyWith(lineHeight: 0.1).clamped().lineHeight, LyricsTypography.minLineHeight);
+      expect(
+        defaults.copyWith(fontSize: 99).clamped().fontSize,
+        LyricsTypography.maxFontSize,
+      );
+      expect(
+        defaults.copyWith(fontSize: 1).clamped().fontSize,
+        LyricsTypography.minFontSize,
+      );
+      expect(
+        defaults.copyWith(lineHeight: 9).clamped().lineHeight,
+        LyricsTypography.maxLineHeight,
+      );
+      expect(
+        defaults.copyWith(lineHeight: 0.1).clamped().lineHeight,
+        LyricsTypography.minLineHeight,
+      );
     });
   });
 

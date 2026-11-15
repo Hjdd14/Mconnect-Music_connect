@@ -5,10 +5,8 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:mconnect/core/theme/app_colors.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart' show
-    GlassContainer,
-    GlassQuality,
-    LiquidGlassSettings;
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart'
+    show GlassContainer, GlassQuality, LiquidGlassSettings;
 
 import 'app_background_provider.dart';
 
@@ -22,7 +20,8 @@ const int appBackgroundMaxDecodeSide = 4096;
 typedef FileExistsProbe = bool Function(String path);
 
 final fileExistsProbeProvider = Provider<FileExistsProbe>(
-  (ref) => (path) => File(path).existsSync(),
+  (ref) =>
+      (path) => File(path).existsSync(),
 );
 
 /// Whether the configured background picture exists, memoised **per path**.
@@ -204,9 +203,7 @@ class AppBackgroundViewport extends InheritedWidget {
 
   /// The published viewport, or `null` when there is no app-level shell above.
   static Size? maybeOf(BuildContext context) =>
-      context
-          .dependOnInheritedWidgetOfExactType<AppBackgroundViewport>()
-          ?.size;
+      context.dependOnInheritedWidgetOfExactType<AppBackgroundViewport>()?.size;
 
   @override
   bool updateShouldNotify(AppBackgroundViewport oldWidget) =>
@@ -293,8 +290,7 @@ class AppBackgroundShell extends ConsumerWidget {
                 // harness) has no meaningful "biggest", so fall back to the
                 // window rather than publishing infinity to every plate.
                 final size =
-                    constraints.hasBoundedWidth &&
-                        constraints.hasBoundedHeight
+                    constraints.hasBoundedWidth && constraints.hasBoundedHeight
                     ? constraints.biggest
                     : MediaQuery.sizeOf(context);
                 return AppBackgroundViewport(size: size, child: stack);

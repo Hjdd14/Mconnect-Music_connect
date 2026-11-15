@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
 import '../../../../lyrics/lyrics_display_settings.dart';
 import '../../../../lyrics/lyrics_progress.dart';
 import '../../../../lyrics/models/lyrics_line.dart';
@@ -134,7 +135,10 @@ class WordByWordLine extends StatelessWidget {
             Text(
               line.text,
               key: line.text.trim().isNotEmpty ? primaryKey : null,
-              style: TextStyle(fontSize: typography.fontSize, color: colors.outline),
+              style: TextStyle(
+                fontSize: typography.fontSize,
+                color: colors.outline,
+              ),
               textAlign: TextAlign.center,
             ),
             if (line.hasTranslation)

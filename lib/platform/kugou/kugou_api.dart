@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'dart:developer' as developer;
 import 'dart:io';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:crypto/crypto.dart';
+
 import '../../core/network/api_exception.dart';
 import '../../core/network/platform_http.dart';
 import '../../models/audio_quality.dart';
@@ -165,10 +167,7 @@ class KugouApi {
         );
       } on FormatException {
         if (cleaned.contains('Access Deny')) {
-          throw ApiException(
-            message: '酷狗接口拒绝访问',
-            details: cleaned.trim(),
-          );
+          throw ApiException(message: '酷狗接口拒绝访问', details: cleaned.trim());
         }
         throw ApiException(
           message: '酷狗接口返回了非 JSON 响应',

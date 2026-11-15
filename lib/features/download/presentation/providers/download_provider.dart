@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:io';
+
 import 'package:collection/collection.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../../models/audio_quality.dart';
 import '../../../../models/song.dart';
 import '../../../../models/user.dart';
@@ -147,8 +149,7 @@ class DownloadState {
       queueBlockedReason: identical(queueBlockedReason, _unset)
           ? this.queueBlockedReason
           : queueBlockedReason as String?,
-      duplicatePathTaskIds:
-          duplicatePathTaskIds ?? this.duplicatePathTaskIds,
+      duplicatePathTaskIds: duplicatePathTaskIds ?? this.duplicatePathTaskIds,
       keptSharedFilePath: identical(keptSharedFilePath, _unset)
           ? this.keptSharedFilePath
           : keptSharedFilePath as String?,
@@ -232,8 +233,12 @@ class CacheEnqueueReport {
   int get enqueued => started + queued;
 
   int get total =>
-      started + queued + blockedNoConnection + blockedOfflineMode +
-      blockedQueuePaused + skipped;
+      started +
+      queued +
+      blockedNoConnection +
+      blockedOfflineMode +
+      blockedQueuePaused +
+      skipped;
 }
 
 /// Notifier for managing downloads.
@@ -298,9 +303,7 @@ class DownloadNotifier extends StateNotifier<DownloadState> {
           onStart: (taskId) => unawaited(_startTaskById(taskId)),
           connectionCheck: connectionCheck,
         );
-    ready = initialState == null
-        ? _restoreStoredTasks()
-        : Future<void>.value();
+    ready = initialState == null ? _restoreStoredTasks() : Future<void>.value();
   }
 
   static Future<int> _defaultTaskFileSize(DownloadTask task) async {
@@ -678,9 +681,7 @@ class DownloadNotifier extends StateNotifier<DownloadState> {
         downloadedBytes: progress.downloadedBytes > 0
             ? progress.downloadedBytes
             : task.downloadedBytes,
-        filePath: progress.filePath != null
-            ? () => progress.filePath
-            : null,
+        filePath: progress.filePath != null ? () => progress.filePath : null,
       );
       _setTasks(tasks);
       _scheduler.complete(taskId);
@@ -693,13 +694,9 @@ class DownloadNotifier extends StateNotifier<DownloadState> {
       tasks[index] = task.copyWith(
         status: DownloadStatus.paused,
         downloadedBytes: progress.downloadedBytes,
-        totalBytes: progress.totalBytes > 0
-            ? () => progress.totalBytes
-            : null,
+        totalBytes: progress.totalBytes > 0 ? () => progress.totalBytes : null,
         progress: progress.progress,
-        filePath: progress.filePath != null
-            ? () => progress.filePath
-            : null,
+        filePath: progress.filePath != null ? () => progress.filePath : null,
       );
       _setTasks(tasks);
       _scheduler.complete(taskId);

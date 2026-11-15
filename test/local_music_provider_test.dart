@@ -51,7 +51,10 @@ void main() {
         tracks: [_entry(existing.id, 'Existing Song')],
       ),
     );
-    final notifier = _notifier(picker: _FakeLocalMusicPicker(), scanner: scanner);
+    final notifier = _notifier(
+      picker: _FakeLocalMusicPicker(),
+      scanner: scanner,
+    );
     addTearDown(notifier.dispose);
     await notifier.scanDirectory('C:/Music');
 
@@ -93,28 +96,34 @@ void main() {
     expect(await rootStore.read(), 'D:/Music');
   });
 
-  test('opening the page shows the persisted library without rescanning', () async {
-    final tracks = MemoryLocalTrackStore([
-      _entry('D:/Music/a.flac', '已入库', durationMs: 190000),
-    ]);
-    final lyrics = MemoryLocalLyricsStore();
-    await lyrics.save('D:/Music/a.flac', '[00:01.00]存好的词', 'lrc');
-    final scanner = _FakeLocalMusicScanner();
-    final notifier = _notifier(
-      scanner: scanner,
-      trackStore: tracks,
-      lyricsStore: lyrics,
-      rootStore: MemoryLocalScanRootStore(),
-    );
-    addTearDown(notifier.dispose);
+  test(
+    'opening the page shows the persisted library without rescanning',
+    () async {
+      final tracks = MemoryLocalTrackStore([
+        _entry('D:/Music/a.flac', '已入库', durationMs: 190000),
+      ]);
+      final lyrics = MemoryLocalLyricsStore();
+      await lyrics.save('D:/Music/a.flac', '[00:01.00]存好的词', 'lrc');
+      final scanner = _FakeLocalMusicScanner();
+      final notifier = _notifier(
+        scanner: scanner,
+        trackStore: tracks,
+        lyricsStore: lyrics,
+        rootStore: MemoryLocalScanRootStore(),
+      );
+      addTearDown(notifier.dispose);
 
-    await notifier.loadFromIndex();
+      await notifier.loadFromIndex();
 
-    expect(scanner.calls, 0, reason: '打开页面不得触发扫描');
-    expect(notifier.state.songs.single.name, '已入库');
-    expect(notifier.state.lyricsBySongId['D:/Music/a.flac'], '[00:01.00]存好的词');
-    expect(notifier.state.isLoading, isFalse);
-  });
+      expect(scanner.calls, 0, reason: '打开页面不得触发扫描');
+      expect(notifier.state.songs.single.name, '已入库');
+      expect(
+        notifier.state.lyricsBySongId['D:/Music/a.flac'],
+        '[00:01.00]存好的词',
+      );
+      expect(notifier.state.isLoading, isFalse);
+    },
+  );
 
   test('initialize() rescans the remembered root through the picker', () async {
     final tracks = MemoryLocalTrackStore([_entry('D:/Music/a.flac', '旧')]);
@@ -140,25 +149,28 @@ void main() {
     expect(notifier.state.selectedDirectory, 'D:/Music');
   });
 
-  test('rescan() falls back to the scanner when the picker cannot rescan', () async {
-    final scanner = _FakeLocalMusicScanner(
-      result: LocalMusicScanResult(
-        songs: [_song('D:/Music/b.flac', '扫描结果')],
-        tracks: [_entry('D:/Music/b.flac', '扫描结果')],
-      ),
-    );
-    final notifier = _notifier(
-      scanner: scanner,
-      rootStore: MemoryLocalScanRootStore('D:/Music'),
-    );
-    addTearDown(notifier.dispose);
+  test(
+    'rescan() falls back to the scanner when the picker cannot rescan',
+    () async {
+      final scanner = _FakeLocalMusicScanner(
+        result: LocalMusicScanResult(
+          songs: [_song('D:/Music/b.flac', '扫描结果')],
+          tracks: [_entry('D:/Music/b.flac', '扫描结果')],
+        ),
+      );
+      final notifier = _notifier(
+        scanner: scanner,
+        rootStore: MemoryLocalScanRootStore('D:/Music'),
+      );
+      addTearDown(notifier.dispose);
 
-    await notifier.rescan();
+      await notifier.rescan();
 
-    expect(scanner.calls, 1);
-    expect(scanner.lastPath, 'D:/Music');
-    expect(notifier.state.songs.single.name, '扫描结果');
-  });
+      expect(scanner.calls, 1);
+      expect(scanner.lastPath, 'D:/Music');
+      expect(notifier.state.songs.single.name, '扫描结果');
+    },
+  );
 
   test('view switching and grouping are exposed on the state', () async {
     final notifier = _notifier(
@@ -272,11 +284,7 @@ void main() {
 
     changes.add(null);
     await pumpEventQueue();
-    expect(
-      picker.rescanCalls,
-      2,
-      reason: '每一次事件对应一次重扫（去抖在 Kotlin 侧完成）',
-    );
+    expect(picker.rescanCalls, 2, reason: '每一次事件对应一次重扫（去抖在 Kotlin 侧完成）');
   });
 
   // ---- W2-C: search / sort / filter, ratings, multi-select batch ------------
@@ -326,62 +334,66 @@ void main() {
       expect(notifier.state.queriedTracks.first.path, played.path);
     });
 
-    test('sorting by play count reads the aggregate, not a stale cache',
-        () async {
-      // The whole point of aggregating from `play_events` instead of trusting
-      // `track_ratings.play_count`: a play that happened after the cache was last
-      // refreshed must still order the list correctly.
-      final played = _entry('D:/Music/b.flac', 'b');
-      final store = MemoryTrackRatingsStore(
-        playCounts: {localTrackSongKey(played): 0},
-      );
-      final notifier = _notifier(
-        ratingsStore: store,
-        trackStore: MemoryLocalTrackStore([
-          _entry('D:/Music/a.flac', 'a'),
-          played,
-        ]),
-      );
-      addTearDown(notifier.dispose);
-      await notifier.loadFromIndex();
+    test(
+      'sorting by play count reads the aggregate, not a stale cache',
+      () async {
+        // The whole point of aggregating from `play_events` instead of trusting
+        // `track_ratings.play_count`: a play that happened after the cache was last
+        // refreshed must still order the list correctly.
+        final played = _entry('D:/Music/b.flac', 'b');
+        final store = MemoryTrackRatingsStore(
+          playCounts: {localTrackSongKey(played): 0},
+        );
+        final notifier = _notifier(
+          ratingsStore: store,
+          trackStore: MemoryLocalTrackStore([
+            _entry('D:/Music/a.flac', 'a'),
+            played,
+          ]),
+        );
+        addTearDown(notifier.dispose);
+        await notifier.loadFromIndex();
 
-      // Plays happened since the last read of the *cache*.
-      store.setPlayCount(localTrackSongKey(played), 7);
-      await notifier.refreshRatings();
+        // Plays happened since the last read of the *cache*.
+        store.setPlayCount(localTrackSongKey(played), 7);
+        await notifier.refreshRatings();
 
-      notifier.setSort(LocalSortField.playCount);
-      expect(
-        notifier.state.queriedTracks.last.path,
-        played.path,
-        reason: '排序必须用实时聚合，陈旧缓存不得影响顺序',
-      );
-    });
+        notifier.setSort(LocalSortField.playCount);
+        expect(
+          notifier.state.queriedTracks.last.path,
+          played.path,
+          reason: '排序必须用实时聚合，陈旧缓存不得影响顺序',
+        );
+      },
+    );
 
-    test('the rated filter reads the ratings map, and filters are ANDed',
-        () async {
-      final rated = _entry('D:/Music/a.flac', 'a');
-      final notifier = _notifier(
-        ratingsStore: MemoryTrackRatingsStore(
-          ratings: {localTrackSongKey(rated): 5},
-        ),
-        trackStore: MemoryLocalTrackStore([
-          rated,
-          _entry('D:/Music/b.flac', 'b'),
-        ]),
-      );
-      addTearDown(notifier.dispose);
-      await notifier.loadFromIndex();
+    test(
+      'the rated filter reads the ratings map, and filters are ANDed',
+      () async {
+        final rated = _entry('D:/Music/a.flac', 'a');
+        final notifier = _notifier(
+          ratingsStore: MemoryTrackRatingsStore(
+            ratings: {localTrackSongKey(rated): 5},
+          ),
+          trackStore: MemoryLocalTrackStore([
+            rated,
+            _entry('D:/Music/b.flac', 'b'),
+          ]),
+        );
+        addTearDown(notifier.dispose);
+        await notifier.loadFromIndex();
 
-      notifier.toggleFilter(LocalTrackFilter.rated, true);
-      expect(notifier.state.queriedTracks.single.path, rated.path);
+        notifier.toggleFilter(LocalTrackFilter.rated, true);
+        expect(notifier.state.queriedTracks.single.path, rated.path);
 
-      notifier.toggleFilter(LocalTrackFilter.unrated, true);
-      expect(
-        notifier.state.queriedTracks,
-        isEmpty,
-        reason: '两个筛选是 AND：同一首不可能既已评分又未评分',
-      );
-    });
+        notifier.toggleFilter(LocalTrackFilter.unrated, true);
+        expect(
+          notifier.state.queriedTracks,
+          isEmpty,
+          reason: '两个筛选是 AND：同一首不可能既已评分又未评分',
+        );
+      },
+    );
 
     test('the album and artist views are filtered by the same query', () async {
       final notifier = _notifier(
@@ -456,30 +468,33 @@ void main() {
       expect(store.syncCalls, 1);
     });
 
-    test('a completed scan refreshes the play aggregate exactly once', () async {
-      // The aggregate is recomputed at the scan boundary and nowhere else: doing
-      // it per rebuild would run a whole `GROUP BY` per frame.
-      final song = _song('content://media/tree/song-1', 'Picked Song');
-      final store = MemoryTrackRatingsStore();
-      final notifier = _notifier(
-        ratingsStore: store,
-        picker: _FakeLocalMusicPicker(
-          result: LocalMusicPickResult(
-            selectedDirectory: 'Music',
-            scanResult: LocalMusicScanResult(
-              songs: [song],
-              tracks: [_entry(song.id, 'Picked Song')],
-              parsedCount: 1,
+    test(
+      'a completed scan refreshes the play aggregate exactly once',
+      () async {
+        // The aggregate is recomputed at the scan boundary and nowhere else: doing
+        // it per rebuild would run a whole `GROUP BY` per frame.
+        final song = _song('content://media/tree/song-1', 'Picked Song');
+        final store = MemoryTrackRatingsStore();
+        final notifier = _notifier(
+          ratingsStore: store,
+          picker: _FakeLocalMusicPicker(
+            result: LocalMusicPickResult(
+              selectedDirectory: 'Music',
+              scanResult: LocalMusicScanResult(
+                songs: [song],
+                tracks: [_entry(song.id, 'Picked Song')],
+                parsedCount: 1,
+              ),
             ),
           ),
-        ),
-      );
-      addTearDown(notifier.dispose);
+        );
+        addTearDown(notifier.dispose);
 
-      await notifier.pickAndScanDirectory();
+        await notifier.pickAndScanDirectory();
 
-      expect(store.syncCalls, 1);
-    });
+        expect(store.syncCalls, 1);
+      },
+    );
   });
 
   group('multi-select and batch', () {
@@ -517,44 +532,40 @@ void main() {
       expect(notifier.state.selectedCount, 0);
     });
 
-    test('removing the selection deletes records and never the audio files',
-        () async {
-      final dir = await Directory.systemTemp.createTemp('mconnect_local_batch_');
-      addTearDown(() => dir.delete(recursive: true));
-      final file = File(p.join(dir.path, 'keep-me.flac'));
-      await file.writeAsBytes([1, 2, 3, 4]);
+    test(
+      'removing the selection deletes records and never the audio files',
+      () async {
+        final dir = await Directory.systemTemp.createTemp(
+          'mconnect_local_batch_',
+        );
+        addTearDown(() => dir.delete(recursive: true));
+        final file = File(p.join(dir.path, 'keep-me.flac'));
+        await file.writeAsBytes([1, 2, 3, 4]);
 
-      final ticked = _entry(file.path, 'keep-me');
-      final kept = _entry(p.join(dir.path, 'other.flac'), 'other');
-      final lyrics = MemoryLocalLyricsStore();
-      await lyrics.save(file.path, '[00:00.00]词', 'lrc');
+        final ticked = _entry(file.path, 'keep-me');
+        final kept = _entry(p.join(dir.path, 'other.flac'), 'other');
+        final lyrics = MemoryLocalLyricsStore();
+        await lyrics.save(file.path, '[00:00.00]词', 'lrc');
 
-      final notifier = _notifier(
-        trackStore: MemoryLocalTrackStore([ticked, kept]),
-        lyricsStore: lyrics,
-      );
-      addTearDown(notifier.dispose);
-      await notifier.loadFromIndex();
+        final notifier = _notifier(
+          trackStore: MemoryLocalTrackStore([ticked, kept]),
+          lyricsStore: lyrics,
+        );
+        addTearDown(notifier.dispose);
+        await notifier.loadFromIndex();
 
-      notifier.toggleSelected(ticked.path);
-      final removed = await notifier.removeSelected();
+        notifier.toggleSelected(ticked.path);
+        final removed = await notifier.removeSelected();
 
-      expect(removed, 1);
-      expect(
-        await file.exists(),
-        isTrue,
-        reason: '批量移出曲库只删记录，绝不能删用户的音频文件',
-      );
-      expect(await file.length(), 4);
-      expect(notifier.state.tracks.single.path, kept.path);
-      expect(notifier.state.songs.single.id, kept.path);
-      expect(notifier.state.selectedPaths, isEmpty);
-      expect(
-        await lyrics.loadAll(),
-        isEmpty,
-        reason: '这条记录的缓存歌词要跟着记录一起清掉',
-      );
-    });
+        expect(removed, 1);
+        expect(await file.exists(), isTrue, reason: '批量移出曲库只删记录，绝不能删用户的音频文件');
+        expect(await file.length(), 4);
+        expect(notifier.state.tracks.single.path, kept.path);
+        expect(notifier.state.songs.single.id, kept.path);
+        expect(notifier.state.selectedPaths, isEmpty);
+        expect(await lyrics.loadAll(), isEmpty, reason: '这条记录的缓存歌词要跟着记录一起清掉');
+      },
+    );
 
     test('removing with nothing ticked is a no-op', () async {
       final notifier = _notifier(

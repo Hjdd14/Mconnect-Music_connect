@@ -18,7 +18,14 @@ void main() {
   test('falls back to GB18030 when strict UTF-8 decoding fails', () {
     final bytes = <int>[
       ...'[00:01.00]'.codeUnits,
-      0xD6, 0xD0, 0xCE, 0xC4, 0xB8, 0xE8, 0xB4, 0xCA,
+      0xD6,
+      0xD0,
+      0xCE,
+      0xC4,
+      0xB8,
+      0xE8,
+      0xB4,
+      0xCA,
     ];
 
     expect(LocalLyricsLoader.decodeBytes(bytes), '[00:01.00]中文歌词');

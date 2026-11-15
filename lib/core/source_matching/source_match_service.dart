@@ -149,8 +149,7 @@ class SourceMatchService {
   final Duration retryBaseDelay;
   final Duration requestTimeout;
 
-  DiagnosticsService get _diag =>
-      _diagnostics ?? DiagnosticsService.instance;
+  DiagnosticsService get _diag => _diagnostics ?? DiagnosticsService.instance;
 
   /// W0-A 的 `crossSourceResolver` 形状：只要直链。
   Future<String?> resolve(Song song, AudioLevel quality) async {
@@ -390,10 +389,7 @@ class SourceMatchService {
     return best;
   }
 
-  Future<List<Song>> _searchWithRetry(
-    MusicPlatform platform,
-    Song song,
-  ) async {
+  Future<List<Song>> _searchWithRetry(MusicPlatform platform, Song song) async {
     for (var attempt = 0; attempt <= maxRetriesPerPlatform; attempt++) {
       try {
         return await platform.search(song.name, limit: searchLimit);

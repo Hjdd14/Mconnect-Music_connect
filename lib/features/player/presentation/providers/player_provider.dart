@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart' show AudioPlayer, ProcessingState;
+
 import '../../../../core/database/app_database.dart';
 import '../../../../core/diagnostics/diagnostics_service.dart';
 import '../../../../core/network/api_exception.dart';
@@ -113,8 +115,10 @@ enum PlaybackFailureKind { unavailable, vipRequired, network, unknown }
 /// 用 [AudioLevel] 而不是 `AudioQuality`：整个播放面（`getSongUrl`、`switchQuality`、
 /// `PlayerState.currentQuality`）的通用货币就是档位，换源方要的也正是"还能接受
 /// 的最低档"。
-typedef CrossSourceResolver =
-    Future<CrossSourceResult?> Function(Song song, AudioLevel quality);
+typedef CrossSourceResolver = Future<CrossSourceResult?> Function(
+  Song song,
+  AudioLevel quality,
+);
 
 /// 一次跨源换源的结果（Wave 1-A）。
 ///
@@ -401,8 +405,10 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     onWedged: _onAudioMutexWedged,
   );
   final Random _random;
+
   /// 随机播放的"已播集合"（本轮尚未播过的曲目之外不再挑）。
   final Set<String> _shuffledPlayedSongKeys = {};
+
   /// 随机播放的历史栈，供 skipToPrevious 回到真正听过的那首。
   final List<int> _shuffleHistory = [];
   bool _isSwitchingQuality = false;
@@ -956,10 +962,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
       DiagnosticsService.instance.record(
         'player',
         'offline_playback_used',
-        data: {
-          'song_id': song.id,
-          'platform': song.platform.name,
-        },
+        data: {'song_id': song.id, 'platform': song.platform.name},
       );
       return url;
     } catch (e, s) {
@@ -1782,9 +1785,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
         );
         if (requestId == _qualityRequestId) {
           _setState(
-            state.copyWith(
-              error: () => '换音质失败：${_userFacingError(e)}',
-            ),
+            state.copyWith(error: () => '换音质失败：${_userFacingError(e)}'),
           );
         }
       } finally {
@@ -2078,9 +2079,7 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
 
     // 当前曲目被移除：先让队列反映删除结果，再由接手的那一首重新起播。
     final handoverIndex = currentIndex.clamp(0, remaining.length - 1);
-    _setState(
-      state.copyWith(playlist: remaining, currentIndex: handoverIndex),
-    );
+    _setState(state.copyWith(playlist: remaining, currentIndex: handoverIndex));
     _schedulePlaybackMemorySave();
     await playSong(remaining[handoverIndex]);
   }
@@ -2132,7 +2131,8 @@ class PlayerNotifier extends StateNotifier<PlayerState> {
     final newIndex = current == null
         ? state.currentIndex
         : reordered.indexWhere(
-            (song) => song.id == current.id && song.platform == current.platform,
+            (song) =>
+                song.id == current.id && song.platform == current.platform,
           );
     _setState(
       state.copyWith(
@@ -2247,7 +2247,8 @@ final playerProvider = StateNotifierProvider<PlayerNotifier, PlayerState>((
     isFloatingLyricsEnabled: () => ref.read(floatingLyricsProvider).enabled,
     // 离线模式：只有开关打开时才优先本地文件，否则保持原有网络取流行为。
     // 解析器只在开关为真时才被调用（downloadProvider 因此是懒创建的）。
-    isOfflineModeEnabled: () => ref.read(offlineCacheSettingsProvider).offlineMode,
+    isOfflineModeEnabled: () =>
+        ref.read(offlineCacheSettingsProvider).offlineMode,
     offlineFilePathResolver: (song) =>
         ref.read(downloadProvider.notifier).localFilePathFor(song),
   );

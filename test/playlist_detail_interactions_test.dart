@@ -240,11 +240,7 @@ void main() {
     }
 
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    expect(
-      find.text('重试'),
-      findsNothing,
-      reason: '加载中不是失败，不能给重试',
-    );
+    expect(find.text('重试'), findsNothing, reason: '加载中不是失败，不能给重试');
 
     // Let the fetch finish so nothing is left pending into teardown.
     playlists.fetchPending!.complete(const <Song>[]);
@@ -268,11 +264,7 @@ void main() {
     await tester.tap(find.text('重试'));
     await tester.pumpAndSettle();
 
-    expect(
-      playlists.fetchCalls,
-      2,
-      reason: '点重试必须真的再读一次，而不是只把错误清掉',
-    );
+    expect(playlists.fetchCalls, 2, reason: '点重试必须真的再读一次，而不是只把错误清掉');
     expect(find.text('歌单暂无歌曲'), findsOneWidget);
   });
 
@@ -282,11 +274,7 @@ void main() {
     await pumpPage(tester, platform: PlatformType.local, playlistId: 'p1');
 
     expect(find.text('歌单暂无歌曲'), findsOneWidget);
-    expect(
-      find.text('重试'),
-      findsNothing,
-      reason: '空歌单不是失败，给重试会让用户以为出错了',
-    );
+    expect(find.text('重试'), findsNothing, reason: '空歌单不是失败，给重试会让用户以为出错了');
   });
 
   widgetTest('自建歌单提供拖拽把手，拖动后顺序写入歌单', (tester) async {

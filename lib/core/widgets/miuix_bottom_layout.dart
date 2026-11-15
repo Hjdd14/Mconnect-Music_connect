@@ -75,9 +75,7 @@ class MiuixBottomLayout {
   /// Depends only on the nav capsule's own geometry, never on whether that
   /// capsule is currently mounted.
   static double playerBottomInset(BuildContext context) =>
-      FloatingGlassNavBar.bottomMargin +
-      navCapsuleHeight(context) +
-      playerGap;
+      FloatingGlassNavBar.bottomMargin + navCapsuleHeight(context) + playerGap;
 
   /// The player's bottom inset for the active bottom-bar style.
   ///
@@ -88,7 +86,8 @@ class MiuixBottomLayout {
   /// part was painted over.
   static double playerBottomInsetFor(BuildContext context, UiStyle style) =>
       style == UiStyle.material
-      ? materialNavBarHeight + playerGap // 80 + 8 = 88
+      ? materialNavBarHeight +
+            playerGap // 80 + 8 = 88
       : playerBottomInset(context); // 36 + 52 + 8 = 96
 
   /// Total distance the floating stack reaches up from the bottom edge, i.e.

@@ -57,7 +57,10 @@ abstract class ListeningStatsRepository {
   Future<ListeningStatsReport> loadReport();
 
   /// Exact statistics for one song, even when it is outside the ranked view.
-  Future<ListeningStatsSongEntry?> songStats(String songId, PlatformType platform);
+  Future<ListeningStatsSongEntry?> songStats(
+    String songId,
+    PlatformType platform,
+  );
 
   /// Whether any raw play event exists. Used to decide whether the legacy Hive
   /// snapshot still has to be imported.
@@ -239,7 +242,8 @@ class DriftListeningStatsRepository implements ListeningStatsRepository {
   /// `'YYYY-MM-DD'` in local time — the `DailyStats.day` contract.
   static String dayKeyOf(DateTime time) => StatsDao.dayKey(time);
 
-  static ListeningStatsDimension _dimensionOf(StatsDimensionEntry row) {    return ListeningStatsDimension(
+  static ListeningStatsDimension _dimensionOf(StatsDimensionEntry row) {
+    return ListeningStatsDimension(
       label: row.label,
       playCount: row.playCount,
       listenDuration: Duration(milliseconds: row.listenMs),
@@ -343,8 +347,7 @@ class MemoryListeningStatsRepository implements ListeningStatsRepository {
     final timestamp = at ?? _clock();
     for (var index = _events.length - 1; index >= 0; index--) {
       final event = _events[index];
-      if (event.song.id == song.id &&
-          event.song.platform == song.platform) {
+      if (event.song.id == song.id && event.song.platform == song.platform) {
         event.duration += duration;
         event.endedAt = timestamp;
         return load();
@@ -439,7 +442,9 @@ class MemoryListeningStatsRepository implements ListeningStatsRepository {
         _events.add(
           _MemoryEvent(
             song: _songOf(entry),
-            startedAt: DateTime.fromMillisecondsSinceEpoch(anchorMs - index * 1000),
+            startedAt: DateTime.fromMillisecondsSinceEpoch(
+              anchorMs - index * 1000,
+            ),
             duration: Duration(milliseconds: base + extra),
             source: PlayEventSource.seek,
           ),
@@ -490,7 +495,10 @@ class MemoryListeningStatsRepository implements ListeningStatsRepository {
     final songs = bySong.values.map((item) => item.entry).toList()
       ..sort(compareSongEntries);
     final totalPlayCount = events.length;
-    final totalMs = events.fold<int>(0, (sum, event) => sum + event.duration.inMilliseconds);
+    final totalMs = events.fold<int>(
+      0,
+      (sum, event) => sum + event.duration.inMilliseconds,
+    );
     final days = <String>{
       for (final event in events)
         DriftListeningStatsRepository.dayKeyOf(event.startedAt.toLocal()),
@@ -619,7 +627,9 @@ class ListeningStatsLegacyMigration {
       }
       legacy = await legacyStore.read();
     } catch (e) {
-      debugPrint('ListeningStatsLegacyMigration: legacy snapshot unreadable: $e');
+      debugPrint(
+        'ListeningStatsLegacyMigration: legacy snapshot unreadable: $e',
+      );
       return LegacyStatsMigration.skippedNothingToImport;
     }
     if (legacy.allSongs.isEmpty && legacy.totalPlayCount == 0) {

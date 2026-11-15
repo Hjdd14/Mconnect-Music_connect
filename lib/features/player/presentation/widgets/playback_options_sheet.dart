@@ -103,8 +103,8 @@ class PlaybackOptionsSheet extends ConsumerWidget {
                   child: const Text('设 B'),
                 ),
                 TextButton(
-                  onPressed: player.abLoopStart == null &&
-                          player.abLoopEnd == null
+                  onPressed:
+                      player.abLoopStart == null && player.abLoopEnd == null
                       ? null
                       : notifier.clearAbLoop,
                   child: const Text('清除'),
@@ -219,9 +219,7 @@ class PlaybackOptionsSheet extends ConsumerWidget {
     messenger
       ..hideCurrentSnackBar()
       ..showSnackBar(
-        SnackBar(
-          content: Text(path == null ? '歌词分享图生成失败' : '歌词分享图已生成'),
-        ),
+        SnackBar(content: Text(path == null ? '歌词分享图生成失败' : '歌词分享图已生成')),
       );
   }
 

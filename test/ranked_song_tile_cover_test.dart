@@ -41,9 +41,7 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      wrap(
-        rankedSong(3, coverUrl: 'https://example.com/cover.jpg'),
-      ),
+      wrap(rankedSong(3, coverUrl: 'https://example.com/cover.jpg')),
     );
     await tester.pump(const Duration(milliseconds: 50));
 
@@ -82,7 +80,10 @@ void main() {
   testWidgets('tapping a row still plays it', (tester) async {
     var taps = 0;
     await tester.pumpWidget(
-      wrap(rankedSong(1, coverUrl: 'https://example.com/a.jpg'), onTap: () => taps++),
+      wrap(
+        rankedSong(1, coverUrl: 'https://example.com/a.jpg'),
+        onTap: () => taps++,
+      ),
     );
     await tester.pump();
 

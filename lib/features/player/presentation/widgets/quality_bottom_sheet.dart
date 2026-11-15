@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../../models/audio_quality.dart';
 import '../providers/player_provider.dart';
 import '../providers/quality_provider.dart';
@@ -138,9 +139,8 @@ class QualityBottomSheet extends ConsumerWidget {
                       style: TextStyle(
                         fontSize: 12,
                         color: isSelected
-                            ? Theme.of(
-                                context,
-                              ).colorScheme.primary.withValues(alpha: 0.7)
+                            ? Theme.of(context).colorScheme.primary
+                                  .withValues(alpha: 0.7)
                             : Theme.of(context).colorScheme.outline,
                       ),
                     ),
@@ -151,9 +151,9 @@ class QualityBottomSheet extends ConsumerWidget {
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.primaryContainer,
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .primaryContainer,
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(

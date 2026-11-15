@@ -16,55 +16,58 @@ import 'package:mconnect/models/user.dart';
 /// 会先跑，此时每个平台都还是"未登录"，于是页面停在"还没有每日推荐"，只能靠
 /// 右上角刷新救回来（手机端早就监听登录态了，桌面版漏了这一段）。
 void main() {
-  testWidgets('waits for the session restore instead of showing "not logged in"', (
-    tester,
-  ) async {
-    final auth = _FakeAuth()..apply(const AuthState(restoring: true));
-    final recommendations = _RecordingRecommendations();
-    final toplists = _FakeToplists();
-    final newSongs = _FakeNewSongs();
+  testWidgets(
+    'waits for the session restore instead of showing "not logged in"',
+    (tester) async {
+      final auth = _FakeAuth()..apply(const AuthState(restoring: true));
+      final recommendations = _RecordingRecommendations();
+      final toplists = _FakeToplists();
+      final newSongs = _FakeNewSongs();
 
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          authProvider.overrideWith((ref) => auth),
-          playlistRecommendationsProvider.overrideWith((ref) => recommendations),
-          toplistsProvider.overrideWith((ref) => toplists),
-          newSongsProvider.overrideWith((ref) => newSongs),
-        ],
-        child: const MaterialApp(
-          home: Scaffold(body: DiscoveryDesktopPage()),
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authProvider.overrideWith((ref) => auth),
+            playlistRecommendationsProvider.overrideWith(
+              (ref) => recommendations,
+            ),
+            toplistsProvider.overrideWith((ref) => toplists),
+            newSongsProvider.overrideWith((ref) => newSongs),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(body: DiscoveryDesktopPage()),
+          ),
         ),
-      ),
-    );
-    await tester.pump();
+      );
+      await tester.pump();
 
-    // While the restore runs: a spinner, and no request fired at all.
-    expect(recommendations.loads, 0);
-    expect(
-      find.byKey(const ValueKey('discovery-recommendations-loading')),
-      findsOneWidget,
-    );
-    expect(find.text('还没有每日推荐'), findsNothing);
+      // While the restore runs: a spinner, and no request fired at all.
+      expect(recommendations.loads, 0);
+      expect(
+        find.byKey(const ValueKey('discovery-recommendations-loading')),
+        findsOneWidget,
+      );
+      expect(find.text('还没有每日推荐'), findsNothing);
 
-    // Restore finishes with one logged-in platform.
-    auth.apply(
-      AuthState(
-        restoring: false,
-        loggedUsers: {PlatformType.netease: _user(PlatformType.netease)},
-      ),
-    );
-    await tester.pump();
+      // Restore finishes with one logged-in platform.
+      auth.apply(
+        AuthState(
+          restoring: false,
+          loggedUsers: {PlatformType.netease: _user(PlatformType.netease)},
+        ),
+      );
+      await tester.pump();
 
-    // The page loaded by itself, no 刷新 tap needed.
-    expect(recommendations.loads, 1);
-    expect(
-      find.byKey(const ValueKey('discovery-recommendations-loading')),
-      findsNothing,
-    );
-    expect(find.text('Weightless'), findsOneWidget);
-    expect(find.text('还没有每日推荐'), findsNothing);
-  });
+      // The page loaded by itself, no 刷新 tap needed.
+      expect(recommendations.loads, 1);
+      expect(
+        find.byKey(const ValueKey('discovery-recommendations-loading')),
+        findsNothing,
+      );
+      expect(find.text('Weightless'), findsOneWidget);
+      expect(find.text('还没有每日推荐'), findsNothing);
+    },
+  );
 
   testWidgets('does not reload when the login set has not changed', (
     tester,
@@ -81,13 +84,13 @@ void main() {
       ProviderScope(
         overrides: [
           authProvider.overrideWith((ref) => auth),
-          playlistRecommendationsProvider.overrideWith((ref) => recommendations),
+          playlistRecommendationsProvider.overrideWith(
+            (ref) => recommendations,
+          ),
           toplistsProvider.overrideWith((ref) => _FakeToplists()),
           newSongsProvider.overrideWith((ref) => _FakeNewSongs()),
         ],
-        child: const MaterialApp(
-          home: Scaffold(body: DiscoveryDesktopPage()),
-        ),
+        child: const MaterialApp(home: Scaffold(body: DiscoveryDesktopPage())),
       ),
     );
     await tester.pump();
@@ -116,35 +119,38 @@ void main() {
     expect(recommendations.loads, 2);
   });
 
-  testWidgets('a logged-out start still explains itself once the restore ends', (
-    tester,
-  ) async {
-    final auth = _FakeAuth()..apply(const AuthState(restoring: true));
-    final recommendations = _RecordingRecommendations(seed: null);
+  testWidgets(
+    'a logged-out start still explains itself once the restore ends',
+    (tester) async {
+      final auth = _FakeAuth()..apply(const AuthState(restoring: true));
+      final recommendations = _RecordingRecommendations(seed: null);
 
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          authProvider.overrideWith((ref) => auth),
-          playlistRecommendationsProvider.overrideWith((ref) => recommendations),
-          toplistsProvider.overrideWith((ref) => _FakeToplists()),
-          newSongsProvider.overrideWith((ref) => _FakeNewSongs()),
-        ],
-        child: const MaterialApp(
-          home: Scaffold(body: DiscoveryDesktopPage()),
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authProvider.overrideWith((ref) => auth),
+            playlistRecommendationsProvider.overrideWith(
+              (ref) => recommendations,
+            ),
+            toplistsProvider.overrideWith((ref) => _FakeToplists()),
+            newSongsProvider.overrideWith((ref) => _FakeNewSongs()),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(body: DiscoveryDesktopPage()),
+          ),
         ),
-      ),
-    );
-    await tester.pump();
-    expect(recommendations.loads, 0);
+      );
+      await tester.pump();
+      expect(recommendations.loads, 0);
 
-    auth.apply(const AuthState());
-    await tester.pump();
-    await tester.pump();
+      auth.apply(const AuthState());
+      await tester.pump();
+      await tester.pump();
 
-    expect(recommendations.loads, 1);
-    expect(find.text('还没有每日推荐'), findsOneWidget);
-  });
+      expect(recommendations.loads, 1);
+      expect(find.text('还没有每日推荐'), findsOneWidget);
+    },
+  );
 }
 
 User _user(PlatformType platform) =>
@@ -176,7 +182,9 @@ class _RecordingRecommendations extends PlaylistRecommendationsNotifier {
     state = PlaylistRecommendationsState(
       songsByPlatform: seed == null
           ? const {}
-          : {PlatformType.netease: [_song()]},
+          : {
+              PlatformType.netease: [_song()],
+            },
     );
   }
 }

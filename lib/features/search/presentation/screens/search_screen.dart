@@ -1,8 +1,10 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:go_router/go_router.dart';
+
 import '../../../../core/network/api_error_l10n.dart';
 import '../../../../core/network/platform_http.dart';
 import '../../../../core/share/song_actions.dart';
@@ -225,9 +227,13 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                         return ChoiceChip(
                           label: const Text('全部平台'),
                           selected: aggregate,
-                          onSelected: (_) => ref
-                              .read(searchAcrossPlatformsProvider.notifier)
-                              .state = true,
+                          onSelected: (_) =>
+                              ref
+                                      .read(
+                                        searchAcrossPlatformsProvider.notifier,
+                                      )
+                                      .state =
+                                  true,
                         );
                       }
                       final type = PlatformType.musicServices[index - 1];
@@ -237,8 +243,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                         selected: isSelected,
                         onSelected: (_) {
                           ref
-                              .read(searchAcrossPlatformsProvider.notifier)
-                              .state = false;
+                                  .read(searchAcrossPlatformsProvider.notifier)
+                                  .state =
+                              false;
                           ref.read(selectedPlatformProvider.notifier).state =
                               type;
                         },
@@ -274,9 +281,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                   controller: _controller,
                   focusNode: _focusNode,
                   decoration: InputDecoration(
-                    hintText: mode == SearchMode.songs
-                        ? '搜索歌曲、歌手、专辑'
-                        : '搜索歌单',
+                    hintText: mode == SearchMode.songs ? '搜索歌曲、歌手、专辑' : '搜索歌单',
                     prefixIcon: const Icon(Icons.search),
                     suffixIcon: ValueListenableBuilder<bool>(
                       valueListenable: _hasText,
@@ -384,9 +389,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         );
       },
       loading: () => const SearchResultsSkeleton(),
-      error: (e, _) => _ErrorState(error: e, onRetry: () {
-        ref.invalidate(searchResultsProvider);
-      }),
+      error: (e, _) => _ErrorState(
+        error: e,
+        onRetry: () {
+          ref.invalidate(searchResultsProvider);
+        },
+      ),
     );
   }
 
@@ -401,9 +409,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       if (state.error != null) {
         return _ErrorState(
           error: _MessageException(state.error!),
-          onRetry: () => ref
-              .read(aggregatedSearchProvider.notifier)
-              .search(state.query),
+          onRetry: () =>
+              ref.read(aggregatedSearchProvider.notifier).search(state.query),
         );
       }
       return const _SearchEmptyState();
@@ -477,9 +484,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         );
       },
       loading: () => const SearchResultsSkeleton(),
-      error: (e, _) => _ErrorState(error: e, onRetry: () {
-        ref.invalidate(playlistSearchResultsProvider);
-      }),
+      error: (e, _) => _ErrorState(
+        error: e,
+        onRetry: () {
+          ref.invalidate(playlistSearchResultsProvider);
+        },
+      ),
     );
   }
 
@@ -492,10 +502,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       // Was a bare `Center(Text('请输入关键词'))` coloured with `outline`, which
       // is a border role. `AsyncStateView` supplies the contrast-correct copy
       // (rule 2) plus an icon, like every other empty state in the app.
-      return const AsyncStateView.empty(
-        title: '请输入关键词',
-        icon: Icons.search,
-      );
+      return const AsyncStateView.empty(title: '请输入关键词', icon: Icons.search);
     }
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -539,10 +546,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const ListTile(
-              dense: true,
-              title: Text('选择播放来源'),
-            ),
+            const ListTile(dense: true, title: Text('选择播放来源')),
             for (final source in merged.sources)
               ListTile(
                 leading: Icon(PlatformAccent.iconOf(source.platform)),
@@ -625,10 +629,7 @@ class _SearchEmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     // "Nothing matched" is not a failure, so this is an empty state with no
     // retry — and the copy is unchanged from the hand-rolled version.
-    return const AsyncStateView.empty(
-      title: '未找到相关内容',
-      icon: Icons.search_off,
-    );
+    return const AsyncStateView.empty(title: '未找到相关内容', icon: Icons.search_off);
   }
 }
 
@@ -683,9 +684,8 @@ class _MergedSongTile extends ConsumerWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
             decoration: BoxDecoration(
-              color: PlatformAccent.neutralColorOf(
-                song.platform,
-              ).withValues(alpha: 0.14),
+              color: PlatformAccent.neutralColorOf(song.platform)
+                  .withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(4),
             ),
             child: Text(

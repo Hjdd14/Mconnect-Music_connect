@@ -110,7 +110,8 @@ class _BackupPageState extends ConsumerState<BackupPage> {
       final sizeKb = (await file.length()) / 1024;
       if (!mounted) return;
       setState(() {
-        _status = '已导出：${file.path}\n'
+        _status =
+            '已导出：${file.path}\n'
             '大小：${sizeKb.toStringAsFixed(1)} KB';
       });
     } catch (e) {
